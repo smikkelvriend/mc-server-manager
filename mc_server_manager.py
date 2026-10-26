@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.11.3"
+APP_VERSION = "2.11.4"
 
 CHANGELOG = """
+2.11.4 - Kaart: geen dunne strepen meer tussen tegels op bepaalde zoomniveaus.
 2.11.3 - Kaart: inzoomen voorbij het diepste niveau geeft geen zwart beeld meer, en renderen gebruikt de juiste wereldnaam (minecraft:overworld).
 2.11.2 - Programma-update betrouwbaarder: vindt nieuwe versies ook als de GitHub-API-limiet bereikt is.
 2.11.1 - Bedrock-controle leest de poort van Geyser zelf (config.yml en opstartregel) in plaats van 19132 te veronderstellen.
@@ -2987,6 +2988,8 @@ class MapTab(ttk.Frame):
             return
         native, span, s = self._geometry()
         extra = self.zl - native
+        P = self.TILE * 2 ** extra                       # tegelgrootte op het scherm in pixels
+        ox, oy = round(W / 2 - self.cx * s), round(H / 2 - self.cz * s)
         t_end = time.time() + 0.03
         for key in sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz)):
             if key in self.imgs:
@@ -2994,8 +2997,8 @@ class MapTab(ttk.Frame):
                 if img is not None and extra > 0:
                     img = self._zoomed(key, extra, t_end)
                 if img is not None:
-                    cv.create_image(W / 2 + (key[2] * span - self.cx) * s, H / 2 + (key[3] * span - self.cz) * s,
-                                    anchor="nw", image=img, tags="t")
+                    # vaste hele pixels per tegel: anders kunnen naast elkaar liggende tegels door afronden 1 pixel uit elkaar vallen
+                    cv.create_image(ox + key[2] * P, oy + key[3] * P, anchor="nw", image=img, tags="t")
             else:
                 self.fetch_tile(key)
         for key in self._view_keys(0.5 if extra == 0 else 0.0):  # alvast net buiten beeld ophalen, zodat slepen soepel blijft

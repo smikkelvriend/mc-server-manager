@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.11.4
+- Kaart: dunne strepen tussen tegels op bepaalde zoomniveaus opgelost (tegels worden op hele pixels getekend, zodat afronden geen kier meer geeft).
+
 ## 2.11.3
 - **Kaart:** te ver inzoomen gaf een zwart beeld, omdat er voorbij het diepste zoomniveau geen tegels bestaan. Nu worden de tegels van het diepste niveau vergroot.
 - **Renderen:** squaremap verwacht in commando's `minecraft:overworld` (met dubbele punt), terwijl de website `minecraft_overworld` gebruikt. Het menu Renderen zet dat nu goed om (dat gaf 'No such world').
