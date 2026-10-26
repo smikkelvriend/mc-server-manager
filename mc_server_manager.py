@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.47"
+APP_VERSION = "2.48"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.48 - De nieuwe interface is nu de enige interface: het klassieke scherm is niet meer te zien. Het programma sluit als je het venster sluit (als de server niet draait), of via de knop Afsluiten onderin de zijbalk.
 2.47 - Nieuwe interface, Overzicht: alle grafieken (geheugen, processor, TPS, temperatuur) staan gecombineerd in één grafiek bovenaan, het aantal spelers staat achter "Spelers online" en het Overzicht past op één scherm zonder scrollen.
 2.46 - Nieuwe interface: de grafiek Belasting loopt nu soepel door (de lijn schuift continu mee in plaats van per meting te springen) en bij Plugins staat nu duidelijk welke plugins aan en uit staan. Rechtsonder staat niets meer over het programma zelf (dat staat bij Updates).
 2.45 - Nieuwe interface: de tegels Processor en Geheugen zijn vervangen door de waarden in de grafiek Belasting, met een tegel Spelers ervoor in de plaats. De console is groter.
@@ -5538,7 +5539,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <div class="sleepbox"><div class="h">Auto slaapstand<div class="sw" id="swSleep" onclick="sleepAuto()" role="switch" tabindex="0"></div></div>
   <small id="sleepTx">Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.</small>
   <button id="btnSleep" onclick="sleepNow()">Nu in slaapstand</button></div>
- <button class="ghost sm" onclick="go('/api/classic')">Klassiek scherm</button>
+ <button class="ghost sm" onclick="quitApp()">Afsluiten</button>
 </aside>
 <main>
  <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
@@ -5826,6 +5827,9 @@ async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport
 async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;
  $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+/* ---------- Afsluiten ---------- */
+async function quitApp(){const run=S.state=='online'||S.state=='starting'||S.state=='stopping';if(!await ask(run?'De server draait nog. Hij wordt veilig gestopt (de wereld wordt opgeslagen) en daarna sluit het programma. Doorgaan?':'MC Server Manager afsluiten?','Afsluiten'))return;toast('Afsluiten…',60000);go('/api/quit',{})}
+window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','X-MC':'1'},body:'{}'})}catch(e){}});
 /* ---------- Server-acties ---------- */
 async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
 /* ---------- Tekenen met live gegevens ---------- */
@@ -6122,7 +6126,6 @@ class RemoteServer:
         "graph_minutes": ("int", "Grafiek-tijdvenster (min)", 1, 180), "java_xms": ("str", "Java min. geheugen (bijv. 1G)"),
         "java_xmx": ("str", "Java max. geheugen (bijv. 4G)"), "java_extra": ("str", "Extra Java-opties"),
         "selfupdate_check": ("bool", "Automatisch zoeken naar programma-updates"), "selfupdate_auto": ("bool", "Updates automatisch installeren"),
-        "desk_main": ("bool", "Nieuwe interface als hoofdscherm (bij opstarten)"),
         "clean_console": ("bool", "Schone console"), "console_max_lines": ("int", "Maximaal aantal consoleregels", 500, 50000),
         "temp_enabled": ("bool", "Temperatuur tonen"), "temp_warn": ("int", "Temperatuurwaarschuwing (°C)", 50, 110),
         "notify_crash": ("bool", "Melding bij crash"), "notify_start": ("bool", "Melding als de server klaar is met starten"),
@@ -6147,6 +6150,7 @@ class RemoteServer:
         self.answer = True
         self.sessions = {}
         self.desk_only, self.port = False, 0
+        self.bye_t, self.last_poll = 0.0, 0.0
         self.desk_token = secrets.token_urlsafe(18)
         self.fails = {}
         self.error = ""
@@ -6293,6 +6297,7 @@ class RemoteServer:
             except ValueError:
                 return 0
         since, ns, asn = n("since"), n("nsince"), n("asince")
+        self.last_poll = time.time()
         with self.lock:
             snap = dict(self.snap)
             snap["lines"] = [l for l in self.lines if l[0] > since][-300:]
@@ -6830,7 +6835,7 @@ class RemoteServer:
                 ("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen,
                 ("POST", "/api/sleep"): self.api_sleep, ("GET", "/api/lists"): self.api_lists, ("POST", "/api/lists/add"): self.api_lists_add,
                 ("POST", "/api/lists/remove"): self.api_lists_remove, ("POST", "/api/logsearch"): self.api_logsearch,
-                ("GET", "/api/program"): self.api_program, ("POST", "/api/classic"): self.api_classic,
+                ("GET", "/api/program"): self.api_program, ("POST", "/api/classic"): self.api_classic, ("POST", "/api/bye"): self.api_bye, ("POST", "/api/quit"): self.api_quit,
                 ("GET", "/api/props"): self.api_props, ("POST", "/api/props"): self.api_props_set}
 
     # --- nieuwe interface: slaapstand, lijsten, logboek, server.properties ---
@@ -6908,6 +6913,14 @@ class RemoteServer:
                     "check": bool(a.cfg.get("selfupdate_check", True)), "auto": bool(a.cfg.get("selfupdate_auto")),
                     "frozen": bool(getattr(sys, "frozen", False)), "last": getattr(a, "_upd_last", 0) or 0}
         return 200, self.call_main(get)
+
+    def api_bye(self, q, body):
+        self.bye_t = time.time()      # het venster is gesloten (of herlaadt); de hoofdthread kijkt even later of er weer een scherm is
+        return 200, {"ok": True}
+
+    def api_quit(self, q, body):
+        self.call_main(self.app._close, auto=True, answer=True)
+        return 200, {"ok": True}
 
     def api_classic(self, q, body):
         def go():
@@ -9846,6 +9859,15 @@ class App(tk.Tk):
                 r.pump()
                 if self._rt % 7 == 0:
                     r.update()
+        d = self.desk
+        if d.bye_t and time.time() - d.bye_t > 6:
+            closed = d.last_poll < d.bye_t        # niemand heeft sindsdien weer gepolld: het venster is echt dicht
+            d.bye_t = 0.0
+            if closed and getattr(self, "_desk_app", False):
+                if self.srv_running():
+                    self.open_desk()               # de server draait nog: sluiten kan alleen via de knop Afsluiten
+                else:
+                    self._close()
         self.after(100, self._remote_tick)
 
     def open_desk(self):
@@ -9854,12 +9876,13 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, "De nieuwe interface kon niet starten: " + self.desk.error)
             return False
         self.desk.update()
-        open_app_window(f"http://127.0.0.1:{self.desk.port}/desk?t={self.desk.desk_token}")
+        self._desk_app = open_app_window(f"http://127.0.0.1:{self.desk.port}/desk?t={self.desk.desk_token}")
         return True
 
     def _open_desk_main(self):
         if self.open_desk():
-            self.iconify()     # het klassieke scherm blijft op de taakbalk; via "Klassiek scherm" in de nieuwe interface terug te halen
+            # het klassieke scherm is niet meer te zien; alleen als er geen eigen venster kon worden geopend blijft het op de taakbalk
+            self.withdraw() if getattr(self, "_desk_app", False) else self.iconify()
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""

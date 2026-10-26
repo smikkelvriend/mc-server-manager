@@ -88,7 +88,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <div class="sleepbox"><div class="h">Auto slaapstand<div class="sw" id="swSleep" onclick="sleepAuto()" role="switch" tabindex="0"></div></div>
   <small id="sleepTx">Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.</small>
   <button id="btnSleep" onclick="sleepNow()">Nu in slaapstand</button></div>
- <button class="ghost sm" onclick="go('/api/classic')">Klassiek scherm</button>
+ <button class="ghost sm" onclick="quitApp()">Afsluiten</button>
 </aside>
 <main>
  <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
@@ -258,6 +258,9 @@ async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport
 async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;
  $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+/* ---------- Afsluiten ---------- */
+async function quitApp(){const run=S.state=='online'||S.state=='starting'||S.state=='stopping';if(!await ask(run?'De server draait nog. Hij wordt veilig gestopt (de wereld wordt opgeslagen) en daarna sluit het programma. Doorgaan?':'MC Server Manager afsluiten?','Afsluiten'))return;toast('Afsluiten…',60000);go('/api/quit',{})}
+window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','X-MC':'1'},body:'{}'})}catch(e){}});
 /* ---------- Server-acties ---------- */
 async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
 /* ---------- Tekenen met live gegevens ---------- */

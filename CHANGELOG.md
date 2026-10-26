@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.48
+- De nieuwe interface is nu de **enige** interface: het klassieke scherm is niet meer te zien (ook niet op de taakbalk). De knop Klassiek scherm en de instelling "Nieuwe interface als hoofdscherm" zijn weggehaald.
+- Het programma sluit zodra je het venster sluit, als de server niet draait. Draait de server nog, dan opent het venster weer en sluit je af met de nieuwe knop **Afsluiten** onderin de zijbalk (die de server eerst veilig stopt).
+- Lukt het niet om een eigen venster te openen (geen Edge of Chrome), dan opent het scherm in je gewone browser en blijft het klassieke scherm op de taakbalk, zodat je altijd kunt afsluiten.
+- Deze versie vereist een herstart.
+
 ## 2.47
 - Nieuwe interface, Overzicht: alle grafieken (geheugen, processor, TPS en temperatuur) staan nu gecombineerd in één grafiek bovenaan, met de huidige waarden in de legenda. Elke lijn is op zijn eigen schaal getekend (TPS 0 tot 20, temperatuur 0 tot 110 °C), dus de hoogte zegt niets over de waarde zelf.
 - Het aantal spelers staat nu tussen haakjes achter "Spelers online"; de losse tegels zijn weg.
