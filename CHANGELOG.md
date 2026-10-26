@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.23
+- **Tab-aanvulling zoals in de echte console**: het programma plaatst bij het starten van de server (eenmalig) het kleine hulpplugin `MCMTab` in `plugins/`. Dat vraagt de server zelf om aanvullingen (ook subcommando's en argumenten van plugins). Na één herstart van de server werkt het; zonder plugin blijft de oude, geleerde aanvulling werken. De broncode staat in `hulpplugin/`.
+- Soepel zoomen is veel vlotter: elk beeld wordt in één keer opgebouwd en tegels worden alvast in een achtergrondthread uitgepakt.
+- De kaart meldt nu "Squaremap niet bereikbaar: opgeslagen kaart" (in plaats van "server uit") en probeert het elke paar seconden opnieuw tot de live kaart er is.
+- Resterende helpregels (zoals "Aliases: Lists command aliases") verschijnen niet meer in de console.
+- Deze versie vereist een herstart.
+
 ## 2.22
 - Soepel zoomen op de kaart met echte tussenbeelden: de tegels worden vloeiend geschaald in plaats van korrelig. Dit gebruikt Pillow; het programma vraagt eenmalig of het dat mag installeren (of gebruik de knop "Soepel zoomen aanzetten" op het Kaart-tabblad). Zonder Pillow zoomt de kaart zoals voorheen in stappen.
 - De help-regels van de server verschijnen niet meer in de console terwijl het programma commando's leert voor tab-aanvulling.

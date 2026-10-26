@@ -1,0 +1,9 @@
+name: MCMTab
+version: 1.0
+main: nl.mcm.MCMTab
+api-version: '1.13'
+description: Hulpplugin voor MC Server Manager (Tab-aanvulling in de console)
+commands:
+  mcmtab:
+    description: Intern, voor MC Server Manager
+    usage: /mcmtab

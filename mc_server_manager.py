@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.22"
+APP_VERSION = "2.23"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.23 - Tab in de console geeft nu dezelfde aanvullingen als de echte console (via het kleine hulpplugin MCMTab, wordt automatisch geplaatst; herstart de server één keer). Kaart zoomt veel vlotter (een frame in één keer), meldt eerlijk wanneer squaremap niet bereikbaar is en probeert dan opnieuw. Resterende helpregels ("Aliases: …") verdwijnen uit de console.
 2.22 - Soepel zoomen met echte tussenbeelden (via Pillow, wordt eenmalig met een knop geïnstalleerd; zonder Pillow blijft het stapsgewijs). Help-regels van de server komen niet meer in de console terecht tijdens het leren van commando's.
 2.21 - Zoomen op de kaart gebruikt veel meer tussenstappen (ca. 16). Tab-aanvulling: leert via /help <plugin>, geeft bij plugin-commando's geen spelersnamen meer en vergeet commando's die de server afkeurt.
 2.20 - Kaart zoomt soepel (animatie tussen de niveaus) in het programma en op de telefoon, ook met twee vingers.
@@ -192,7 +193,7 @@ DEFAULTS = {
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
     "chunky_autopause": True, "chunky_autoresume": True,
-    "cmd_history": [], "learned_cmds": [], "pil_asked": False,
+    "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False,
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
@@ -3017,6 +3018,7 @@ class MapTab(ttk.Frame):
         self.app = app
         self.url_var = tk.StringVar(value=app.cfg.get("squaremap_url", "http://localhost:8080"))
         self._url_now = self.url_var.get()
+        self._predec, self._disk_mode, self._last_retry = {}, False, 0.0
         self.url_var.trace_add("write", lambda *a: setattr(self, "_url_now", self.url_var.get()))
         self.world_var = tk.StringVar()
         self.status_var, self.coord_var = tk.StringVar(), tk.StringVar()
@@ -3208,6 +3210,11 @@ class MapTab(ttk.Frame):
 
         def work():
             data = self._get(f"tiles/{w}/{z}/{x}_{y}.png")
+            if data and Image_ is not None:  # alvast uitpakken in deze achtergrondthread: scheelt haperingen bij het zoomen
+                try:
+                    self._predec[key] = Image_.open(io.BytesIO(data)).convert("RGBA")
+                except Exception:
+                    pass
             self.q.put(("tile", key, data, replace))
 
         self.pool.submit(work)
@@ -3267,6 +3274,10 @@ class MapTab(ttk.Frame):
             self.fetch_players()
         if self.worlds and now - self._last_refresh > (10 if now < self._fast_until else 60):
             self.refresh()
+        if self._disk_mode and not self.loading and now - self._last_retry > 8:
+            self._last_retry = now
+            self._disk_until = 0
+            self.load_worlds()
         if not self.worlds and not self.loading and now - self._last_players > 5:
             self._last_players = now
             self.load_worlds()
@@ -3295,7 +3306,7 @@ class MapTab(ttk.Frame):
                 self.loading = False
                 if m[1] is None:
                     self.online = False
-                    self.status_var.set("Geen kaart: server uit en nog niets opgeslagen door squaremap")
+                    self.status_var.set("Geen kaart: squaremap niet bereikbaar en nog niets opgeslagen")
                     self._dirty = True
                     continue
                 self.worlds, self.wset = m[1]
@@ -3305,7 +3316,11 @@ class MapTab(ttk.Frame):
                 if self.worlds and self.cur not in [w["name"] for w in self.worlds]:
                     first = next((w for w in self.worlds if w.get("type") == "normal"), self.worlds[0])
                     self._set_world(first["name"])
-                self.status_var.set("Server uit: opgeslagen kaart" if getattr(self, "_from_disk", False) else "")
+                was_disk = self._disk_mode
+                self._disk_mode = bool(getattr(self, "_from_disk", False))
+                self.status_var.set("Squaremap niet bereikbaar: opgeslagen kaart (ik probeer het opnieuw)" if self._disk_mode else "")
+                if was_disk and not self._disk_mode:
+                    self.refresh(force=True)
             elif m[0] == "tile":
                 self._tile(*m[1:])
             elif m[0] == "players":
@@ -3329,6 +3344,9 @@ class MapTab(ttk.Frame):
         self.sig[key] = sig
         old = self.imgs.pop(key, None)
         self.pilsrc.pop(key, None)
+        pd = self._predec.pop(key, None)
+        if pd is not None and data:
+            self.pilsrc[key] = pd
         if data:
             self.raw[key] = data
         else:
@@ -3550,8 +3568,9 @@ class MapTab(ttk.Frame):
         extra = round(ex) if abs(ex - round(ex)) < 1e-6 else ex
         P = self._wp                                     # tegelgrootte op het scherm in pixels
         ox, oy = round(W / 2 - self.cx * s), round(H / 2 - self.cz * s)
+        done = bool(self.zfrac and Image_ is not None and self._comp(W, H, native, span))
         t_end = time.time() + (0.03 if not self.zfrac else 0.15)
-        for key in sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz)):
+        for key in ([] if done else sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz))):
             if key in self.imgs:
                 img = self.imgs[key]
                 if img is not None and extra != round(extra):
@@ -3572,6 +3591,45 @@ class MapTab(ttk.Frame):
             cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 15, "bold"), tags="t")
         self._draw_overlay()
 
+    def _comp(self, W, H, native, span):
+        """Een zoomframe in een keer: tegels op echte resolutie aan elkaar plakken en het beeld met een enkele (vloeiende) schaling in het venster zetten.
+        Veel sneller dan elke tegel afzonderlijk te schalen."""
+        T = self.TILE
+        s = self._wp / span
+        x0, x1 = self.cx - W / 2 / s, self.cx + W / 2 / s
+        z0, z1 = self.cz - H / 2 / s, self.cz + H / 2 / s
+        tx0, tx1 = math.floor(x0 / span), math.floor(x1 / span)
+        ty0, ty1 = math.floor(z0 / span), math.floor(z1 / span)
+        if (tx1 - tx0 + 1) * (ty1 - ty0 + 1) > 90:
+            return False
+        try:
+            bg = tuple(v // 256 for v in self.cv.winfo_rgb(self.cv.cget("bg")))
+        except tk.TclError:
+            bg = (226, 232, 240)
+        mos = Image_.new("RGB", ((tx1 - tx0 + 1) * T, (ty1 - ty0 + 1) * T), bg)
+        for ty in range(ty0, ty1 + 1):
+            for tx in range(tx0, tx1 + 1):
+                key = (self.cur, native, tx, ty)
+                if key not in self.imgs:
+                    self.fetch_tile(key)
+                    continue
+                im = self._pilsrc(key) if self.imgs[key] is not None else None
+                if im is not None:
+                    mos.paste(im, ((tx - tx0) * T, (ty - ty0) * T), im)
+        k = T / span
+        box = ((x0 - tx0 * span) * k, (z0 - ty0 * span) * k, (x1 - tx0 * span) * k, (z1 - ty0 * span) * k)
+        try:
+            out = mos.resize((W, H), getattr(Image_, "Resampling", Image_).BILINEAR, box=box, reducing_gap=2.0)
+            ci = getattr(self, "_compimg", None)
+            if ci is not None and ci.width() == W and ci.height() == H:
+                ci.paste(out)
+            else:
+                ci = self._compimg = ImageTk_.PhotoImage(out)
+        except Exception:
+            return False
+        self.cv.create_image(0, 0, anchor="nw", image=ci, tags="t")
+        return True
+
     def _pilsrc(self, key):
         im = self.pilsrc.get(key)
         if im is None:
@@ -3582,7 +3640,7 @@ class MapTab(ttk.Frame):
                 im = Image_.open(io.BytesIO(raw)).convert("RGBA")
             except Exception:
                 return None
-            if len(self.pilsrc) > 60:
+            if len(self.pilsrc) > 100:
                 self.pilsrc.clear()
             self.pilsrc[key] = im
         return im
@@ -4372,6 +4430,45 @@ class Heads:
                         tree.item(iid, image=im)
             except tk.TclError:
                 pass
+
+
+# Hulpplugin voor Tab-aanvulling (bron: hulpplugin/MCMTab.java in de repository)
+MCMTAB_JAR_B64 = (
+    "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"
+    "bFBLBQYAAAAABAAEAOMAAADJCAAAAAA="
+)
 
 
 def app_icon_png(size=192):
@@ -7438,6 +7535,7 @@ class App(tk.Tk):
             messagebox.showwarning(APP_NAME, str(e).replace("\\n", "\n"))
             return
         folder = self.folder_var.get().strip()
+        self._mcm_install(folder)
         try:
             proc = subprocess.Popen(cmd, cwd=folder, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -7479,6 +7577,73 @@ class App(tk.Tk):
             pass
         code = proc.wait()
         self.q.put(("srv_exit", proc, code))
+
+    def _mcm_install(self, folder):
+        """Zet (eenmalig) het kleine hulpplugin MCMTab in de plugins-map. Daarmee geeft de server zijn eigen Tab-aanvullingen door."""
+        try:
+            pdir = os.path.join(folder, "plugins")
+            dst = os.path.join(pdir, "MCMTab.jar")
+            if not os.path.isdir(pdir) or os.path.exists(dst) or self.cfg.get("mcmtab_done"):
+                return
+            with open(dst, "wb") as fh:
+                fh.write(base64.b64decode("".join(MCMTAB_JAR_B64)))
+            self.cfg["mcmtab_done"] = True
+            self._save_cfg()
+            self.log("Hulpplugin MCMTab geïnstalleerd (plugins/MCMTab.jar). Na een herstart van de server geeft Tab dezelfde aanvullingen als de echte console.", "ok")
+        except OSError as e:
+            self.log(f"MCMTab kon niet worden geplaatst: {e}", "warn")
+
+    # ---- Tab-aanvulling via het hulpplugin ----
+    def _mcm_ask(self, rid, line=None):
+        arg = ""
+        if line is not None:
+            arg = " " + base64.urlsafe_b64encode(line.encode("utf-8")).decode("ascii").rstrip("=")
+        self.srv_send(f"mcmtab {rid}{arg}", echo=False)
+
+    def _mcm_reply(self, rid, body):
+        items = [x for x in body.split("\t") if x]
+        if rid.startswith("c"):
+            self._mcm_ok = True
+            if not body.startswith("!"):
+                cur = self.cfg.setdefault("learned_cmds", [])
+                new = [x.lower() for x in items if re.fullmatch(r"[A-Za-z0-9_\-.]{1,40}", x) and x.lower() not in cur]
+                if new:
+                    cur.extend(new)
+                    self._save_cfg()
+            return
+        w = getattr(self, "_mcm_wait", None)
+        if not w or w[0] != rid:
+            return
+        self._mcm_wait = None
+        _, text, direction = w
+        if self.cmd_var.get() != text:
+            return
+        head, sp, last = text.rpartition(" ")
+        pre = head + sp
+        cands = []
+        for it in items:
+            if not sp:
+                it = it.lstrip("/")
+                it = ("/" if text.startswith("/") else "") + it
+                if ":" in it and ":" not in text:
+                    continue
+                cands.append(it)
+            else:
+                cands.append(pre + it)
+        cands = sorted(set(c for c in cands if c.lower().startswith(text.lower())), key=str.lower)
+        if not cands:
+            cands = self._tab_local(text)
+        if cands:
+            self._tab_show(text, cands, direction)
+
+    def _mcm_timeout(self, rid):
+        w = getattr(self, "_mcm_wait", None)
+        if w and w[0] == rid:
+            self._mcm_wait = None
+            self._mcm_ok = False
+            cands = self._tab_local(w[1])
+            if cands and self.cmd_var.get() == w[1]:
+                self._tab_show(w[1], cands, w[2])
 
     def srv_send(self, cmd, echo=True):
         p = self.srv_proc
@@ -7775,6 +7940,14 @@ class App(tk.Tk):
         if self.srv_state != "online":
             return
         self._learn_topics, self._learn_dirty = [], False
+        self._mcm_ok = False
+        self._learn_until = time.time() + 6
+        self._mcm_ask("c0")
+        self.after(2500, self._learn_fallback)
+
+    def _learn_fallback(self):
+        if getattr(self, "_mcm_ok", False) or self.srv_state != "online":
+            return
         self._learn_until = time.time() + 6
         self.srv_send("help", echo=False)
         self.after(2000, self._learn_topics_next)
@@ -7792,28 +7965,44 @@ class App(tk.Tk):
             self._save_cfg()
             self.log(f"{len(self.cfg.get('learned_cmds') or [])} commando's geleerd voor Tab-aanvulling.", "info")
 
+    def _tab_local(self, text):
+        cmds, plugs = self._plugin_cmds()
+        cmds = set(cmds) | {x.lower() for x in plugs if re.fullmatch(r"[a-z0-9_\-]{2,30}", x.lower())} | set(self.cfg.get("learned_cmds") or [])
+        return complete_command(text, sorted(set(VANILLA_CMDS) | cmds),
+                                sorted(self.player_names, key=str.lower), plugs, self.cmd_hist, cmds)
+
     def _tab_complete(self, direction=1):
         text = self.cmd_var.get()
         st = self._tab_state
         if st and text == st["cur"]:
             st["i"] = (st["i"] + direction) % len(st["cands"])
-        else:
-            cmds, plugs = self._plugin_cmds()
-            cmds = set(cmds) | {x.lower() for x in plugs if re.fullmatch(r"[a-z0-9_\-]{2,30}", x.lower())} | set(self.cfg.get("learned_cmds") or [])
-            cands = complete_command(text, sorted(set(VANILLA_CMDS) | cmds),
-                                     sorted(self.player_names, key=str.lower), plugs, self.cmd_hist, cmds)
-            if not cands:
+            return self._tab_apply(st)
+        if getattr(self, "_mcm_ok", False) and self.srv_state == "online":
+            self._mcm_seq = getattr(self, "_mcm_seq", 0) + 1
+            rid = f"t{self._mcm_seq}"
+            self._mcm_wait = (rid, text, direction)
+            self._mcm_ask(rid, text[1:] if text.startswith("/") else text)
+            self.after(1200, lambda: self._mcm_timeout(rid))
+            return "break"
+        cands = self._tab_local(text)
+        if cands:
+            self._tab_show(text, cands, direction)
+        return "break"
+
+    def _tab_show(self, text, cands, direction):
+        st = self._tab_state = {"cands": cands, "i": 0 if direction > 0 else len(cands) - 1, "cur": None}
+        if len(cands) > 1:
+            shown = ", ".join(c.split(" ")[-1] for c in cands[:40]) + (" …" if len(cands) > 40 else "")
+            self._console_add(f"Mogelijkheden: {shown}", own=True)
+            cp = os.path.commonprefix(cands)
+            if len(cp) > len(text):  # eerst aanvullen tot het gemeenschappelijke stuk
+                st["cur"], st["i"] = cp, -1 if direction > 0 else 0
+                self.cmd_var.set(cp)
+                self.cmd_entry.icursor("end")
                 return "break"
-            st = self._tab_state = {"cands": cands, "i": 0 if direction > 0 else len(cands) - 1, "cur": None}
-            if len(cands) > 1:
-                shown = ", ".join(c.split(" ")[-1] for c in cands[:40]) + (" …" if len(cands) > 40 else "")
-                self._console_add(f"Mogelijkheden: {shown}", own=True)
-                cp = os.path.commonprefix(cands)
-                if len(cp) > len(text):  # eerst aanvullen tot het gemeenschappelijke stuk
-                    st["cur"], st["i"] = cp, -1 if direction > 0 else 0
-                    self.cmd_var.set(cp)
-                    self.cmd_entry.icursor("end")
-                    return "break"
+        return self._tab_apply(st)
+
+    def _tab_apply(self, st):
         new = st["cands"][st["i"]]
         st["cur"] = new
         self.cmd_var.set(new)
@@ -7942,9 +8131,15 @@ class App(tk.Tk):
             self.cmd_hist[:] = [h for h in self.cmd_hist if h != ls[0]]
             self.cfg["cmd_history"] = list(dict.fromkeys(self.cmd_hist))[-200:]
             self._last_sent = None
+        mm = re.search(r"MCMTAB\|(\w+)\|(.*)$", msg)
+        if mm:
+            suppress = True
+            self._mcm_reply(mm.group(1), mm.group(2))
+        if now < self._learn_until and ("Unknown or incomplete command" in msg or "<--[HERE]" in msg or "Unknown command" in msg):
+            suppress = True
         if now < self._learn_until:
             lc = re.match(r"^/([A-Za-z0-9_:.\-]{1,40}):", msg)
-            tp = re.match(r"^([A-Za-z0-9_.\-]{1,40}): All commands for ", msg)
+            tp = re.match(r"^([A-Za-z0-9_.\-]{1,40}): (All commands for |[A-Z])", msg)
             if tp:
                 suppress = True
                 if tp.group(1) not in self._learn_topics:
