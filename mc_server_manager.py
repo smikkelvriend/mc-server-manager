@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.26"
+APP_VERSION = "2.27"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.27 - Pijltje omhoog/omlaag haalt ook commando's terug die de server afkeurde (om ze te verbeteren); alleen de Tab-aanvulling slaat die over. Volgorde van de geschiedenis blijft kloppen na herstart.
 2.26 - Fout hersteld: het Instellingen-venster toonde alleen het tabblad Backups (een dubbele functienaam brak het opbouwen), en de uptime/online-tijd had een ander formaat gekregen.
 2.25 - De grafieken (CPU, geheugen, TPS, temperatuur) blijven bewaard bij een herstart van de server of het programma en lopen gewoon door; een onderbreking wordt als gat getoond.
 2.24 - Soepel zoomen werkt nu ook op de diepste zoomniveaus (voorbij wat squaremap rendert), zonder sprong aan het eind.
@@ -6948,6 +6949,7 @@ class App(tk.Tk):
         self._after_exit = self._tmp_script = self._rr_job = None
         self._crash_times, self.cmd_hist, self.hist_idx = [], [str(x) for x in (self.cfg.get("cmd_history") or [])][-200:], 0
         self.hist_idx = len(self.cmd_hist)
+        self._bad = set()
         self._learn_until, self._learn_topics = 0.0, []
         self._stop_t = self._last_nl = self._stop_deadline = 0
         self.noise = compile_noise(c.get("noise_filters", DEFAULT_NOISE))
@@ -7964,7 +7966,7 @@ class App(tk.Tk):
             self.cmd_hist.append(cmd)
             self._last_sent = (cmd, time.time())
             self.hist_idx = len(self.cmd_hist)
-            self.cfg["cmd_history"] = list(dict.fromkeys(self.cmd_hist))[-200:]
+            self.cfg["cmd_history"] = list(dict.fromkeys(reversed(self.cmd_hist)))[::-1][-200:]
             self._save_cfg()
         else:
             self._console_add("De server draait niet.", own=True)
@@ -8023,7 +8025,7 @@ class App(tk.Tk):
         cmds, plugs = self._plugin_cmds()
         cmds = set(cmds) | {x.lower() for x in plugs if re.fullmatch(r"[a-z0-9_\-]{2,30}", x.lower())} | set(self.cfg.get("learned_cmds") or [])
         return complete_command(text, sorted(set(VANILLA_CMDS) | cmds),
-                                sorted(self.player_names, key=str.lower), plugs, self.cmd_hist, cmds)
+                                sorted(self.player_names, key=str.lower), plugs, [h for h in self.cmd_hist if h not in self._bad], cmds)
 
     def _tab_complete(self, direction=1):
         text = self.cmd_var.get()
@@ -8181,9 +8183,8 @@ class App(tk.Tk):
             suppress = True
         ls = getattr(self, "_last_sent", None)
         if ls and now - ls[1] < 3 and ("Incorrect argument for command" in msg or "Unknown or incomplete command" in msg or "Unknown command" in msg):
-            # een fout commando hoort niet in de Tab-aanvulling
-            self.cmd_hist[:] = [h for h in self.cmd_hist if h != ls[0]]
-            self.cfg["cmd_history"] = list(dict.fromkeys(self.cmd_hist))[-200:]
+            # een fout commando blijft wel met pijltje-omhoog terug te halen (om te verbeteren), maar komt niet in de Tab-aanvulling
+            self._bad.add(ls[0])
             self._last_sent = None
         mm = re.search(r"MCMTAB\|(\w+)\|(.*)$", msg)
         if mm:

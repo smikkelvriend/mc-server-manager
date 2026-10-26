@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.27
+- Pijltje omhoog/omlaag in het commandovak haalt ook commando's terug die de server afkeurde, zodat je ze kunt verbeteren. Alleen de Tab-aanvulling slaat afgekeurde commando's over. De volgorde van de geschiedenis blijft kloppen na een herstart.
+- Deze versie vereist een herstart.
+
 ## 2.26
 - Fout hersteld: in Instellingen was alleen het tabblad Backups zichtbaar. Twee functies met dezelfde naam (`dir_size`) kwamen in elkaar vast te zitten, waardoor de rest van het venster niet werd opgebouwd.
 - Uptime en online-tijd in de spelerslijst hebben weer hun oude notatie (uu:mm:ss); de nieuwe kortere notatie (1u 5m) is alleen voor de Spelers- en Backups-overzichten.
