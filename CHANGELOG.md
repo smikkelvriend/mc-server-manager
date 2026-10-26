@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.43
+- Nieuw: **Nieuwe interface**. De knop ✨ bovenin opent een tweede, moderner scherm (in een eigen venster, zonder adresbalk) met dezelfde functies: Overzicht (TPS, processor, geheugen en temperatuur, belastingsgrafiek, spelers met hun skin, console en aandachtspunten), Console (met commandogeschiedenis, Tab-aanvullen en logboek doorzoeken), Spelers (skins, whitelist, bans, IP-bans en operators), Plugins en updates samen, Kaart, Backups en Instellingen (server.properties, slaapstand, gezondheidscontrole). Het oude scherm blijft gewoon werken.
+- Het nieuwe scherm draait op een adres dat alleen deze computer kan bereiken (met een eigen geheime sleutel per start); er is geen wachtwoord of poort-doorsturen voor nodig. Het gebruikt Edge of Chrome als die op de computer staan.
+- De bron van het scherm staat in `nieuwe_interface/`.
+- Deze versie vereist een herstart.
+
 ## 2.42
 - Plugins: nieuwe knop **PLM uitladen** (`/plm unload`) naast **PLM laden**, ook in de telefoon-app. PlugManX zelf wordt nooit uitgeladen. De plugin blijft in de map staan en wordt bij de volgende herstart weer geladen.
 - De namen van de PLM-knoppen en van het vinkje eronder zijn korter gemaakt.

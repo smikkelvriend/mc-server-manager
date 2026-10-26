@@ -1,0 +1,270 @@
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MC Server Manager</title><link rel="icon" href="/icon.png"><style>
+:root{color-scheme:dark;--bg:#0e1115;--side:#12161b;--card:#161a20;--in:#0f1318;--b:#232a33;--b2:#33404d;--t:#e7eaee;--m:#8e98a6;--m2:#aab3bf;--g:#3ddc97;--g2:#5be8a6;--bl:#6ea8fe;--a:#3b82f6;--y:#f5a524;--r:#ff8a93;--rb:#2a1519;--rbd:#5b2a30}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--t);font:14px/1.4 Inter,"Segoe UI",system-ui,sans-serif;display:flex;overflow:hidden}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+aside{width:236px;flex:none;padding:20px 14px;display:flex;flex-direction:column;gap:20px;background:var(--side);border-right:1px solid var(--b);overflow:auto}
+.logo{display:flex;align-items:center;gap:10px;padding:0 6px;font-weight:600;font-size:15px}
+.logo i{width:30px;height:30px;border-radius:8px;background:var(--g);display:flex;align-items:center;justify-content:center;color:var(--bg)}
+.srvbox{padding:10px 12px;border-radius:10px;background:#1a1f26;border:1px solid #28303a;display:flex;flex-direction:column;gap:1px}
+.srvbox b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.srvbox span{font-size:12px;color:var(--m)}
+nav{display:flex;flex-direction:column;gap:2px}
+nav a{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:8px;color:var(--m2);cursor:pointer;user-select:none}
+nav a:hover{background:#181d24}nav a.on{background:#1f2630;color:#fff;font-weight:500}nav a.on svg{color:var(--g)}
+nav a span.nm{flex:1}.bd{min-width:20px;padding:1px 7px;border-radius:99px;background:var(--y);color:#1a1204;font-size:12px;font-weight:600;text-align:center}
+.sleepbox{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:12px;background:#171c23;border:1px solid #28303a}
+.sleepbox .h{display:flex;align-items:center;justify-content:space-between;font-weight:600}.sleepbox small{font-size:12px;color:var(--m)}
+.sw{width:34px;height:20px;border-radius:99px;background:#3a4452;position:relative;cursor:pointer;flex:none;transition:.15s}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--bg);transition:.15s}
+.sw.on{background:var(--g)}.sw.on::after{left:17px}
+main{flex:1;min-width:0;display:flex;flex-direction:column;padding:22px 28px;gap:18px;overflow:auto}
+header{display:flex;align-items:center;gap:14px;flex:none}
+h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:99px;font-weight:500;font-size:13px;background:#123024;color:var(--g2)}
+.pill i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.y{background:#2e2410;color:var(--y)}.pill.r{background:var(--rb);color:var(--r)}.pill.b{background:#14233d;color:var(--bl)}
+.sp{flex:1}
+button{font:inherit;cursor:pointer;color:var(--t);background:#171c23;border:1px solid var(--b2);border-radius:9px;padding:9px 16px;font-weight:500}
+button:hover{background:#1d232b}button:disabled{opacity:.4;cursor:default}
+button.sm{padding:5px 11px;font-size:13px;border-radius:7px}
+button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:600}button.pri:hover{background:#2f6fe0}
+button.go{background:#12392a;border-color:#1f5a40;color:var(--g2)}button.bad{background:var(--rb);border-color:var(--rbd);color:var(--r)}
+button.warn{background:#2e2410;border-color:#5b4414;color:var(--y)}button.ghost{background:transparent}
+input,select,textarea{font:inherit;background:var(--in);border:1px solid var(--b);color:var(--t);border-radius:8px;padding:8px 11px;min-width:0}
+input:focus,select:focus{outline:2px solid #2d4f8f;border-color:transparent}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--a);padding:0;flex:none}
+.card{padding:16px 18px;border-radius:14px;background:var(--card);border:1px solid var(--b);display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
+.card>h3{margin:0 0 4px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}.card>h3 .sp{flex:1}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;flex:none}
+.tile{gap:6px}.tile .k{font-size:12px;color:var(--m);font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+.tile .v{font-size:28px;font-weight:600;letter-spacing:-.02em}.tile .v small{font-size:16px;color:var(--m);font-weight:500}
+.tile canvas{width:100%;height:32px;display:block}.meter{height:8px;border-radius:99px;background:#222a34;margin-top:10px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bl);transition:width .5s}
+.mid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;height:230px;flex:none}
+.low{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;flex:1;min-height:280px}
+.two{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
+.leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--m2);font-weight:400}.leg i{width:10px;height:3px;border-radius:2px}
+canvas.big{flex:1;min-height:0;width:100%;display:block}
+.pl{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--b)}.pl:first-of-type{border-top:0}
+.pl .n{flex:1;min-width:0}.pl .n b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis}.pl .n small{display:block;font-size:12px;color:var(--m)}
+.skin{width:34px;height:34px;border-radius:7px;image-rendering:pixelated;background:#222a34;flex:none;display:flex;align-items:center;justify-content:center;font-weight:600;overflow:hidden}
+.skin img{width:100%;height:100%;display:block;image-rendering:pixelated}
+.skin.sm{width:22px;height:22px;border-radius:5px;font-size:11px}
+.con{background:#0a0d11;border:1px solid var(--b);border-radius:14px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.con .bar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1c232b}
+.con .log{flex:1;min-height:0;overflow:auto;padding:10px 16px;font:12.5px/1.7 "JetBrains Mono",Consolas,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
+.con .log div.e{color:#fca5a5}.con .log div.w{color:#f5c76a}.con .log div.o{color:var(--g2)}.con .log div.c{color:#b69cff}.con .log div{color:#c9d1db}
+.con form{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid #1c232b}
+.con form span{font-family:Consolas,monospace;color:var(--g)}.con form input{flex:1;background:transparent;border:0;font:12.5px Consolas,monospace;padding:6px}
+.con form input:focus{outline:0}
+.att{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--b)}.att:first-of-type{border-top:0}
+.att .ic{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#123024;color:var(--g);flex:none}
+.att .ic.y{background:#3a2a0c;color:var(--y)}.att .ic.r{background:var(--rb);color:var(--r)}.att .ic svg{width:14px;height:14px;stroke-width:2.6}
+.att .tx{flex:1;min-width:0}.att .rt{font-size:12px;color:var(--m)}
+.li{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--b)}.li:first-child{border-top:0}.li>div{flex:1;min-width:0}
+.li b{display:block;overflow:hidden;text-overflow:ellipsis;font-weight:500}.li small{color:var(--m);display:block}
+.tag{font-size:11px;border-radius:6px;padding:1px 6px;background:var(--b);margin-left:6px;font-weight:400}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>.sp{flex:1}
+.lab{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--b)}.lab:first-child{border-top:0}.lab>span{flex:1}.lab input:not([type=checkbox]),.lab select{width:46%;flex:none}
+.mut{color:var(--m)}.ok{color:var(--g)}.err{color:var(--r)}.yel{color:var(--y)}.hide{display:none!important}
+.bar2{height:10px;background:var(--in);border-radius:6px;overflow:hidden}.bar2 i{display:block;height:100%;background:var(--g);transition:width .5s}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-top:1px solid var(--b);text-align:left}th{color:var(--m);font-weight:600;border:0}td.n,th.n{text-align:right}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:var(--in)}.seg button{border:0;background:transparent;color:var(--m);padding:4px 12px;font-size:12px;border-radius:6px}.seg button.on{background:#242c37;color:#fff}
+#busy{height:3px;background:#1c232b;border-radius:3px;overflow:hidden;flex:none}#busy i{display:block;height:100%;background:var(--bl);transition:width .4s}
+#busy.ind i{width:40%!important;animation:ind 1.2s infinite ease-in-out}@keyframes ind{0%{margin-left:-40%}100%{margin-left:100%}}
+#toast{position:fixed;right:24px;bottom:24px;max-width:420px;background:#2b3440;border:1px solid var(--b2);padding:12px 16px;border-radius:12px;display:none;z-index:30;box-shadow:0 8px 30px #000a}
+#dlg{position:fixed;inset:0;background:#000b;z-index:40;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:460px;width:100%;white-space:pre-wrap}
+#off{position:fixed;inset:0;background:#0e1115ee;z-index:50;display:none;align-items:center;justify-content:center;text-align:center;padding:30px;font-size:16px}
+#mapbox{position:relative;height:calc(100vh - 260px);min-height:360px;background:#0a0d11;border-radius:12px;overflow:hidden;touch-action:none}#mapbox canvas{width:100%;height:100%;display:block}
+.mapbtn{position:absolute;right:10px;display:flex;flex-direction:column;gap:6px}.mapbtn button{width:38px;height:38px;padding:0;font-size:19px;background:#161a20dd}
+.con.log2 .log{height:46vh;flex:none}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2a323c;border-radius:8px}::-webkit-scrollbar-track{background:transparent}
+@media(max-width:1100px){.tiles{grid-template-columns:repeat(2,1fr)}.mid,.low,.two{grid-template-columns:1fr;height:auto}aside{width:200px}}
+</style></head><body>
+<aside>
+ <div class="logo"><i><svg class="i" viewBox="0 0 24 24" style="stroke-width:2.4"><path d="M4 7l8-4 8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg></i>MC Server Manager</div>
+ <div class="srvbox"><b id="sname">Server</b><span id="sver">…</span></div>
+ <nav id="nav"></nav>
+ <div class="sleepbox"><div class="h">Auto slaapstand<div class="sw" id="swSleep" onclick="sleepAuto()" role="switch" tabindex="0"></div></div>
+  <small id="sleepTx">Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.</small>
+  <button id="btnSleep" onclick="sleepNow()">Nu in slaapstand</button></div>
+</aside>
+<main>
+ <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
+  <button class="go" id="bStart" onclick="act('start')">Starten</button><button id="bRestart" onclick="act('restart')">Herstarten</button><button class="bad" id="bStop" onclick="act('stop')">Stoppen</button></header>
+ <div id="busy" class="hide"><i style="width:0"></i></div>
+ <div id="view" style="display:flex;flex-direction:column;gap:18px;flex:1;min-height:0"></div>
+</main>
+<div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
+<div id="off">Verbinding met het programma is weg.<br><span class="mut" style="font-size:13px">Is MC Server Manager nog open? Dit scherm verbindt vanzelf opnieuw.</span></div>
+<script>
+const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=(()=>{try{return localStorage.getItem('dtab')||'ov'}catch(e){return'ov'}})(),LOG=[],cur={},LOG2=[],fails=0;
+const hd=(n,t)=>'/head/'+encodeURIComponent(n)+'?t='+encodeURIComponent(t||'');
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+function toast(t,ms=4500){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
+function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';
+ for(const [t,v,c] of [[no,false,''],[yes,true,'pri']]){const b=document.createElement('button');b.textContent=t;b.className=c;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
+async function api(p,b){let r;try{r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}})}catch(e){toast('Geen verbinding met het programma');throw e}
+ if(r.status==401){$('off').style.display='flex';$('off').firstChild.textContent='Open dit scherm via de knop "Nieuwe interface" in het programma.';throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
+const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.msg);return j}catch(e){return null}};
+const ico={ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+ con:'<path d="M4 17l6-6-6-6M12 19h8"/>',pl:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 5.2a3.5 3.5 0 010 6.6M18 14.800c2 .6 3.200 2.500 3.500 5.200"/>',
+ plug:'<path d="M10 4a2 2 0 114 0v2h4a1 1 0 011 1v4h-2a2 2 0 100 4h2v4a1 1 0 01-1 1h-4v-2a2 2 0 10-4 0v2H6a1 1 0 01-1-1v-4h2a2 2 0 100-4H5V7a1 1 0 011-1h4z"/>',
+ map:'<path d="M9 4L3 6.500v13L9 17l6 2.500 6-2.500v-13L15 7zM9 4v13M15 7v12.500"/>',bk:'<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.700 3.600 3 8 3s8-1.300 8-3V6M4 12v6c0 1.700 3.600 3 8 3s8-1.300 8-3v-6"/>',
+ set:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.900 4.900l2.100 2.100M17 17l2.100 2.100M4.900 19.100L7 17M17 7l2.100-2.100"/>'};
+const TABS=[['ov','Overzicht'],['con','Console'],['pl','Spelers'],['plug','Plugins'],['map','Kaart'],['bk','Backups'],['set','Instellingen']];
+function build(){$('nav').innerHTML=TABS.map(t=>`<a data-t="${t[0]}" onclick="setTab('${t[0]}')"><svg class="i" viewBox="0 0 24 24">${ico[t[0]==='plug'?'plug':t[0]]}</svg><span class="nm">${t[1]}</span><span class="bd hide" id="bd-${t[0]}"></span></a>`).join('');setTab(TABS.some(t=>t[0]==tab)?tab:'ov')}
+function setTab(t){if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('dtab',t)}catch(e){}
+ document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));$('ttl').textContent=TABS.find(x=>x[0]==t)[1];$('view').innerHTML='';(V[t]||V.ov)();if(S.stats)draw()}
+const V={};
+/* ---------- helpers ---------- */
+const num=s=>{const m=String(s==null?'':s).replace(',','.').match(/-?\d+(\.\d+)?/);return m?parseFloat(m[0]):null};
+function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth||100,h=c.clientHeight||32,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
+ d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let l=lo!=null?lo:Math.min(...d),hh=hi!=null?hi:Math.max(...d);if(hh-l<1e-6){hh=l+1}
+ x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-2-(Math.min(Math.max(v,l),hh)-l)/(hh-l)*(h-4);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
+ x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
+ x.fillStyle='#6b7684';x.font='11px sans-serif';[100,66,33,0].forEach((v,i)=>x.fillText(v+'%',4,10+i*(h-20)/3-3));
+ for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}}
+function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();im.src=hd(n,t);im.alt='';im.onerror=()=>{im.remove();d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase()};d.appendChild(im);return d}
+function skinHtml(n,t,cls){return `<span class="skin ${cls||''}"><img src="${hd(n,t)}" alt="" onerror="this.remove();"></span>`}
+function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
+const fb2=n=>n>1e9?(n/1e9).toFixed(1).replace('.',',')+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
+const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const OKI='<svg class="i" viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>',WARNI='<svg class="i" viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>';
+/* ---------- Overzicht ---------- */
+V.ov=()=>{$('view').innerHTML=`<section class="tiles">
+ <div class="card tile"><span class="k">TPS</span><span class="v" id="vTps">-</span><canvas id="sTps"></canvas></div>
+ <div class="card tile"><span class="k">Processor</span><span class="v" id="vCpu">-</span><canvas id="sCpu"></canvas></div>
+ <div class="card tile"><span class="k">Geheugen</span><span class="v" id="vRam">-</span><div class="meter"><i id="mRam" style="width:0"></i></div></div>
+ <div class="card tile"><span class="k">Temperatuur</span><span class="v" id="vTmp">-</span><canvas id="sTmp"></canvas></div></section>
+ <section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen</span><span class="leg"><i style="background:#f5a524"></i>Processor</span><span class="leg"><i style="background:#3ddc97"></i>TPS</span></h3><canvas class="big" id="cBig"></canvas></div>
+ <div class="card"><h3>Spelers online <span class="sp"></span><a class="mut" style="cursor:pointer;font-size:13px;color:var(--bl)" onclick="setTab('pl')">Alles beheren</a></h3><div id="ovPl" style="overflow:auto"></div></div></section>
+ <section class="low"><div class="con"><div class="bar"><b>Console</b><span class="mut" style="font-size:12px" id="cleanTx"></span><div class="sp"></div></div><div class="log" id="con"></div>
+ <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div>
+ <div class="card"><h3>Aandacht</h3><div id="att"></div></div></section>`;
+ LOG.forEach(addLine);cur.bk=null;attBackup();cur.t=setInterval(attBackup,60000);cur.stop=()=>clearInterval(cur.t)};
+async function attBackup(){const j=await go('/api/backuper');if(!j||!$('att'))return;cur.bkInfo=j.backups&&j.backups.length?{ago:ago(j.backups[0].mtime),size:fb2(j.backups[0].size)}:(j.jar?{none:1}:null);drawAtt()}
+function att(cls,icon,text,right,btn){return `<div class="att"><span class="ic ${cls}">${icon}</span><span class="tx">${text}</span>${btn||''}${right?`<span class="rt">${right}</span>`:''}</div>`}
+function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
+ if(j.selfupd)h+=att('y',WARNI,'Nieuwe programmaversie '+esc(j.selfupd),'',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ if(j.paperupd)h+=att('y',WARNI,'Paper-update beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ if(j.pupd)h+=att('y',WARNI,j.pupd+' plugin-update'+(j.pupd>1?'s':'')+' beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ const b=cur.bkInfo;if(b&&b.ago)h+=att('',OKI,'Laatste backup '+b.ago,b.size);else if(b&&b.none)h+=att('y',WARNI,'Nog geen backups gevonden','');
+ if(j.disk!=null)h+=att(j.disk<5?'r':'',j.disk<5?WARNI:OKI,'Schijf: '+j.disk.toFixed(0)+' GB vrij','');
+ if(j.sleep&&j.sleep.on)h+=att('',OKI,j.sleep.sleeping?'De server slaapt en start bij de eerste join':'Auto slaapstand staat aan',esc(j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:''));
+ if(j.status&&j.state!='stopped'&&j.busy)h+=att('y',WARNI,esc(j.status),'');
+ e.innerHTML=h||'<span class="mut">Alles in orde.</span>'}
+/* ---------- Console ---------- */
+const CMDS=['list','say ','whitelist add ','whitelist remove ','whitelist list','ban ','pardon ','kick ','op ','deop ','gamemode ','tp ','time set ','weather ','difficulty ','save-all','stop','tps','seed','give ','kill ','effect '];
+const HIST=(()=>{try{return JSON.parse(localStorage.getItem('dhist')||'[]')}catch(e){return[]}})();let hi=-1;
+function cmdKey(e){const i=e.target;if(e.key=='ArrowUp'){if(hi<HIST.length-1){hi++;i.value=HIST[hi]}e.preventDefault()}else if(e.key=='ArrowDown'){hi=Math.max(-1,hi-1);i.value=hi<0?'':HIST[hi];e.preventDefault()}
+ else if(e.key=='Tab'){e.preventDefault();const v=i.value.toLowerCase();if(!v)return;const m=CMDS.filter(c=>c.startsWith(v));if(m.length==1)i.value=m[0];else if(m.length>1){let p=m[0];for(const c of m)while(!c.startsWith(p))p=p.slice(0,-1);i.value=p;toast(m.join('   '),3500)}}}
+function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HIST.splice(50);hi=-1;try{localStorage.setItem('dhist',JSON.stringify(HIST))}catch(e){}go('/api/cmd',{cmd:v}).then(j=>{if(j&&j.ok===false)toast(j.msg)});i.value='';setTimeout(poll,500)}return false}
+function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
+ while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
+V.con=()=>{$('view').innerHTML=`<div class="seg" style="align-self:flex-start"><button class="on" id="mLive" onclick="conMode(0)">Live console</button><button id="mSrch" onclick="conMode(1)">Logboek doorzoeken</button></div>
+ <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="go('/api/clean',{on:this.checked})">schoon</label><div class="sp"></div>
+ <input id="cfilter" placeholder="Filter…" style="width:180px" oninput="refilter()"></div><div class="log" id="con"></div>
+ <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando. Tab vult aan, pijltje omhoog haalt het vorige terug" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div></div>
+ <div id="conSrch" style="display:none;flex-direction:column;gap:12px;flex:1;min-height:0"></div>`;LOG.forEach(addLine);$('cmd').focus()};
+function refilter(){const c=$('con');c.innerHTML='';LOG.forEach(addLine)}
+function conMode(m){$('mLive').classList.toggle('on',!m);$('mSrch').classList.toggle('on',!!m);$('conLive').style.display=m?'none':'flex';$('conSrch').style.display=m?'flex':'none';if(m&&!$('conSrch').innerHTML)srchUI()}
+const KINDS=['Alles','Joinen','Verlaten','Chat',"Commando's",'Doodgaan','Waarschuwingen en fouten'];
+function srchUI(){$('conSrch').innerHTML=`<div class="card"><div class="row"><input id="sq" placeholder="Zoekwoord(en)" style="flex:2" onkeydown="if(event.key=='Enter')srch()"><input id="sp" placeholder="Speler" style="flex:1"><select id="sk">${KINDS.map(k=>`<option>${k}</option>`).join('')}</select>
+ <input id="sf" type="date" title="Van"><input id="st" type="date" title="Tot"><button class="pri" onclick="srch()">Zoek</button></div><div class="mut" style="font-size:12px" id="sinfo">Doorzoekt latest.log en alle oude logs, ook de gecomprimeerde.</div></div>
+ <div class="con" style="flex:1"><div class="log" id="sres"></div></div>`}
+async function srch(){$('sinfo').textContent='Zoeken…';const j=await go('/api/logsearch',{q:$('sq').value,player:$('sp').value,kind:$('sk').value,from:$('sf').value,to:$('st').value});if(!j)return;
+ $('sres').innerHTML=j.rows.map(r=>`<div><span class="mut">${esc(r[0])} ${esc(r[1])}</span>  ${esc(r[2].replace(/^\[[\d:]+\]\s*/,''))}</div>`).join('')||'<div class="mut">Niets gevonden.</div>';
+ $('sinfo').textContent=`${j.rows.length}${j.limit?'+':''} regels gevonden in ${j.files} logbestand${j.files==1?'':'en'}${j.limit?' (maximaal 500 getoond, maak je zoekopdracht specifieker)':''}.`}
+/* ---------- Spelers ---------- */
+function plDlg(n,t){const acts=[['kick','Kick'],['ban','Ban'],['pardon','Pardon'],['op','Op'],['deop','Deop'],['whitelist_add','Whitelist +'],['whitelist_remove','Whitelist −'],['gm','Gamemode'],['tp','Tp naar speler'],['msg','Bericht']];
+ $('dmsg').textContent='Speler: '+n;$('dbtn').innerHTML='';
+ for(const [a,tt] of acts){const b=document.createElement('button');b.className='sm';b.textContent=tt;b.onclick=async()=>{let arg='';
+  if(['kick','ban'].includes(a))arg=prompt('Reden (mag leeg):')||'';else if(a=='gm'){arg=prompt('survival, creative, adventure of spectator:','survival')||''}else if(a=='tp'){arg=prompt('Naar welke speler?')||'';if(!arg)return}else if(a=='msg'){arg=prompt('Bericht:')||'';if(!arg)return}
+  if(['ban','kick','op','deop'].includes(a)&&!await ask(tt+' '+n+'?'))return;$('dlg').style.display='none';go('/api/player',{name:n,action:a,arg},tt+' '+n)};$('dbtn').appendChild(b)}
+ const c=document.createElement('button');c.className='sm ghost';c.textContent='Sluiten';c.onclick=()=>$('dlg').style.display='none';$('dbtn').appendChild(c);$('dlg').style.display='flex'}
+V.pl=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Online nu <span class="mut" id="pn"></span></h3><div id="plOn"></div></div>
+ <div class="card"><h3>Speelstatistieken <button class="sm" onclick="behP()">↻</button></h3><div id="bp" class="mut">Laden…</div></div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Whitelist <span class="sp"></span><label class="mut" style="font-weight:400;display:flex;gap:6px;align-items:center;font-size:13px">Whitelist actief<input type="checkbox" id="wlOn" onchange="wlToggle(this.checked)"></label></h3><div id="L-whitelist"></div></div>
+ <div class="card"><h3>Gebande spelers</h3><div id="L-bans"></div></div><div class="card"><h3>Gebande IP-adressen</h3><div id="L-ips"></div></div><div class="card"><h3>Operators</h3><div id="L-ops"></div></div></div></div>`;
+ behP();listsLoad()};
+function plOnline(){const e=$('plOn');if(!e)return;$('pn').textContent='('+S.players.length+')';e.innerHTML=S.players.length?'':'<span class="mut">Niemand online.</span>';
+ for(const p of S.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));const n=document.createElement('span');n.className='n';n.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(n);
+  const b=document.createElement('button');b.className='sm';b.textContent='Beheren';b.onclick=()=>plDlg(p.name,p.type);d.appendChild(b);e.appendChild(d)}}
+async function listsLoad(){const j=await go('/api/lists');if(!j||!$('L-bans'))return;cur.lists=j;if($('wlOn'))$('wlOn').checked=!!j.whitelist_on;
+ const mk=(k,ph,rsn)=>{const arr=j[k]||[];const key=e=>k=='ips'?e.ip:e.name;
+  return (arr.length?arr.map(e=>`<div class="li">${k=='ips'?'':skinHtml(e.name,'','sm')}<div><b>${esc(key(e))}</b>${k=='bans'||k=='ips'?`<small>${esc(e.reason||'')}${e.created?' · '+esc(String(e.created).slice(0,10)):''}</small>`:''}</div><button class="sm ghost" onclick="listRm('${k}','${esc(key(e)).replace(/'/g,"\\'")}')">Verwijderen</button></div>`).join(''):'<span class="mut">Leeg.</span>')+
+  `<div class="row" style="margin-top:8px"><input id="a-${k}" placeholder="${ph}" style="flex:1" onkeydown="if(event.key=='Enter')listAdd('${k}')">${rsn?`<input id="r-${k}" placeholder="Reden (optioneel)" style="flex:1">`:''}<button class="sm pri" onclick="listAdd('${k}')">Toevoegen</button></div>`};
+ $('L-whitelist').innerHTML=mk('whitelist','Spelersnaam');$('L-bans').innerHTML=mk('bans','Spelersnaam',1);$('L-ips').innerHTML=mk('ips','IP-adres',1);$('L-ops').innerHTML=mk('ops','Spelersnaam')}
+async function listAdd(k){const n=$('a-'+k).value.trim();if(!n)return;const r=$('r-'+k);const j=await go('/api/lists/add',{list:k,name:n,reason:r?r.value:''});if(j&&j.ok!==false){setTimeout(listsLoad,S.state=='online'?900:100)}}
+async function listRm(k,n){if(!await ask(n+' uit deze lijst halen?'))return;await go('/api/lists/remove',{list:k,name:n});setTimeout(listsLoad,S.state=='online'?900:100)}
+async function wlToggle(on){const j=await go('/api/props',{key:'white-list',value:on});if(S.state=='online')go('/api/cmd',{cmd:'whitelist '+(on?'on':'off')})}
+async function behP(){const dur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}u ${m}m`:`${m}m`};const j=await go('/api/stats');if(!j||!$('bp'))return;j.rows.sort((a,b)=>b.online-a.online||b.time-a.time);
+ $('bp').innerHTML=j.rows.length?`<table><tr><th>Speler</th><th class="n">Tijd</th><th class="n">Dood</th><th class="n">Kills</th><th class="n">km</th></tr>`+j.rows.map(r=>`<tr><td style="display:flex;align-items:center;gap:8px">${skinHtml(r.name,'','sm')}${esc(r.name)}${r.online?' <span class="ok">●</span>':''}</td><td class="n">${dur(r.time)}</td><td class="n">${r.deaths}</td><td class="n">${r.kills}</td><td class="n">${(r.dist/1000).toFixed(1)}</td></tr>`).join('')+'</table>':'Geen spelersgegevens gevonden.'}
+//@@KOPIE_PLUGINS_KAART@@
+/* ---------- Plugins en updates samen ---------- */
+V.plug=async()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Plugins <span class="sp"></span><button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
+ <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" class="row"><input id="pq" style="flex:1" placeholder="Zoek een plugin, bijv. chunky"><button class="pri">Zoek</button></form>
+ <label class="row mut" style="gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres"></div></div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card" id="u1">Laden…</div><div class="card" id="u2"></div></div></div>`;
+ cur.t=setInterval(updRender,5000);cur.stop=()=>clearInterval(cur.t);updRender();
+ const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
+//@@KOPIE_BEHEER@@
+V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
+/* ---------- Instellingen ---------- */
+async function sleepAuto(){const on=!$('swSleep').classList.contains('on');$('swSleep').classList.toggle('on',on);await go('/api/sleep',{action:'auto',on});setTimeout(poll,300)}
+async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
+async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
+const PROPL={'motd':'Bericht in serverlijst (MOTD)','max-players':'Maximaal aantal spelers','difficulty':'Moeilijkheid (peaceful, easy, normal, hard)','gamemode':'Standaard spelmodus','pvp':'PvP','white-list':'Whitelist','online-mode':'Online modus (Mojang-login)','allow-flight':'Vliegen toestaan','view-distance':'Zichtafstand','simulation-distance':'Simulatieafstand','spawn-protection':'Spawn-bescherming (blokken)'};
+V.set=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Server (server.properties)</h3><div id="props" class="mut">Laden…</div></div>
+ <div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>
+ <div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Programma</h3><div id="set" class="mut">Laden…</div></div>
+ <div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:220px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div></div></div>`;
+ propsLoad();behT();netLoad();setLoad();LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')};
+async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
+const propSet=(key,value)=>go('/api/props',{key,value});
+const addAlog=l=>{const c=$('alog');if(!c)return;const d=document.createElement('div');d.className={error:'e',warn:'w',ok:'o'}[l[3]]||'';d.textContent=`[${l[1]}] ${l[2]}`;c.appendChild(d);c.scrollTop=c.scrollHeight};
+async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
+ $('net').innerHTML=`<div style="color:${j.status.color||'inherit'}">${esc(j.status.text)}</div><div class="mut" style="margin:4px 0">${esc(j.motd)} ${esc(j.info)}</div><div style="color:${j.bedrock.color||'inherit'}">${esc(j.bedrock.text)}</div><div class="mut" style="font-size:12px;margin-top:4px;white-space:pre-wrap">${esc(j.diag)}</div>
+ <div class="row" style="margin-top:8px"><input id="nh" value="${esc(j.host)}" placeholder="Adres/IP" style="flex:1"><input id="np" value="${esc(j.jport)}" style="width:90px" inputmode="numeric"></div>
+ <div class="row" style="margin-top:8px"><button onclick="netChk(false)" ${j.busy?'disabled':''}>Controleer</button><button onclick="netChk(true)" ${j.busy?'disabled':''}>Alleen lokaal</button></div>`}
+async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport:$('np').value,local},'Controleren…');setTimeout(netLoad,3500);setTimeout(netLoad,8000)}
+async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;
+ $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
+const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+/* ---------- Server-acties ---------- */
+async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
+/* ---------- Tekenen met live gegevens ---------- */
+function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.sleep.sleeping;
+ const m=sl?['Slaapstand','b']:{online:['Online','' ],starting:['Opstarten…','y'],stopping:['Stoppen…','y'],stopped:['Gestopt','r']}[st]||[st,'y'];
+ $('pill').className='pill '+(m[1]||'');$('pillTx').textContent=m[0]+(st=='online'&&j.stats.uptime&&j.stats.uptime!='-'?' · '+j.stats.uptime:'');
+ $('bStart').classList.toggle('hide',st!='stopped'||sl);$('bRestart').classList.toggle('hide',st!='online');$('bStop').classList.toggle('hide',!(st=='online'||st=='starting'));
+ $('sname').textContent=j.folder||'Server';$('sver').textContent=[j.mc,j.build?'build '+j.build:''].filter(Boolean).join(' · ')||'Paper';
+ $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=st!='online'||sl;
+ $('sleepTx').textContent=j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:'Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.';
+ const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
+ const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0)+(j.selfupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}
+ const g=j.graphs||{};
+ if($('vTps')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
+  $('vTps').textContent=j.stats.tps&&j.stats.tps!='-'?j.stats.tps:'-';
+  $('vCpu').innerHTML=cpu==null?'-':Math.round(cpu)+' <small>%</small>';
+  const rg=ram==null?null:ram/1024;$('vRam').innerHTML=rg==null?'-':rg.toFixed(1).replace('.',',')+(j.xmx?` <small>/ ${(j.xmx/1024).toFixed(0)} GB</small>`:' <small>GB</small>');
+  $('mRam').style.width=(ram!=null&&j.xmx?Math.min(100,ram/j.xmx*100):0)+'%';
+  $('vTmp').innerHTML=tmp==null?'<small>niet beschikbaar</small>':Math.round(tmp)+' <small>°C</small>';
+  spark('sTps',g.tps,'#3ddc97',0,20);spark('sCpu',g.cpu,'#f5a524',0,100);spark('sTmp',g.temp,'#f87171',null,null);
+  const ramPct=(g.ram||[]).map(v=>j.xmx?v/j.xmx*100:v);bigChart('cBig',[[ramPct,'#6ea8fe'],[g.cpu,'#f5a524']]);
+  const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
+   const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
+  $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
+ if(tab=='pl')plOnline();
+ if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
+/* ---------- poll ---------- */
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;fails=0;$('off').style.display='none';
+ j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
+ j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
+ draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.'}}busy=0}
+build();poll();setInterval(poll,2000);window.addEventListener('resize',()=>{if(S.stats)draw()});
+</script></body></html>

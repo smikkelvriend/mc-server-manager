@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.42"
+APP_VERSION = "2.43"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.43 - Nieuw: knop "Nieuwe interface" bovenin. Opent een moderner scherm in een eigen venster (Overzicht met processor, temperatuur en spelersskins, Console met logboek doorzoeken, Spelers met whitelist en bans, Plugins en updates samen, Kaart, Backups, Instellingen). Het oude scherm blijft werken. Het nieuwe scherm is alleen bereikbaar vanaf deze computer.
 2.42 - Plugins: nieuwe knop "PLM uitladen" (/plm unload) naast "PLM laden", ook op de telefoon. De namen van de PLM-knoppen en het vinkje zijn korter gemaakt.
 2.41 - Het tabblad Updates is samengevoegd met Plugins: onder Plugins staan nu drie subtabs (Geïnstalleerd, Updates, Zoeken en toevoegen). Het tabblad Plugins knippert met het aantal beschikbare updates.
 2.40 - De grafieken (CPU, geheugen, TPS) zakken naar 0 zolang de server uit staat of slaapt, in plaats van te stoppen. Kan zonder herstart worden toegepast.
@@ -5352,6 +5353,490 @@ def app_icon_png(size=192):
     return _png(k * 16, k * 16, rows)
 
 
+# ---------- Hulpfuncties voor de nieuwe interface ----------
+LIST_FILES = {"whitelist": "whitelist.json", "bans": "banned-players.json", "ips": "banned-ips.json", "ops": "ops.json"}
+
+
+def lists_read(folder, key):
+    try:
+        with open(os.path.join(folder, LIST_FILES[key]), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def lists_write(folder, key, data):
+    with open(os.path.join(folder, LIST_FILES[key]), "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def set_property(folder, key, val):
+    path = os.path.join(folder, "server.properties")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        txt = f.read()
+    if re.search(r"(?m)^" + re.escape(key) + "=", txt):
+        txt = re.sub(r"(?m)^" + re.escape(key) + "=.*$", lambda m: f"{key}={val}", txt)
+    else:
+        txt += ("" if txt.endswith("\n") else "\n") + f"{key}={val}\n"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(txt)
+
+
+def lists_file_add(folder, key, name, reason=""):
+    """Voegt rechtstreeks in het bestand toe (server staat uit). Geeft (ok, bericht)."""
+    data = lists_read(folder, key)
+    now = time.strftime("%Y-%m-%d %H:%M:%S %z")
+    if key == "ips":
+        if any(e.get("ip") == name for e in data):
+            return True, "Stond er al in"
+        data.append({"ip": name, "created": now, "source": "MC Server Manager", "expires": "forever", "reason": reason or "Banned by an operator."})
+    else:
+        if name.startswith("."):
+            return False, "Bedrock-spelers kun je alleen toevoegen als de server draait."
+        if read_properties(folder).get("online-mode", "true").lower() == "false":
+            uid, real = offline_uuid(name), name
+        else:
+            uid, real = mojang_uuid(name)
+            if not uid:
+                return False, f"'{name}' niet gevonden bij Mojang (of geen internet)."
+        if any(e.get("uuid") == uid for e in data):
+            return True, "Stond er al in"
+        if key == "whitelist":
+            data.append({"uuid": uid, "name": real})
+        elif key == "ops":
+            data.append({"uuid": uid, "name": real, "level": 4, "bypassesPlayerLimit": False})
+        else:
+            data.append({"uuid": uid, "name": real, "created": now, "source": "MC Server Manager", "expires": "forever",
+                         "reason": reason or "Banned by an operator."})
+    lists_write(folder, key, data)
+    return True, "Toegevoegd"
+
+
+def lists_file_remove(folder, key, names):
+    data = [e for e in lists_read(folder, key) if (e.get("ip") if key == "ips" else e.get("name")) not in names]
+    lists_write(folder, key, data)
+
+
+def open_app_window(url):
+    """Opent een adres in een eigen venster zonder adresbalk (Edge of Chrome in app-modus); anders gewoon de browser."""
+    cands = []
+    if os.name == "nt":
+        for env in ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData"):
+            base = os.environ.get(env)
+            if base:
+                cands += [os.path.join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+                          os.path.join(base, "Google", "Chrome", "Application", "chrome.exe")]
+    else:
+        cands += [shutil.which(n) or "" for n in ("microsoft-edge", "google-chrome", "chromium", "chromium-browser")]
+    prof = os.path.join(app_dir(), "mc_server_manager_venster")
+    for exe in cands:
+        if exe and os.path.isfile(exe):
+            try:
+                subprocess.Popen([exe, "--app=" + url, "--window-size=1440,920", "--no-first-run", "--no-default-browser-check",
+                                  "--user-data-dir=" + prof], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                return True
+            except OSError:
+                continue
+    webbrowser.open(url)
+    return False
+
+
+# <<DESK_PAGE
+DESK_PAGE = r"""<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MC Server Manager</title><link rel="icon" href="/icon.png"><style>
+:root{color-scheme:dark;--bg:#0e1115;--side:#12161b;--card:#161a20;--in:#0f1318;--b:#232a33;--b2:#33404d;--t:#e7eaee;--m:#8e98a6;--m2:#aab3bf;--g:#3ddc97;--g2:#5be8a6;--bl:#6ea8fe;--a:#3b82f6;--y:#f5a524;--r:#ff8a93;--rb:#2a1519;--rbd:#5b2a30}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--t);font:14px/1.4 Inter,"Segoe UI",system-ui,sans-serif;display:flex;overflow:hidden}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+aside{width:236px;flex:none;padding:20px 14px;display:flex;flex-direction:column;gap:20px;background:var(--side);border-right:1px solid var(--b);overflow:auto}
+.logo{display:flex;align-items:center;gap:10px;padding:0 6px;font-weight:600;font-size:15px}
+.logo i{width:30px;height:30px;border-radius:8px;background:var(--g);display:flex;align-items:center;justify-content:center;color:var(--bg)}
+.srvbox{padding:10px 12px;border-radius:10px;background:#1a1f26;border:1px solid #28303a;display:flex;flex-direction:column;gap:1px}
+.srvbox b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.srvbox span{font-size:12px;color:var(--m)}
+nav{display:flex;flex-direction:column;gap:2px}
+nav a{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:8px;color:var(--m2);cursor:pointer;user-select:none}
+nav a:hover{background:#181d24}nav a.on{background:#1f2630;color:#fff;font-weight:500}nav a.on svg{color:var(--g)}
+nav a span.nm{flex:1}.bd{min-width:20px;padding:1px 7px;border-radius:99px;background:var(--y);color:#1a1204;font-size:12px;font-weight:600;text-align:center}
+.sleepbox{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:12px;background:#171c23;border:1px solid #28303a}
+.sleepbox .h{display:flex;align-items:center;justify-content:space-between;font-weight:600}.sleepbox small{font-size:12px;color:var(--m)}
+.sw{width:34px;height:20px;border-radius:99px;background:#3a4452;position:relative;cursor:pointer;flex:none;transition:.15s}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--bg);transition:.15s}
+.sw.on{background:var(--g)}.sw.on::after{left:17px}
+main{flex:1;min-width:0;display:flex;flex-direction:column;padding:22px 28px;gap:18px;overflow:auto}
+header{display:flex;align-items:center;gap:14px;flex:none}
+h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:99px;font-weight:500;font-size:13px;background:#123024;color:var(--g2)}
+.pill i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.y{background:#2e2410;color:var(--y)}.pill.r{background:var(--rb);color:var(--r)}.pill.b{background:#14233d;color:var(--bl)}
+.sp{flex:1}
+button{font:inherit;cursor:pointer;color:var(--t);background:#171c23;border:1px solid var(--b2);border-radius:9px;padding:9px 16px;font-weight:500}
+button:hover{background:#1d232b}button:disabled{opacity:.4;cursor:default}
+button.sm{padding:5px 11px;font-size:13px;border-radius:7px}
+button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:600}button.pri:hover{background:#2f6fe0}
+button.go{background:#12392a;border-color:#1f5a40;color:var(--g2)}button.bad{background:var(--rb);border-color:var(--rbd);color:var(--r)}
+button.warn{background:#2e2410;border-color:#5b4414;color:var(--y)}button.ghost{background:transparent}
+input,select,textarea{font:inherit;background:var(--in);border:1px solid var(--b);color:var(--t);border-radius:8px;padding:8px 11px;min-width:0}
+input:focus,select:focus{outline:2px solid #2d4f8f;border-color:transparent}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--a);padding:0;flex:none}
+.card{padding:16px 18px;border-radius:14px;background:var(--card);border:1px solid var(--b);display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
+.card>h3{margin:0 0 4px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}.card>h3 .sp{flex:1}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;flex:none}
+.tile{gap:6px}.tile .k{font-size:12px;color:var(--m);font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+.tile .v{font-size:28px;font-weight:600;letter-spacing:-.02em}.tile .v small{font-size:16px;color:var(--m);font-weight:500}
+.tile canvas{width:100%;height:32px;display:block}.meter{height:8px;border-radius:99px;background:#222a34;margin-top:10px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bl);transition:width .5s}
+.mid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;height:230px;flex:none}
+.low{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;flex:1;min-height:280px}
+.two{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
+.leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--m2);font-weight:400}.leg i{width:10px;height:3px;border-radius:2px}
+canvas.big{flex:1;min-height:0;width:100%;display:block}
+.pl{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--b)}.pl:first-of-type{border-top:0}
+.pl .n{flex:1;min-width:0}.pl .n b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis}.pl .n small{display:block;font-size:12px;color:var(--m)}
+.skin{width:34px;height:34px;border-radius:7px;image-rendering:pixelated;background:#222a34;flex:none;display:flex;align-items:center;justify-content:center;font-weight:600;overflow:hidden}
+.skin img{width:100%;height:100%;display:block;image-rendering:pixelated}
+.skin.sm{width:22px;height:22px;border-radius:5px;font-size:11px}
+.con{background:#0a0d11;border:1px solid var(--b);border-radius:14px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.con .bar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1c232b}
+.con .log{flex:1;min-height:0;overflow:auto;padding:10px 16px;font:12.5px/1.7 "JetBrains Mono",Consolas,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
+.con .log div.e{color:#fca5a5}.con .log div.w{color:#f5c76a}.con .log div.o{color:var(--g2)}.con .log div.c{color:#b69cff}.con .log div{color:#c9d1db}
+.con form{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid #1c232b}
+.con form span{font-family:Consolas,monospace;color:var(--g)}.con form input{flex:1;background:transparent;border:0;font:12.5px Consolas,monospace;padding:6px}
+.con form input:focus{outline:0}
+.att{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--b)}.att:first-of-type{border-top:0}
+.att .ic{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#123024;color:var(--g);flex:none}
+.att .ic.y{background:#3a2a0c;color:var(--y)}.att .ic.r{background:var(--rb);color:var(--r)}.att .ic svg{width:14px;height:14px;stroke-width:2.6}
+.att .tx{flex:1;min-width:0}.att .rt{font-size:12px;color:var(--m)}
+.li{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--b)}.li:first-child{border-top:0}.li>div{flex:1;min-width:0}
+.li b{display:block;overflow:hidden;text-overflow:ellipsis;font-weight:500}.li small{color:var(--m);display:block}
+.tag{font-size:11px;border-radius:6px;padding:1px 6px;background:var(--b);margin-left:6px;font-weight:400}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>.sp{flex:1}
+.lab{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--b)}.lab:first-child{border-top:0}.lab>span{flex:1}.lab input:not([type=checkbox]),.lab select{width:46%;flex:none}
+.mut{color:var(--m)}.ok{color:var(--g)}.err{color:var(--r)}.yel{color:var(--y)}.hide{display:none!important}
+.bar2{height:10px;background:var(--in);border-radius:6px;overflow:hidden}.bar2 i{display:block;height:100%;background:var(--g);transition:width .5s}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-top:1px solid var(--b);text-align:left}th{color:var(--m);font-weight:600;border:0}td.n,th.n{text-align:right}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:var(--in)}.seg button{border:0;background:transparent;color:var(--m);padding:4px 12px;font-size:12px;border-radius:6px}.seg button.on{background:#242c37;color:#fff}
+#busy{height:3px;background:#1c232b;border-radius:3px;overflow:hidden;flex:none}#busy i{display:block;height:100%;background:var(--bl);transition:width .4s}
+#busy.ind i{width:40%!important;animation:ind 1.2s infinite ease-in-out}@keyframes ind{0%{margin-left:-40%}100%{margin-left:100%}}
+#toast{position:fixed;right:24px;bottom:24px;max-width:420px;background:#2b3440;border:1px solid var(--b2);padding:12px 16px;border-radius:12px;display:none;z-index:30;box-shadow:0 8px 30px #000a}
+#dlg{position:fixed;inset:0;background:#000b;z-index:40;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:460px;width:100%;white-space:pre-wrap}
+#off{position:fixed;inset:0;background:#0e1115ee;z-index:50;display:none;align-items:center;justify-content:center;text-align:center;padding:30px;font-size:16px}
+#mapbox{position:relative;height:calc(100vh - 260px);min-height:360px;background:#0a0d11;border-radius:12px;overflow:hidden;touch-action:none}#mapbox canvas{width:100%;height:100%;display:block}
+.mapbtn{position:absolute;right:10px;display:flex;flex-direction:column;gap:6px}.mapbtn button{width:38px;height:38px;padding:0;font-size:19px;background:#161a20dd}
+.con.log2 .log{height:46vh;flex:none}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2a323c;border-radius:8px}::-webkit-scrollbar-track{background:transparent}
+@media(max-width:1100px){.tiles{grid-template-columns:repeat(2,1fr)}.mid,.low,.two{grid-template-columns:1fr;height:auto}aside{width:200px}}
+</style></head><body>
+<aside>
+ <div class="logo"><i><svg class="i" viewBox="0 0 24 24" style="stroke-width:2.4"><path d="M4 7l8-4 8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg></i>MC Server Manager</div>
+ <div class="srvbox"><b id="sname">Server</b><span id="sver">…</span></div>
+ <nav id="nav"></nav>
+ <div class="sleepbox"><div class="h">Auto slaapstand<div class="sw" id="swSleep" onclick="sleepAuto()" role="switch" tabindex="0"></div></div>
+  <small id="sleepTx">Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.</small>
+  <button id="btnSleep" onclick="sleepNow()">Nu in slaapstand</button></div>
+</aside>
+<main>
+ <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
+  <button class="go" id="bStart" onclick="act('start')">Starten</button><button id="bRestart" onclick="act('restart')">Herstarten</button><button class="bad" id="bStop" onclick="act('stop')">Stoppen</button></header>
+ <div id="busy" class="hide"><i style="width:0"></i></div>
+ <div id="view" style="display:flex;flex-direction:column;gap:18px;flex:1;min-height:0"></div>
+</main>
+<div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
+<div id="off">Verbinding met het programma is weg.<br><span class="mut" style="font-size:13px">Is MC Server Manager nog open? Dit scherm verbindt vanzelf opnieuw.</span></div>
+<script>
+const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=(()=>{try{return localStorage.getItem('dtab')||'ov'}catch(e){return'ov'}})(),LOG=[],cur={},LOG2=[],fails=0;
+const hd=(n,t)=>'/head/'+encodeURIComponent(n)+'?t='+encodeURIComponent(t||'');
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+function toast(t,ms=4500){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
+function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';
+ for(const [t,v,c] of [[no,false,''],[yes,true,'pri']]){const b=document.createElement('button');b.textContent=t;b.className=c;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
+async function api(p,b){let r;try{r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}})}catch(e){toast('Geen verbinding met het programma');throw e}
+ if(r.status==401){$('off').style.display='flex';$('off').firstChild.textContent='Open dit scherm via de knop "Nieuwe interface" in het programma.';throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
+const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.msg);return j}catch(e){return null}};
+const ico={ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+ con:'<path d="M4 17l6-6-6-6M12 19h8"/>',pl:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 5.2a3.5 3.5 0 010 6.6M18 14.800c2 .6 3.200 2.500 3.500 5.200"/>',
+ plug:'<path d="M10 4a2 2 0 114 0v2h4a1 1 0 011 1v4h-2a2 2 0 100 4h2v4a1 1 0 01-1 1h-4v-2a2 2 0 10-4 0v2H6a1 1 0 01-1-1v-4h2a2 2 0 100-4H5V7a1 1 0 011-1h4z"/>',
+ map:'<path d="M9 4L3 6.500v13L9 17l6 2.500 6-2.500v-13L15 7zM9 4v13M15 7v12.500"/>',bk:'<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.700 3.600 3 8 3s8-1.300 8-3V6M4 12v6c0 1.700 3.600 3 8 3s8-1.300 8-3v-6"/>',
+ set:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.900 4.900l2.100 2.100M17 17l2.100 2.100M4.900 19.100L7 17M17 7l2.100-2.100"/>'};
+const TABS=[['ov','Overzicht'],['con','Console'],['pl','Spelers'],['plug','Plugins'],['map','Kaart'],['bk','Backups'],['set','Instellingen']];
+function build(){$('nav').innerHTML=TABS.map(t=>`<a data-t="${t[0]}" onclick="setTab('${t[0]}')"><svg class="i" viewBox="0 0 24 24">${ico[t[0]==='plug'?'plug':t[0]]}</svg><span class="nm">${t[1]}</span><span class="bd hide" id="bd-${t[0]}"></span></a>`).join('');setTab(TABS.some(t=>t[0]==tab)?tab:'ov')}
+function setTab(t){if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('dtab',t)}catch(e){}
+ document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));$('ttl').textContent=TABS.find(x=>x[0]==t)[1];$('view').innerHTML='';(V[t]||V.ov)();if(S.stats)draw()}
+const V={};
+/* ---------- helpers ---------- */
+const num=s=>{const m=String(s==null?'':s).replace(',','.').match(/-?\d+(\.\d+)?/);return m?parseFloat(m[0]):null};
+function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth||100,h=c.clientHeight||32,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
+ d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let l=lo!=null?lo:Math.min(...d),hh=hi!=null?hi:Math.max(...d);if(hh-l<1e-6){hh=l+1}
+ x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-2-(Math.min(Math.max(v,l),hh)-l)/(hh-l)*(h-4);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
+ x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
+ x.fillStyle='#6b7684';x.font='11px sans-serif';[100,66,33,0].forEach((v,i)=>x.fillText(v+'%',4,10+i*(h-20)/3-3));
+ for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}}
+function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();im.src=hd(n,t);im.alt='';im.onerror=()=>{im.remove();d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase()};d.appendChild(im);return d}
+function skinHtml(n,t,cls){return `<span class="skin ${cls||''}"><img src="${hd(n,t)}" alt="" onerror="this.remove();"></span>`}
+function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
+const fb2=n=>n>1e9?(n/1e9).toFixed(1).replace('.',',')+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
+const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const OKI='<svg class="i" viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>',WARNI='<svg class="i" viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>';
+/* ---------- Overzicht ---------- */
+V.ov=()=>{$('view').innerHTML=`<section class="tiles">
+ <div class="card tile"><span class="k">TPS</span><span class="v" id="vTps">-</span><canvas id="sTps"></canvas></div>
+ <div class="card tile"><span class="k">Processor</span><span class="v" id="vCpu">-</span><canvas id="sCpu"></canvas></div>
+ <div class="card tile"><span class="k">Geheugen</span><span class="v" id="vRam">-</span><div class="meter"><i id="mRam" style="width:0"></i></div></div>
+ <div class="card tile"><span class="k">Temperatuur</span><span class="v" id="vTmp">-</span><canvas id="sTmp"></canvas></div></section>
+ <section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen</span><span class="leg"><i style="background:#f5a524"></i>Processor</span><span class="leg"><i style="background:#3ddc97"></i>TPS</span></h3><canvas class="big" id="cBig"></canvas></div>
+ <div class="card"><h3>Spelers online <span class="sp"></span><a class="mut" style="cursor:pointer;font-size:13px;color:var(--bl)" onclick="setTab('pl')">Alles beheren</a></h3><div id="ovPl" style="overflow:auto"></div></div></section>
+ <section class="low"><div class="con"><div class="bar"><b>Console</b><span class="mut" style="font-size:12px" id="cleanTx"></span><div class="sp"></div></div><div class="log" id="con"></div>
+ <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div>
+ <div class="card"><h3>Aandacht</h3><div id="att"></div></div></section>`;
+ LOG.forEach(addLine);cur.bk=null;attBackup();cur.t=setInterval(attBackup,60000);cur.stop=()=>clearInterval(cur.t)};
+async function attBackup(){const j=await go('/api/backuper');if(!j||!$('att'))return;cur.bkInfo=j.backups&&j.backups.length?{ago:ago(j.backups[0].mtime),size:fb2(j.backups[0].size)}:(j.jar?{none:1}:null);drawAtt()}
+function att(cls,icon,text,right,btn){return `<div class="att"><span class="ic ${cls}">${icon}</span><span class="tx">${text}</span>${btn||''}${right?`<span class="rt">${right}</span>`:''}</div>`}
+function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
+ if(j.selfupd)h+=att('y',WARNI,'Nieuwe programmaversie '+esc(j.selfupd),'',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ if(j.paperupd)h+=att('y',WARNI,'Paper-update beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ if(j.pupd)h+=att('y',WARNI,j.pupd+' plugin-update'+(j.pupd>1?'s':'')+' beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ const b=cur.bkInfo;if(b&&b.ago)h+=att('',OKI,'Laatste backup '+b.ago,b.size);else if(b&&b.none)h+=att('y',WARNI,'Nog geen backups gevonden','');
+ if(j.disk!=null)h+=att(j.disk<5?'r':'',j.disk<5?WARNI:OKI,'Schijf: '+j.disk.toFixed(0)+' GB vrij','');
+ if(j.sleep&&j.sleep.on)h+=att('',OKI,j.sleep.sleeping?'De server slaapt en start bij de eerste join':'Auto slaapstand staat aan',esc(j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:''));
+ if(j.status&&j.state!='stopped'&&j.busy)h+=att('y',WARNI,esc(j.status),'');
+ e.innerHTML=h||'<span class="mut">Alles in orde.</span>'}
+/* ---------- Console ---------- */
+const CMDS=['list','say ','whitelist add ','whitelist remove ','whitelist list','ban ','pardon ','kick ','op ','deop ','gamemode ','tp ','time set ','weather ','difficulty ','save-all','stop','tps','seed','give ','kill ','effect '];
+const HIST=(()=>{try{return JSON.parse(localStorage.getItem('dhist')||'[]')}catch(e){return[]}})();let hi=-1;
+function cmdKey(e){const i=e.target;if(e.key=='ArrowUp'){if(hi<HIST.length-1){hi++;i.value=HIST[hi]}e.preventDefault()}else if(e.key=='ArrowDown'){hi=Math.max(-1,hi-1);i.value=hi<0?'':HIST[hi];e.preventDefault()}
+ else if(e.key=='Tab'){e.preventDefault();const v=i.value.toLowerCase();if(!v)return;const m=CMDS.filter(c=>c.startsWith(v));if(m.length==1)i.value=m[0];else if(m.length>1){let p=m[0];for(const c of m)while(!c.startsWith(p))p=p.slice(0,-1);i.value=p;toast(m.join('   '),3500)}}}
+function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HIST.splice(50);hi=-1;try{localStorage.setItem('dhist',JSON.stringify(HIST))}catch(e){}go('/api/cmd',{cmd:v}).then(j=>{if(j&&j.ok===false)toast(j.msg)});i.value='';setTimeout(poll,500)}return false}
+function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
+ while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
+V.con=()=>{$('view').innerHTML=`<div class="seg" style="align-self:flex-start"><button class="on" id="mLive" onclick="conMode(0)">Live console</button><button id="mSrch" onclick="conMode(1)">Logboek doorzoeken</button></div>
+ <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="go('/api/clean',{on:this.checked})">schoon</label><div class="sp"></div>
+ <input id="cfilter" placeholder="Filter…" style="width:180px" oninput="refilter()"></div><div class="log" id="con"></div>
+ <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando. Tab vult aan, pijltje omhoog haalt het vorige terug" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div></div>
+ <div id="conSrch" style="display:none;flex-direction:column;gap:12px;flex:1;min-height:0"></div>`;LOG.forEach(addLine);$('cmd').focus()};
+function refilter(){const c=$('con');c.innerHTML='';LOG.forEach(addLine)}
+function conMode(m){$('mLive').classList.toggle('on',!m);$('mSrch').classList.toggle('on',!!m);$('conLive').style.display=m?'none':'flex';$('conSrch').style.display=m?'flex':'none';if(m&&!$('conSrch').innerHTML)srchUI()}
+const KINDS=['Alles','Joinen','Verlaten','Chat',"Commando's",'Doodgaan','Waarschuwingen en fouten'];
+function srchUI(){$('conSrch').innerHTML=`<div class="card"><div class="row"><input id="sq" placeholder="Zoekwoord(en)" style="flex:2" onkeydown="if(event.key=='Enter')srch()"><input id="sp" placeholder="Speler" style="flex:1"><select id="sk">${KINDS.map(k=>`<option>${k}</option>`).join('')}</select>
+ <input id="sf" type="date" title="Van"><input id="st" type="date" title="Tot"><button class="pri" onclick="srch()">Zoek</button></div><div class="mut" style="font-size:12px" id="sinfo">Doorzoekt latest.log en alle oude logs, ook de gecomprimeerde.</div></div>
+ <div class="con" style="flex:1"><div class="log" id="sres"></div></div>`}
+async function srch(){$('sinfo').textContent='Zoeken…';const j=await go('/api/logsearch',{q:$('sq').value,player:$('sp').value,kind:$('sk').value,from:$('sf').value,to:$('st').value});if(!j)return;
+ $('sres').innerHTML=j.rows.map(r=>`<div><span class="mut">${esc(r[0])} ${esc(r[1])}</span>  ${esc(r[2].replace(/^\[[\d:]+\]\s*/,''))}</div>`).join('')||'<div class="mut">Niets gevonden.</div>';
+ $('sinfo').textContent=`${j.rows.length}${j.limit?'+':''} regels gevonden in ${j.files} logbestand${j.files==1?'':'en'}${j.limit?' (maximaal 500 getoond, maak je zoekopdracht specifieker)':''}.`}
+/* ---------- Spelers ---------- */
+function plDlg(n,t){const acts=[['kick','Kick'],['ban','Ban'],['pardon','Pardon'],['op','Op'],['deop','Deop'],['whitelist_add','Whitelist +'],['whitelist_remove','Whitelist −'],['gm','Gamemode'],['tp','Tp naar speler'],['msg','Bericht']];
+ $('dmsg').textContent='Speler: '+n;$('dbtn').innerHTML='';
+ for(const [a,tt] of acts){const b=document.createElement('button');b.className='sm';b.textContent=tt;b.onclick=async()=>{let arg='';
+  if(['kick','ban'].includes(a))arg=prompt('Reden (mag leeg):')||'';else if(a=='gm'){arg=prompt('survival, creative, adventure of spectator:','survival')||''}else if(a=='tp'){arg=prompt('Naar welke speler?')||'';if(!arg)return}else if(a=='msg'){arg=prompt('Bericht:')||'';if(!arg)return}
+  if(['ban','kick','op','deop'].includes(a)&&!await ask(tt+' '+n+'?'))return;$('dlg').style.display='none';go('/api/player',{name:n,action:a,arg},tt+' '+n)};$('dbtn').appendChild(b)}
+ const c=document.createElement('button');c.className='sm ghost';c.textContent='Sluiten';c.onclick=()=>$('dlg').style.display='none';$('dbtn').appendChild(c);$('dlg').style.display='flex'}
+V.pl=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Online nu <span class="mut" id="pn"></span></h3><div id="plOn"></div></div>
+ <div class="card"><h3>Speelstatistieken <button class="sm" onclick="behP()">↻</button></h3><div id="bp" class="mut">Laden…</div></div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Whitelist <span class="sp"></span><label class="mut" style="font-weight:400;display:flex;gap:6px;align-items:center;font-size:13px">Whitelist actief<input type="checkbox" id="wlOn" onchange="wlToggle(this.checked)"></label></h3><div id="L-whitelist"></div></div>
+ <div class="card"><h3>Gebande spelers</h3><div id="L-bans"></div></div><div class="card"><h3>Gebande IP-adressen</h3><div id="L-ips"></div></div><div class="card"><h3>Operators</h3><div id="L-ops"></div></div></div></div>`;
+ behP();listsLoad()};
+function plOnline(){const e=$('plOn');if(!e)return;$('pn').textContent='('+S.players.length+')';e.innerHTML=S.players.length?'':'<span class="mut">Niemand online.</span>';
+ for(const p of S.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));const n=document.createElement('span');n.className='n';n.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(n);
+  const b=document.createElement('button');b.className='sm';b.textContent='Beheren';b.onclick=()=>plDlg(p.name,p.type);d.appendChild(b);e.appendChild(d)}}
+async function listsLoad(){const j=await go('/api/lists');if(!j||!$('L-bans'))return;cur.lists=j;if($('wlOn'))$('wlOn').checked=!!j.whitelist_on;
+ const mk=(k,ph,rsn)=>{const arr=j[k]||[];const key=e=>k=='ips'?e.ip:e.name;
+  return (arr.length?arr.map(e=>`<div class="li">${k=='ips'?'':skinHtml(e.name,'','sm')}<div><b>${esc(key(e))}</b>${k=='bans'||k=='ips'?`<small>${esc(e.reason||'')}${e.created?' · '+esc(String(e.created).slice(0,10)):''}</small>`:''}</div><button class="sm ghost" onclick="listRm('${k}','${esc(key(e)).replace(/'/g,"\\'")}')">Verwijderen</button></div>`).join(''):'<span class="mut">Leeg.</span>')+
+  `<div class="row" style="margin-top:8px"><input id="a-${k}" placeholder="${ph}" style="flex:1" onkeydown="if(event.key=='Enter')listAdd('${k}')">${rsn?`<input id="r-${k}" placeholder="Reden (optioneel)" style="flex:1">`:''}<button class="sm pri" onclick="listAdd('${k}')">Toevoegen</button></div>`};
+ $('L-whitelist').innerHTML=mk('whitelist','Spelersnaam');$('L-bans').innerHTML=mk('bans','Spelersnaam',1);$('L-ips').innerHTML=mk('ips','IP-adres',1);$('L-ops').innerHTML=mk('ops','Spelersnaam')}
+async function listAdd(k){const n=$('a-'+k).value.trim();if(!n)return;const r=$('r-'+k);const j=await go('/api/lists/add',{list:k,name:n,reason:r?r.value:''});if(j&&j.ok!==false){setTimeout(listsLoad,S.state=='online'?900:100)}}
+async function listRm(k,n){if(!await ask(n+' uit deze lijst halen?'))return;await go('/api/lists/remove',{list:k,name:n});setTimeout(listsLoad,S.state=='online'?900:100)}
+async function wlToggle(on){const j=await go('/api/props',{key:'white-list',value:on});if(S.state=='online')go('/api/cmd',{cmd:'whitelist '+(on?'on':'off')})}
+async function behP(){const dur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}u ${m}m`:`${m}m`};const j=await go('/api/stats');if(!j||!$('bp'))return;j.rows.sort((a,b)=>b.online-a.online||b.time-a.time);
+ $('bp').innerHTML=j.rows.length?`<table><tr><th>Speler</th><th class="n">Tijd</th><th class="n">Dood</th><th class="n">Kills</th><th class="n">km</th></tr>`+j.rows.map(r=>`<tr><td style="display:flex;align-items:center;gap:8px">${skinHtml(r.name,'','sm')}${esc(r.name)}${r.online?' <span class="ok">●</span>':''}</td><td class="n">${dur(r.time)}</td><td class="n">${r.deaths}</td><td class="n">${r.kills}</td><td class="n">${(r.dist/1000).toFixed(1)}</td></tr>`).join('')+'</table>':'Geen spelersgegevens gevonden.'}
+/* ---------- Plugins ---------- */
+V.plug=async()=>{$('view').innerHTML=`<div class="card"><h3>Plugins <button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
+<div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
+<label class="row mut" style="margin-top:8px;gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres" style="margin-top:8px"></div></div>`;
+ const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
+function renderPl(j){const items=j.items;$('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>`+
+ items.map(i=>`<label class="li"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b class="${i.enabled?'':'mut'}">${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.enabled?'':'<span class="tag">uit</span>'}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div></label>`).join(''):'Geen plugins gevonden.'}
+function plSel(f,on){on?cur.sel.add(f):cur.sel.delete(f)}
+async function plAct(en,force,stop_ok){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');
+ const j=await go('/api/plugins/toggle',{files,enable:en,force:!!force,stop_ok:!!stop_ok,restart:true});if(!j)return;
+ if(j.confirm){if(await ask(j.confirm))return plAct(en,true,true);return}setTimeout(V.plug,1500)}
+async function plRm(){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');if(!await ask(files.length+' plugin(s) verwijderen?\nZe gaan naar een aparte map en kunnen worden teruggezet. Een draaiende server wordt eerst veilig gestopt en daarna weer gestart.'))return;
+ await go('/api/plugins/remove',{files});setTimeout(V.plug,2000)}
+async function plLoad(u){await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u},'Verstuurd')}
+async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres').innerHTML='<span class="mut">Zoeken…</span>';
+ const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
+ $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
+async function pInst(idx){const j=await go('/api/plugins/install',{idx});if(!j||!j.plan_id)return;
+ if(!await ask('Dit wordt geïnstalleerd:\n\n'+j.lines.join('\n')+(j.running?'\n\nDe server draait. Na het installeren kun je hem herstarten.':'')))return;
+ let restart=false;if(j.running)restart=await ask('Server nu herstarten zodat de plugin geladen wordt?','Ja, herstart','Later');
+ await go('/api/plugins/install',{plan_id:j.plan_id,restart});setTimeout(()=>V.plug(),1500)}
+/* ---------- Updates ---------- */
+V.upd=async()=>{$('view').innerHTML='<div class="card" id="u1">Laden…</div><div class="card" id="u2"></div>';cur.t=setInterval(updRender,3000);cur.stop=()=>clearInterval(cur.t);updRender()};
+async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))return;
+ $('u1').innerHTML=`<h3>Paper (Minecraft ${esc(j.mc)}, build ${esc(j.build)})</h3><div style="color:${j.paper.color||'inherit'}">${esc(j.paper.text)}</div>
+ <div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('all')">Alles controleren</button><button class="sm go" onclick="uInst('paper')">Paper updaten</button></div>
+ <label class="lab"><span>Ook bèta/alpha-versies</span><input type="checkbox" ${j.unstable?'checked':''} onchange="go('/api/updates/opt',{unstable:this.checked})"></label>
+ <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>`;
+ const n=j.rows.filter(r=>r.tag=='update').length;
+ $('u2').innerHTML=`<h3>Plugins <span>${n?`<button class="sm go" onclick="uInst('plugins')">Alle ${n} updaten</button>`:''}</span></h3>`+j.rows.map(r=>`<div class="li"><div><b>${esc(r.name)}</b><small>${esc(r.cur)} → ${esc(r.latest)} • ${esc(r.source)}</small></div><span class="${r.tag=='update'?'yel':r.tag=='ok'?'ok':r.tag=='error'?'err':'mut'}" style="font-size:12px;max-width:40%;text-align:right">${esc(r.status)}</span></div>`).join('')+
+ `<div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('plugins')">Plugins controleren</button></div>
+ <h3 style="margin-top:16px">Dit programma (versie ${esc(j.version)})</h3>${j.selfupd?`<div>Nieuwe versie ${esc(j.selfupd)} beschikbaar.</div><div class="row" style="margin-top:8px"><button class="go" onclick="selfUpd()">Installeren</button></div>`:'<div class="mut">Je hebt de nieuwste versie (voor zover bekend).</div><div class="row" style="margin-top:8px"><button class="sm" onclick="go(\'/api/selfupdate\',{action:\'check\'},\'Zoeken…\')">Zoek updates</button></div>'}`}
+async function uCheck(w){await go('/api/updates/check',{what:w},'Controleren…');setTimeout(updRender,4000)}
+async function uInst(w){if(!await ask(w=='paper'?'Paper updaten? De server wordt veilig gestopt en weer gestart.':'Alle plugin-updates installeren? De server wordt zo nodig veilig gestopt en weer gestart.'))return;await go('/api/updates/install',{what:w},'Bezig…')}
+async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'},'Bezig…')}
+/* ---------- Kaart ---------- */
+V.map=async()=>{$('view').innerHTML=`<div class="card"><div class="row"><select id="mw" style="flex:2" onchange="mapWorld(this.value)"></select><button class="sm" id="msel" onclick="mapSel()">▭ Gebied kiezen</button></div>
+<div id="mapbox" style="margin-top:8px"><canvas id="mc"></canvas><div class="mapbtn" style="top:8px"><button onclick="mapZoom(1)">＋</button><button onclick="mapZoom(-1)">－</button><button onclick="mapHome()">⌂</button></div></div>
+<div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div></div><div class="card hide" id="mgen"></div>`;
+ const m=cur.m={worlds:[],players:[],w:null,zl:2,zt:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
+ mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
+async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
+ m.players=j.players||[];m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
+ if(first||!m.worlds.length){m.worlds=j.worlds;$('mw').innerHTML=j.worlds.map(w=>`<option value="${esc(w.name)}">${esc(w.display)}</option>`).join('');
+  if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
+ if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
+ m.dirty=true;genUI()}
+function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.w=w;m.zl=m.zt=Math.min(w.def,w.max+w.extra);m.anc=null;m.cx=w.spawn.x||0;m.cz=w.spawn.z||0;m.imgs.clear();$('mw').value=n;m.dirty=true}
+function mapHome(){const m=cur.m;if(m.w){m.cx=m.w.spawn.x||0;m.cz=m.w.spawn.z||0;m.dirty=true}}
+function mapZoom(d,px,py){const m=cur.m;if(!m.w)return;const top=m.w.max+m.w.extra,nt=Math.max(0,Math.min(top,Math.round(m.zt)+d));if(nt==m.zt)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;
+ if(px==null){px=W/2;py=H/2}const s=2**(m.zl-m.w.max);m.anc=[px,py,m.cx+(px-W/2)/s,m.cz+(py-H/2)/s];m.zt=nt;m.dirty=true}
+function mapAnim(m){if(!m.w||Math.abs(m.zl-m.zt)<0.002)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;m.zl+=(m.zt-m.zl)*0.18;if(Math.abs(m.zl-m.zt)<0.01)m.zl=m.zt;
+ if(m.anc){const s=2**(m.zl-m.w.max);m.cx=m.anc[2]-(m.anc[0]-W/2)/s;m.cz=m.anc[3]-(m.anc[1]-H/2)/s}m.dirty=true}
+function mapSel(){const m=cur.m;if(['running','paused','waiting','rendering'].includes(m.gen.state))return toast('Er loopt al een taak');m.selmode=!m.selmode;$('msel').classList.toggle('pri',m.selmode);
+ $('mmsg').textContent=m.selmode?'Sleep over de kaart om een gebied te kiezen':''}
+function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=null;
+ const wpt=(x,y)=>{const s=2**(m.zl-m.w.max);return [m.cx+(x-cv.clientWidth/2)/s,m.cz+(y-cv.clientHeight/2)/s]};
+ cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.offsetX,e.offsetY]);if(pts.size==1){last=[e.offsetX,e.offsetY];if(m.selmode&&m.w){start=wpt(e.offsetX,e.offsetY);m.tmp=[start[0],start[1],start[0],start[1]]}}else{start=null;m.tmp=null;last=null}});
+ cv.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;const old=pts.get(e.pointerId);pts.set(e.pointerId,[e.offsetX,e.offsetY]);if(!m.w)return;
+  if(pts.size==2){const [a,b]=[...pts.values()];const d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(m.pd){const top=m.w.max+m.w.extra,W=cv.clientWidth,H=cv.clientHeight,px=(a[0]+b[0])/2,py=(a[1]+b[1])/2,s0=2**(m.zl-m.w.max),wx=m.cx+(px-W/2)/s0,wz=m.cz+(py-H/2)/s0;m.zl=Math.max(0,Math.min(top,m.zl+Math.log2(d/m.pd)));m.zt=m.zl;const s1=2**(m.zl-m.w.max);m.cx=wx-(px-W/2)/s1;m.cz=wz-(py-H/2)/s1;m.dirty=true}m.pd=d;return}
+  if(m.selmode&&start){const p=wpt(e.offsetX,e.offsetY);m.tmp=[start[0],start[1],p[0],p[1]];m.dirty=true;return}
+  const s=2**(m.zl-m.w.max);m.anc=null;m.cx-=(e.offsetX-old[0])/s;m.cz-=(e.offsetY-old[1])/s;m.dirty=true});
+ const up=e=>{pts.delete(e.pointerId);m.pd=0;if(m.selmode&&start&&m.tmp){const t=m.tmp;m.tmp=null;start=null;m.selmode=false;$('msel').classList.remove('pri');
+   const a=[Math.round(Math.min(t[0],t[2])),Math.round(Math.min(t[1],t[3])),Math.round(Math.max(t[0],t[2])),Math.round(Math.max(t[1],t[3]))];
+   if(a[2]-a[0]<32||a[3]-a[1]<32){toast('Gebied te klein');m.dirty=true;return}
+   go('/map/area',{world:m.w.name,area:a}).then(()=>mapLoad(false))}};
+ cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+ cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
+function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv)mapAnim(m);if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
+function tileImg(m,key){let t=m.imgs.get(key);if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.onerror=()=>{t.bad=true};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
+  if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
+function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
+ const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}
+ const w=m.w,nat=Math.min(Math.ceil(m.zl-1e-6),w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
+ const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=P<511;
+ for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
+  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.floor(W/2+(tx*span-m.cx)*s),Math.floor(H/2+(ty*span-m.cz)*s),Math.ceil(P)+1,Math.ceil(P)+1)}
+ const c=(a,b)=>[W/2+(a-m.cx)*s,H/2+(b-m.cz)*s];
+ const g=m.gen||{};const area=m.tmp?[Math.min(m.tmp[0],m.tmp[2]),Math.min(m.tmp[1],m.tmp[3]),Math.max(m.tmp[0],m.tmp[2]),Math.max(m.tmp[1],m.tmp[3])]:(g.area&&g.world==w.name?g.area:null);
+ if(area){const [ax,ay]=c(area[0],area[1]),[bx,by]=c(area[2],area[3]);const col={running:'#22c55e',paused:'#f59e0b',rendering:'#38bdf8',done:'#22c55e'}[g.state]||'#c084fc';
+  x.fillStyle=col+'33';x.strokeStyle=col;x.lineWidth=2;x.setLineDash([6,3]);x.fillRect(ax,ay,bx-ax,by-ay);x.strokeRect(ax,ay,bx-ax,by-ay);x.setLineDash([])}
+ const sp=w.spawn;if(sp){const [a,b]=c(sp.x||0,sp.z||0);x.fillStyle='#fde047';x.font='bold 18px sans-serif';x.fillText('⌂',a-6,b+6)}
+ for(const p of m.players){if(p.world!=w.name)continue;const [a,b]=c(p.x,p.z);x.fillStyle=pcol(p.name);x.strokeStyle='#fff';x.lineWidth=2;const hi=headImg(m,p.name);
+  if(hi&&hi.ok){x.fillRect(a-14,b-14,28,28);x.strokeRect(a-14,b-14,28,28);x.imageSmoothingEnabled=false;x.drawImage(hi.img,a-12,b-12,24,24)}else{x.beginPath();x.arc(a,b,7,0,7);x.fill();x.stroke()}
+  x.font='bold 12px sans-serif';const tw=x.measureText(p.name).width;x.fillStyle='#111827cc';x.fillRect(a-tw/2-4,b-34,tw+8,16);x.fillStyle='#fff';x.fillText(p.name,a-tw/2,b-22)}}
+function headImg(m,n){m.heads=m.heads||{};let t=m.heads[n];if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.src=hd(n,'');m.heads[n]=t}return t}
+function pcol(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return['#ef4444','#3b82f6','#22c55e','#eab308','#a855f7','#f97316','#14b8a6','#ec4899'][h%8]}
+function genUI(){const m=cur.m,g=m.gen||{},e=$('mgen');if(!e)return;const st=g.state||'idle';e.classList.toggle('hide',st=='idle');if(st=='idle')return;
+ const fmt=n=>Math.round(n||0).toLocaleString('nl'),a=g.area,size=a?`${a[2]-a[0]} × ${a[3]-a[1]} blokken (${fmt(g.chunks)} chunks)`:'';let t='',btn='';
+ if(st=='ready'){t='Gebied: '+size;btn=m.chunky?`<button class="go" onclick="genAct('start')">Genereren</button>`:'<span class="yel">Chunky staat niet in de plugins</span>';btn+=`<button onclick="genAct('clear')">Wissen</button>`}
+ else if(st=='waiting'){t='⏳ Wacht tot de server leeg is • '+size;btn='<button class="bad" onclick="genAct(\'cancel\')">Annuleren</button>'}
+ else if(st=='running'||st=='paused'){t=st=='paused'&&g.reason?'⏸ Gepauzeerd: '+g.reason:(st=='running'?'Chunks genereren':'⏸ Gepauzeerd')+' • '+size;btn=`<button class="warn" onclick="genAct('pause')">${st=='running'?'⏸ Pauze':'▶ Hervat'}</button><button class="bad" onclick="genAct('cancel')">■ Stop</button>`}
+ else if(st=='rendering')t='✔ Chunks klaar • kaart wordt bijgewerkt…';else if(st=='done'){t='✔ Klaar • '+size;btn='<button onclick="genAct(\'clear\')">Sluiten</button>'}
+ e.innerHTML=`<h3>Gebied genereren</h3><div>${esc(t)}</div><div class="bar" style="margin:8px 0"><i style="width:${st=='done'||st=='rendering'?100:(g.pct||0)}%"></i></div><div class="mut" style="font-size:12px">${esc(m.info||'')}${st=='paused'&&g.auto?' • hervat vanzelf als de server leeg is':''}</div><div class="row" style="margin-top:8px">${btn}</div>`}
+async function genAct(a){await go('/map/gen',{action:a});mapLoad(false)}
+
+/* ---------- Plugins en updates samen ---------- */
+V.plug=async()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Plugins <span class="sp"></span><button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
+ <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" class="row"><input id="pq" style="flex:1" placeholder="Zoek een plugin, bijv. chunky"><button class="pri">Zoek</button></form>
+ <label class="row mut" style="gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres"></div></div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card" id="u1">Laden…</div><div class="card" id="u2"></div></div></div>`;
+ cur.t=setInterval(updRender,5000);cur.stop=()=>clearInterval(cur.t);updRender();
+ const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
+async function behB(){const j=await go('/api/backuper');if(!j||!$('bb'))return;cur.bk=j;cur.bsel=new Set();
+ if(!j.jar){$('bb').innerHTML='Backuper staat niet in de plugins-map.';return}
+ const tot=j.backups.reduce((a,b)=>a+b.size,0);
+ $('bb').innerHTML=`<div>${esc(j.jar)}${j.disabled?' <span class="tag">uit</span>':''}</div><div class="mut" style="margin:4px 0">${j.backups.length} backups, ${fb2(tot)}${j.backups.length?' • laatste '+dt(j.backups[0].mtime):''}</div>
+ <div class="row" style="margin:8px 0"><button class="go sm" onclick="bkNow()">💾 Nu backup maken</button><button class="bad sm" onclick="bkDel()">Geselecteerde verwijderen</button></div>`+
+ j.backups.slice(0,40).map((b,i)=>`<label class="li"><input type="checkbox" onchange="this.checked?cur.bsel.add(${i}):cur.bsel.delete(${i})"><div><b>${esc(b.name)}</b><small>${esc(b.storage)} • ${dt(b.mtime)} • ${fb2(b.size)}</small></div></label>`).join('')+
+ (j.has_config?`<h3 style="margin-top:14px">Instellingen van Backuper</h3>`+bkForm(j)+`<div class="row" style="margin-top:8px"><button class="sm pri" onclick="bkSave(false)">Opslaan</button><button class="sm warn" onclick="bkSave(true)">Opslaan en herstarten</button></div>`:'<div class="mut">Nog geen config.yml: start de server één keer.</div>')+
+ `<h3 style="margin-top:14px">Backups van dit programma</h3>`+j.own.map(o=>`<div class="lab"><span>${esc(o.label)}</span><span class="mut" style="flex:none">${o.count} • ${fb2(o.size)}</span></div>`).join('')}
+const BKG={autoBackup:['bool','Automatisch backups maken'],autoBackupPeriod:['int','Interval (minuten)'],autoBackupCron:['str','Cron-planning']};
+const BKS={enabled:['bool','Opslag gebruiken'],autoBackup:['bool','Automatisch hierheen'],backupsFolder:['str','Map'],maxBackupsNumber:['int','Max. aantal (0 = onbeperkt)'],maxBackupsWeight:['int','Max. grootte in MB (0 = onbeperkt)'],zipArchive:['bool','Als zip bewaren'],zipCompressionLevel:['int','Zip-compressie (0-9)']};
+function bkRow(path,def,val){const id='bk|'+path.join('|');return def[0]=='bool'?`<label class="lab"><span>${def[1]}</span><input type="checkbox" data-k="${esc(id)}" data-t="bool" ${val?'checked':''}></label>`:`<label class="lab"><span>${def[1]}</span><input data-k="${esc(id)}" data-t="${def[0]}" value="${esc(val)}" ${def[0]=='int'?'inputmode="numeric"':''}></label>`}
+function bkForm(j){let h='<div class="mut" style="font-size:12px">Planning</div>';for(const k in BKG)if(k in j.global)h+=bkRow(['backup',k],BKG[k],j.global[k]);
+ for(const s of j.storages){h+=`<div class="mut" style="font-size:12px;margin-top:8px">Opslag ${esc(s.id)} (${esc(s.type||'?')})</div>`;for(const k in BKS)if(k in s)h+=bkRow(['storages',s.id,k],BKS[k],s[k])}return h}
+async function bkSave(restart){const changes=[];document.querySelectorAll('[data-k]').forEach(e=>{const path=e.dataset.k.split('|').slice(1);const v=e.dataset.t=='bool'?e.checked:e.value;changes.push({path,value:v})});
+ if(restart&&!await ask('Opslaan en de server herstarten?'))return;await go('/api/backuper/config',{changes,restart});setTimeout(behB,1500)}
+async function bkNow(){const j=cur.bk;await go('/api/backuper/now',{cmd:j.cmd});setTimeout(behB,20000)}
+async function bkDel(){const j=cur.bk,items=[...cur.bsel].map(i=>j.backups[i]).filter(Boolean);if(!items.length)return toast('Vink eerst backups aan');if(!await ask(items.length+' backup(s) definitief verwijderen?'))return;await go('/api/backuper/delete',{items:items.map(b=>({storage:b.storage,name:b.name}))});behB()}
+async function behT(){const j=await go('/api/tuning');if(!j||!$('bt'))return;const fx=j.rows.filter(r=>r.fix);
+ $('bt').innerHTML=j.rows.map(r=>`<div class="li"><div><b class="${r.warn?'yel':''}">${esc(r.what)}: ${esc(r.now)}</b><small style="white-space:normal">${esc(r.adv)}</small></div></div>`).join('')+(fx.length?`<div class="row" style="margin-top:8px"><button class="go" onclick='behFix(${JSON.stringify(fx.map(r=>r.fix.split("=")[0]))})'>Alle ${fx.length} adviezen toepassen</button></div>`:'')}
+async function behFix(keys){if(!await ask('Adviezen toepassen in server.properties? Je moet de server daarna herstarten.'))return;await go('/api/tuning/apply',{keys});behT()}
+async function behW(){const j=await go('/api/world');if(!j||!$('bw'))return;const tot=j.items.reduce((a,b)=>a+b.size,0)||1,fb=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
+ $('bw').innerHTML=j.items.map(i=>`<div class="li"><div><b>${esc(i.name)}</b><div class="bar" style="margin-top:4px"><i style="width:${i.size/tot*100}%"></i></div></div><span>${fb(i.size)}</span></div>`).join('')+(j.disk?`<div class="mut" style="margin-top:6px">Schijf: ${fb(j.disk.free)} vrij van ${fb(j.disk.total)}</div>`:'')+
+ `<div class="row" style="margin-top:10px"><button onclick="behLogs()">Oude logs opruimen</button></div><div class="mut" style="font-size:12px;margin-top:8px">Regio's buiten een gebied wegzetten: kies op de kaart een gebied en gebruik dat op de pc (de server moet uit staan).</div>`}
+async function behLogs(){if(!await ask('Logs ouder dan 7 dagen en crash-reports ouder dan 14 dagen verwijderen?'))return;await go('/api/world/logs',{},'Opgeruimd');setTimeout(behW,1500)}
+
+V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
+/* ---------- Instellingen ---------- */
+async function sleepAuto(){const on=!$('swSleep').classList.contains('on');$('swSleep').classList.toggle('on',on);await go('/api/sleep',{action:'auto',on});setTimeout(poll,300)}
+async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
+async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
+const PROPL={'motd':'Bericht in serverlijst (MOTD)','max-players':'Maximaal aantal spelers','difficulty':'Moeilijkheid (peaceful, easy, normal, hard)','gamemode':'Standaard spelmodus','pvp':'PvP','white-list':'Whitelist','online-mode':'Online modus (Mojang-login)','allow-flight':'Vliegen toestaan','view-distance':'Zichtafstand','simulation-distance':'Simulatieafstand','spawn-protection':'Spawn-bescherming (blokken)'};
+V.set=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Server (server.properties)</h3><div id="props" class="mut">Laden…</div></div>
+ <div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>
+ <div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div></div>
+ <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Programma</h3><div id="set" class="mut">Laden…</div></div>
+ <div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:220px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div></div></div>`;
+ propsLoad();behT();netLoad();setLoad();LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')};
+async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
+const propSet=(key,value)=>go('/api/props',{key,value});
+const addAlog=l=>{const c=$('alog');if(!c)return;const d=document.createElement('div');d.className={error:'e',warn:'w',ok:'o'}[l[3]]||'';d.textContent=`[${l[1]}] ${l[2]}`;c.appendChild(d);c.scrollTop=c.scrollHeight};
+async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
+ $('net').innerHTML=`<div style="color:${j.status.color||'inherit'}">${esc(j.status.text)}</div><div class="mut" style="margin:4px 0">${esc(j.motd)} ${esc(j.info)}</div><div style="color:${j.bedrock.color||'inherit'}">${esc(j.bedrock.text)}</div><div class="mut" style="font-size:12px;margin-top:4px;white-space:pre-wrap">${esc(j.diag)}</div>
+ <div class="row" style="margin-top:8px"><input id="nh" value="${esc(j.host)}" placeholder="Adres/IP" style="flex:1"><input id="np" value="${esc(j.jport)}" style="width:90px" inputmode="numeric"></div>
+ <div class="row" style="margin-top:8px"><button onclick="netChk(false)" ${j.busy?'disabled':''}>Controleer</button><button onclick="netChk(true)" ${j.busy?'disabled':''}>Alleen lokaal</button></div>`}
+async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport:$('np').value,local},'Controleren…');setTimeout(netLoad,3500);setTimeout(netLoad,8000)}
+async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;
+ $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
+const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+/* ---------- Server-acties ---------- */
+async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
+/* ---------- Tekenen met live gegevens ---------- */
+function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.sleep.sleeping;
+ const m=sl?['Slaapstand','b']:{online:['Online','' ],starting:['Opstarten…','y'],stopping:['Stoppen…','y'],stopped:['Gestopt','r']}[st]||[st,'y'];
+ $('pill').className='pill '+(m[1]||'');$('pillTx').textContent=m[0]+(st=='online'&&j.stats.uptime&&j.stats.uptime!='-'?' · '+j.stats.uptime:'');
+ $('bStart').classList.toggle('hide',st!='stopped'||sl);$('bRestart').classList.toggle('hide',st!='online');$('bStop').classList.toggle('hide',!(st=='online'||st=='starting'));
+ $('sname').textContent=j.folder||'Server';$('sver').textContent=[j.mc,j.build?'build '+j.build:''].filter(Boolean).join(' · ')||'Paper';
+ $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=st!='online'||sl;
+ $('sleepTx').textContent=j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:'Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.';
+ const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
+ const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0)+(j.selfupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}
+ const g=j.graphs||{};
+ if($('vTps')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
+  $('vTps').textContent=j.stats.tps&&j.stats.tps!='-'?j.stats.tps:'-';
+  $('vCpu').innerHTML=cpu==null?'-':Math.round(cpu)+' <small>%</small>';
+  const rg=ram==null?null:ram/1024;$('vRam').innerHTML=rg==null?'-':rg.toFixed(1).replace('.',',')+(j.xmx?` <small>/ ${(j.xmx/1024).toFixed(0)} GB</small>`:' <small>GB</small>');
+  $('mRam').style.width=(ram!=null&&j.xmx?Math.min(100,ram/j.xmx*100):0)+'%';
+  $('vTmp').innerHTML=tmp==null?'<small>niet beschikbaar</small>':Math.round(tmp)+' <small>°C</small>';
+  spark('sTps',g.tps,'#3ddc97',0,20);spark('sCpu',g.cpu,'#f5a524',0,100);spark('sTmp',g.temp,'#f87171',null,null);
+  const ramPct=(g.ram||[]).map(v=>j.xmx?v/j.xmx*100:v);bigChart('cBig',[[ramPct,'#6ea8fe'],[g.cpu,'#f5a524']]);
+  const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
+   const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
+  $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
+ if(tab=='pl')plOnline();
+ if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
+/* ---------- poll ---------- */
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;fails=0;$('off').style.display='none';
+ j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
+ j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
+ draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.'}}busy=0}
+build();poll();setInterval(poll,2000);window.addEventListener('resize',()=>{if(S.stats)draw()});
+</script></body></html>
+"""
+# DESK_PAGE>>
+
+
 REMOTE_PAGE = r"""<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.png"><link rel="apple-touch-icon" href="/icon.png">
 <title>MC Server</title><style>
@@ -5635,6 +6120,8 @@ class RemoteServer:
         self.auto_until = 0.0
         self.answer = True
         self.sessions = {}
+        self.desk_only, self.port = False, 0
+        self.desk_token = secrets.token_urlsafe(18)
         self.fails = {}
         self.error = ""
         self.lock = threading.Lock()
@@ -5739,6 +6226,17 @@ class RemoteServer:
                     "gen": {k: (list(g[k]) if isinstance(g.get(k), tuple) else g.get(k)) for k in ("state", "pct", "done", "chunks", "area", "world", "reason", "auto")},
                     "gen_info": a.tab_map.gen_info.cget("text") if g.get("state") != "idle" else "",
                     "version": APP_VERSION}
+            snap["graphs"]["temp"] = series(a.spark_temp)
+            snap["stats"]["sleep"] = a.sv["sleep"].get()
+            try:
+                free = shutil.disk_usage(a.folder_var.get().strip() or ".").free / 1e9
+            except OSError:
+                free = None
+            snap.update(sleep={"on": bool(a.cfg.get("sleep_enabled")), "sleeping": bool(getattr(a, "_sleeping", False))},
+                        xmx=a.srv_xmx, mc=a.mc_var.get(), build=a.build_var.get(), disk=free,
+                        folder=os.path.basename(a.folder_var.get().strip().rstrip("/\\")) if a.folder_var.get().strip() else "",
+                        pupd=sum(1 for r in a.rows.values() if r.get("state") == "update"),
+                        paperupd=str(a.paper_label.cget("text")).startswith("⬆"))
             with self.lock:
                 self.snap = snap
         except Exception:
@@ -6132,8 +6630,9 @@ class RemoteServer:
         return 200, {"ok": True}
 
     # ================= HTTP =================
-    def start(self, port):
+    def start(self, port, host="0.0.0.0", desk_only=False):
         self.stop()
+        self.desk_only = desk_only
         outer = self
         self._install_shim()
         routes = {
@@ -6209,6 +6708,16 @@ class RemoteServer:
                 else:
                     body = {}
                 if method == "GET":
+                    if path == "/desk":
+                        tok = (query.get("t") or [""])[0]
+                        if tok and self.client_address[0] in ("127.0.0.1", "::1") and hmac.compare_digest(tok, outer.desk_token):
+                            st = secrets.token_urlsafe(32)
+                            outer.sessions[st] = time.time() + 30 * 86400
+                            return self._send(200, DESK_PAGE, "text/html",
+                                              extra=[("Set-Cookie", f"mcsess={st}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
+                        if self._authed():
+                            return self._send(200, DESK_PAGE, "text/html")
+                        return self._send(401, "Open dit scherm via de knop 'Nieuwe interface' in het programma.", "text/plain")
                     if path == "/":
                         return self._send(200, REMOTE_PAGE, "text/html")
                     if path == "/icon.png":
@@ -6263,7 +6772,8 @@ class RemoteServer:
                 self._dispatch("POST")
 
         try:
-            self.httpd = http.server.ThreadingHTTPServer(("0.0.0.0", int(port)), H)
+            self.httpd = http.server.ThreadingHTTPServer((host, int(port)), H)
+            self.port = self.httpd.server_address[1]
         except OSError as e:
             self.error = f"Poort {port} is niet beschikbaar ({e})."
             self.httpd = None
@@ -6277,7 +6787,100 @@ class RemoteServer:
     def extra_routes(self):
         return {("GET", "/api/backuper"): self.api_backuper, ("POST", "/api/backuper/config"): self.api_backuper_config,
                 ("POST", "/api/backuper/delete"): self.api_backuper_delete, ("POST", "/api/backuper/now"): self.api_backuper_now,
-                ("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen}
+                ("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen,
+                ("POST", "/api/sleep"): self.api_sleep, ("GET", "/api/lists"): self.api_lists, ("POST", "/api/lists/add"): self.api_lists_add,
+                ("POST", "/api/lists/remove"): self.api_lists_remove, ("POST", "/api/logsearch"): self.api_logsearch,
+                ("GET", "/api/props"): self.api_props, ("POST", "/api/props"): self.api_props_set}
+
+    # --- nieuwe interface: slaapstand, lijsten, logboek, server.properties ---
+    def api_sleep(self, q, body):
+        a = self.app
+        act = body.get("action")
+        if act == "now":
+            if not self.call_main(lambda: a.srv_state == "online" and not getattr(a, "_sleeping", False)):
+                return 200, {"ok": False, "msg": "De server draait niet (of slaapt al)"}
+            self.call_main(a.sleep_now, auto=True)
+            return 200, {"ok": True, "msg": "Slaapstand gestart"}
+        if act == "auto":
+            def go():
+                a.sleep_var.set(bool(body.get("on")))
+                a._sleep_toggle()
+            self.call_main(go)
+            return 200, {"ok": True}
+        return 400, {"error": "onbekend"}
+
+    def api_lists(self, q, body):
+        folder = self.folder()
+        if not folder:
+            return 200, {"folder": False}
+        out = {"folder": True, "whitelist_on": read_properties(folder).get("white-list", "false").lower() == "true"}
+        for k in LIST_FILES:
+            out[k] = lists_read(folder, k)
+        return 200, out
+
+    def api_lists_add(self, q, body):
+        key, name, reason = body.get("list"), str(body.get("name", "")).strip(), str(body.get("reason", "")).replace("\n", " ")[:200]
+        if key not in LIST_FILES or not re.fullmatch(r"[\w.\-: ]{1,45}", name):
+            return 400, {"error": "ongeldige invoer"}
+        if self.call_main(lambda: self.app.srv_running()):
+            cmd = {"whitelist": f"whitelist add {name}", "bans": f"ban {name} {reason}".strip(), "ips": f"ban-ip {name} {reason}".strip(),
+                   "ops": f"op {name}"}[key]
+            self.call_main(lambda: self.app.srv_send(cmd))
+            return 200, {"ok": True, "msg": cmd}
+        ok, msg = lists_file_add(self.folder(), key, name, reason)
+        return 200, {"ok": ok, "msg": msg}
+
+    def api_lists_remove(self, q, body):
+        key, name = body.get("list"), str(body.get("name", "")).strip()
+        if key not in LIST_FILES or not re.fullmatch(r"[\w.\-: ]{1,45}", name):
+            return 400, {"error": "ongeldige invoer"}
+        if self.call_main(lambda: self.app.srv_running()):
+            cmd = {"whitelist": f"whitelist remove {name}", "bans": f"pardon {name}", "ips": f"pardon-ip {name}", "ops": f"deop {name}"}[key]
+            self.call_main(lambda: self.app.srv_send(cmd))
+            return 200, {"ok": True, "msg": cmd}
+        lists_file_remove(self.folder(), key, {name})
+        return 200, {"ok": True, "msg": "Verwijderd"}
+
+    def api_logsearch(self, q, body):
+        folder = self.folder()
+        if not folder:
+            return 200, {"rows": [], "files": 0}
+        terms = [t for t in str(body.get("q", "")).split() if t][:6]
+        kinds = dict(LOG_KINDS)
+        kind = kinds.get(body.get("kind") or "Alles")
+        d_from, d_to = str(body.get("from", ""))[:10], str(body.get("to", ""))[:10]
+        rows = []
+        files = search_logs(folder, terms, str(body.get("player", ""))[:40], kind, d_from or None, d_to or None, 500,
+                            lambda r: rows.append(r), lambda: False)
+        return 200, {"rows": [list(r) for r in rows], "files": files, "limit": len(rows) >= 500, "kinds": [k for k, _ in LOG_KINDS]}
+
+    PROPS = {"motd": "str", "max-players": "int", "difficulty": "str", "gamemode": "str", "pvp": "bool", "white-list": "bool",
+             "online-mode": "bool", "allow-flight": "bool", "view-distance": "int", "simulation-distance": "int", "spawn-protection": "int"}
+
+    def api_props(self, q, body):
+        folder = self.folder()
+        pr = read_properties(folder) if folder else {}
+        return 200, {"props": {k: pr.get(k, "") for k in self.PROPS}, "kinds": self.PROPS,
+                     "running": bool(self.call_main(lambda: self.app.srv_running()))}
+
+    def api_props_set(self, q, body):
+        k, v = body.get("key"), body.get("value")
+        kind = self.PROPS.get(k)
+        if not kind:
+            return 400, {"error": "onbekende instelling"}
+        if kind == "bool":
+            v = "true" if v else "false"
+        elif kind == "int":
+            try:
+                v = str(min(max(int(v), 0), 100000))
+            except (TypeError, ValueError):
+                return 400, {"error": "ongeldige waarde"}
+        else:
+            v = str(v).replace("\n", " ").strip()[:200]
+            if k in ("difficulty", "gamemode") and not re.fullmatch(r"[a-z]{3,12}", v):
+                return 400, {"error": "ongeldige waarde"}
+        set_property(self.folder(), k, v)
+        return 200, {"ok": True, "msg": "Opgeslagen. Werkt na een herstart van de server."}
 
     def dynamic_route(self, method, path):
         if method == "GET" and path.startswith("/map/tile/"):
@@ -7870,6 +8473,10 @@ class App(tk.Tk):
                                       fg="white", activebackground="#4b5563", activeforeground="white",
                                       relief="flat", bd=0, padx=12, pady=5, font=("Segoe UI", 10), cursor="hand2")
         self.btn_settings.pack(side="right", padx=14, pady=10)
+        self.btn_desk = tk.Button(header, text="✨  Nieuwe interface", command=self.open_desk, bg="#2563eb",
+                                  fg="white", activebackground="#1d4ed8", activeforeground="white",
+                                  relief="flat", bd=0, padx=12, pady=5, font=("Segoe UI", 10), cursor="hand2")
+        self.btn_desk.pack(side="right", padx=0, pady=10)
         self.btn_start = tk.Button(header, text="▶  Server starten", command=self.start_server, bg="#059669",
                                    fg="white", activebackground="#047857", activeforeground="white",
                                    relief="flat", bd=0, padx=12, pady=5, font=("Segoe UI", 10), cursor="hand2")
@@ -7885,6 +8492,7 @@ class App(tk.Tk):
         body = ttk.Frame(self.tab_plug.sub, padding=10)      # Updates zit als subtabblad in Plugins
         self.tab_plug.sub.insert(1, body, text="🔧  Updates")
         self.remote = RemoteServer(self)
+        self.desk = RemoteServer(self)      # eigen scherm op dit adres (alleen deze computer)
         self.tab_map = MapTab(self.nb, self)
         self.tab_beheer = BeheerTab(self.nb, self)
         self.tab_backup = BackupTab(self.nb, self)
@@ -8018,6 +8626,7 @@ class App(tk.Tk):
         if k == "log":
             try:
                 self.remote.push_log(m[1], m[2])
+                self.desk.push_log(m[1], m[2])
             except Exception:
                 pass
             self.logbox.config(state="normal")
@@ -8954,6 +9563,7 @@ class App(tk.Tk):
             self._update_hidden_label()
             return
         self.remote.push(e)
+        self.desk.push(e)
         r = self._render(e)
         if r:
             self._text_insert(*r)
@@ -9166,12 +9776,21 @@ class App(tk.Tk):
         self.after(1000, self._heads_tick)
 
     def _remote_tick(self):
-        if self.remote.running:
-            self.remote.pump()
-            self._rt = getattr(self, "_rt", 0) + 1
-            if self._rt % 7 == 0:
-                self.remote.update()
+        self._rt = getattr(self, "_rt", 0) + 1
+        for r in (self.remote, self.desk):
+            if r.running:
+                r.pump()
+                if self._rt % 7 == 0:
+                    r.update()
         self.after(100, self._remote_tick)
+
+    def open_desk(self):
+        """Opent de nieuwe interface in een eigen venster (alleen bereikbaar vanaf deze computer)."""
+        if not self.desk.running and not (self.desk.start(8799, "127.0.0.1", True) or self.desk.start(0, "127.0.0.1", True)):
+            messagebox.showerror(APP_NAME, "De nieuwe interface kon niet starten: " + self.desk.error)
+            return
+        self.desk.update()
+        open_app_window(f"http://127.0.0.1:{self.desk.port}/desk?t={self.desk.desk_token}")
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""

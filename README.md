@@ -35,6 +35,8 @@ Starten, console, plugins, updates, kaart, backups en een webapp voor je telefoo
   <img src="docs/licht_backups.png" alt="Backups-tabblad (licht thema)" width="48%">
 </p>
 
+**✨ Nieuwe interface:** de knop bovenin opent een moderner scherm (eigen venster) met Overzicht, Console, Spelers, Plugins, Kaart, Backups en Instellingen. Het is alleen bereikbaar vanaf deze computer; de bron staat in [`nieuwe_interface/`](nieuwe_interface/).
+
 Verder: licht en donker thema, een Update-knop voor het programma zelf (zonder herstart als dat veilig kan),
 meldingen bij crash, start, spelers en klaar met genereren, en alles in het Nederlands.
 
