@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.10"
+APP_VERSION = "2.8.11"
 
 CHANGELOG = """
+2.8.11 - Kaart leest regiobestanden uit alle wereldmappen die het vindt (oude en nieuwe indeling samen).
 2.8.10 - De herstartvraag na een update toont nu wat er nieuw is.
 2.8.9 - Kaart: lege chunks (leegte zonder blokken) worden nu als vlak getoond in plaats van als niet-ingelezen.
 2.8.8 - Kaart begint gecentreerd op de spawn in plaats van op 0,0.
@@ -2798,9 +2799,12 @@ def find_world_dirs(folder):
                        j(folder, lvl, "dimensions", "minecraft", "the_nether", "region")],
             "end": [j(folder, lvl, "DIM1", "region"), j(folder, lvl + "_the_end", "DIM1", "region"),
                     j(folder, lvl, "dimensions", "minecraft", "the_end", "region")]}
-    out = {}
+    out, every = {}, {}
     for k, paths in cand.items():
-        out[k] = next((p for p in paths if os.path.isdir(p) and any(f.endswith(".mca") for f in os.listdir(p))), None)
+        have = [p for p in paths if os.path.isdir(p) and any(f.endswith(".mca") for f in os.listdir(p))]
+        out[k] = have[0] if have else None
+        every[k] = have  # alle mappen met regiobestanden: staan ze verdeeld over meerdere mappen, dan nemen we ze allemaal mee
+    out["_all"] = every
     out["_level"] = j(folder, lvl)
     return out
 
@@ -3133,22 +3137,24 @@ class MapTab(ttk.Frame):
         if force:
             self.mtimes.clear()
         jobs = []
+        best = {}
         for dim in ("overworld", "nether", "end"):
-            d = self.world.get(dim)
-            if not d:
-                continue
-            for fn in os.listdir(d):
-                m = re.fullmatch(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
-                if not m:
-                    continue
-                path = os.path.join(d, fn)
-                try:
-                    mt = os.path.getmtime(path)
-                except OSError:
-                    continue
-                if self.mtimes.get((dim, int(m.group(1)), int(m.group(2)))) == mt:
-                    continue
-                jobs.append((dim, int(m.group(1)), int(m.group(2)), path, mt))
+            for d in self.world.get("_all", {}).get(dim, []):
+                for fn in os.listdir(d):
+                    m = re.fullmatch(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
+                    if not m:
+                        continue
+                    path = os.path.join(d, fn)
+                    try:
+                        mt = os.path.getmtime(path)
+                    except OSError:
+                        continue
+                    key = (dim, int(m.group(1)), int(m.group(2)))
+                    if key not in best or mt > best[key][1]:  # staat een regio in twee mappen, dan de nieuwste
+                        best[key] = (path, mt)
+        for (dim, rx, rz), (path, mt) in best.items():
+            if self.mtimes.get((dim, rx, rz)) != mt:
+                jobs.append((dim, rx, rz, path, mt))
         sp = self.winfo_.get("spawn", (0, 0))
         jobs.sort(key=lambda j: (j[0] != self.dim, (j[1] * 512 + 256 - sp[0]) ** 2 + (j[2] * 512 + 256 - sp[1]) ** 2))
         self._scan_t = time.time()
@@ -3471,8 +3477,8 @@ class MapTab(ttk.Frame):
             bad, skip = getattr(self, "rstats", {}).get(rk, (0, {}))
             txt += f"     regio r.{rk[1]}.{rk[2]}" + (f", {bad} onleesbaar" if bad else "") + \
                    ("".join(f", {n}x '{st}'" for st, n in skip.items()) if skip else "") + \
-                   f"   [{self.world.get(self.dim)}]"
-        elif os.path.exists(os.path.join(self.world.get(self.dim) or "", f"r.{rk[1]}.{rk[2]}.mca")):
+                   "   [" + " + ".join(self.world.get("_all", {}).get(self.dim, [])[:2]) + "]"
+        elif any(os.path.exists(os.path.join(d, f"r.{rk[1]}.{rk[2]}.mca")) for d in self.world.get("_all", {}).get(self.dim, [])):
             txt += f"     regio r.{rk[1]}.{rk[2]} bestaat maar kon niet getekend worden"
         for n, p in self.pos.items():
             if "x" in p and p.get("dim", self.dim) == self.dim:

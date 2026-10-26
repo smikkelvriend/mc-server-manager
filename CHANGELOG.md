@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.11
+- Kaart: als regiobestanden verdeeld staan over meerdere mappen (bijvoorbeeld `world/region` en `world/dimensions/minecraft/overworld/region`), worden ze nu allemaal gebruikt; bij dubbele regio's telt de nieuwste.
+
 ## 2.8.10
 - De vraag om te herstarten na een programma-update toont nu ook wat er nieuw is (en het staat in het logboek).
 
