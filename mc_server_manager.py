@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.31"
+APP_VERSION = "2.32"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.32 - Nieuw: Slaapstand (Instellingen > Starten & Java). Als er X minuten niemand online is, stopt de server veilig en luistert het programma op de serverpoort. In de serverlijst staat dan "Server slaapt"; zodra iemand probeert te joinen start de server vanzelf weer (die speler probeert het na ca. een minuut opnieuw). Niet tijdens kaartgeneratie.
 2.31 - Grafieken verbruiken veel minder processortijd (alleen hertekenen als de lijn echt verschuift: van ca. 15% naar 4% van een kern in rust); de knop "Pagina" bij plugin-zoekresultaten werkt weer.
 2.30 - De Backuper-instellingen scrollen nu (muiswiel en balk). Aanvinkvakjes, keuzerondjes, scrollbalken en lijstrijen schalen mee met de Windows-schermschaling.
 2.29 - Backups-tabblad toonde de bestanden van je serverfolder als backups: bij ftp/sftp/webdav-opslag is "backupsFolder" een map op een andere computer en wordt niet meer als lokale map gelezen.
@@ -201,7 +202,7 @@ DEFAULTS = {
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
     "chunky_autopause": True, "chunky_autoresume": True,
-    "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False,
+    "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False, "sleep_enabled": False, "sleep_minutes": 10,
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
@@ -2366,6 +2367,185 @@ def flat_style(style, P):
 
 def dark_style(style):
     flat_style(style, DARK)
+
+
+def _vi(n):
+    out = bytearray()
+    n &= 0xFFFFFFFF
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        out.append(b | (0x80 if n else 0))
+        if not n:
+            return bytes(out)
+
+
+def _rvi(data, pos):
+    n = sh = 0
+    while True:
+        b = data[pos]
+        pos += 1
+        n |= (b & 0x7F) << sh
+        if not b & 0x80:
+            return n, pos
+        sh += 7
+        if sh > 35:
+            raise ValueError("varint")
+
+
+def _mc_str(t):
+    b = t.encode("utf-8")
+    return _vi(len(b)) + b
+
+
+def _mc_pkt(pid, payload=b""):
+    body = _vi(pid) + payload
+    return _vi(len(body)) + body
+
+
+RAKNET_MAGIC = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
+
+
+class WakeListener:
+    """Luistert op de serverpoort terwijl de server slaapt. Een speler die probeert te joinen wekt de server; de serverlijst
+    toont intussen een slaapmelding. Java: gewone Minecraft-handshake. Bedrock (Geyser): RakNet, alleen als er een poort is."""
+
+    def __init__(self, jport, bport, motd, max_players, on_wake, log):
+        self.jport, self.bport, self.motd, self.maxp = jport, bport, motd, max_players
+        self.on_wake, self.log = on_wake, log
+        self.socks, self._stop, self._woken = [], False, False
+        self.guid = secrets.randbits(63)
+
+    def start(self):
+        errs = []
+        try:
+            t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            t.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            t.bind(("0.0.0.0", int(self.jport)))
+            t.listen(8)
+            self.socks.append(t)
+            threading.Thread(target=self._accept, args=(t,), daemon=True).start()
+        except OSError as e:
+            errs.append(f"Java-poort {self.jport}: {e}")
+        if self.bport:
+            try:
+                u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                u.bind(("0.0.0.0", int(self.bport)))
+                self.socks.append(u)
+                threading.Thread(target=self._udp, args=(u,), daemon=True).start()
+            except OSError as e:
+                errs.append(f"Bedrock-poort {self.bport}: {e}")
+        return errs
+
+    def stop(self):
+        self._stop = True
+        for s in self.socks:
+            try:
+                s.close()
+            except OSError:
+                pass
+        self.socks = []
+
+    def _wake(self, who):
+        if not self._woken:
+            self._woken = True
+            self.on_wake(who)
+
+    # ---- Java ----
+    def _accept(self, srv):
+        while not self._stop:
+            try:
+                c, _a = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._conn, args=(c,), daemon=True).start()
+
+    @staticmethod
+    def _read_pkt(c):
+        data = b""
+        n = sh = 0
+        while True:
+            b = c.recv(1)
+            if not b:
+                raise OSError("dicht")
+            n |= (b[0] & 0x7F) << sh
+            if not b[0] & 0x80:
+                break
+            sh += 7
+            if sh > 21:
+                raise ValueError("te lang")
+        if n > 4096:
+            raise ValueError("te groot")
+        while len(data) < n:
+            chunk = c.recv(n - len(data))
+            if not chunk:
+                raise OSError("dicht")
+            data += chunk
+        return data
+
+    def _conn(self, c):
+        try:
+            c.settimeout(5)
+            d = self._read_pkt(c)
+            pid, p = _rvi(d, 0)
+            if pid != 0:
+                return
+            proto, p = _rvi(d, p)
+            ln, p = _rvi(d, p)
+            p += ln + 2
+            state, p = _rvi(d, p)
+            if state == 1:
+                self._read_pkt(c)  # status request
+                js = json.dumps({"version": {"name": "Slaapstand", "protocol": proto},
+                                 "players": {"max": self.maxp, "online": 0},
+                                 "description": {"text": self.motd}}, ensure_ascii=False)
+                c.sendall(_mc_pkt(0, _mc_str(js)))
+                try:
+                    d2 = self._read_pkt(c)
+                    pid2, p2 = _rvi(d2, 0)
+                    if pid2 == 1:
+                        c.sendall(_mc_pkt(1, d2[p2:p2 + 8]))
+                except (OSError, ValueError, IndexError):
+                    pass
+            elif state in (2, 3):
+                name = "?"
+                try:
+                    d2 = self._read_pkt(c)
+                    pid2, p2 = _rvi(d2, 0)
+                    ln2, p2 = _rvi(d2, p2)
+                    name = d2[p2:p2 + ln2].decode("utf-8", "replace")[:32] or "?"
+                except (OSError, ValueError, IndexError):
+                    pass
+                msg = json.dumps({"text": "De server sliep en wordt nu gestart.\nProbeer het over ongeveer een minuut opnieuw."},
+                                 ensure_ascii=False)
+                c.sendall(_mc_pkt(0, _mc_str(msg)))
+                self._wake(name)
+        except (OSError, ValueError, IndexError):
+            pass
+        finally:
+            try:
+                c.close()
+            except OSError:
+                pass
+
+    # ---- Bedrock ----
+    def _udp(self, u):
+        while not self._stop:
+            try:
+                data, addr = u.recvfrom(2048)
+            except OSError:
+                return
+            if not data:
+                continue
+            if data[0] in (1, 2) and len(data) >= 9:
+                info = f"MCPE;{self.motd};924;1.21.0;0;{self.maxp};{self.guid};Slaapstand;Survival;1;{self.bport};{self.bport}"
+                b = info.encode("utf-8")
+                try:
+                    u.sendto(b"\x1c" + data[1:9] + struct.pack(">Q", self.guid) + RAKNET_MAGIC + struct.pack(">H", len(b)) + b, addr)
+                except OSError:
+                    pass
+            elif data[0] == 5:  # open connection request: iemand probeert te verbinden
+                self._wake("Bedrock-speler")
 
 
 def make_scroll_frame(parent):
@@ -7294,6 +7474,8 @@ class App(tk.Tk):
                     pass
         elif k == "status":
             self.status_var.set(m[1])
+        elif k == "wake":
+            self._wake(m[1])
         elif k == "progress":
             self.pbar.stop()
             self.pbar.config(mode="determinate", maximum=max(m[2], 1), value=m[1])
@@ -7440,6 +7622,7 @@ class App(tk.Tk):
 
     def _startup(self):
         self.after(60000, self._graphs_tick)
+        self.after(15000, self._sleep_tick)
         self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
                           "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
@@ -7631,6 +7814,8 @@ class App(tk.Tk):
         for w in [self.cmd_entry, self.btn_send] + self.quick_btns:
             w.config(state="normal" if st in ("starting", "online") else "disabled")
         self.btn_start.config(text="▶  Server starten" if st == "stopped" else "🖥  Naar server")
+        if st == "stopped" and getattr(self, "_sleeping", False):
+            self.srv_state_lbl.config(text="😴  Slaapstand", fg="#7c3aed")
 
     def start_server(self):
         """Knop in de balk bovenin."""
@@ -7701,6 +7886,7 @@ class App(tk.Tk):
             messagebox.showwarning(APP_NAME, str(e).replace("\\n", "\n"))
             return
         folder = self.folder_var.get().strip()
+        self._wake_stop()
         self._mcm_install(folder)
         try:
             proc = subprocess.Popen(cmd, cwd=folder, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -7743,6 +7929,76 @@ class App(tk.Tk):
             pass
         code = proc.wait()
         self.q.put(("srv_exit", proc, code))
+
+    # ---- Slaapstand: server stoppen als er niemand is, wakker maken zodra iemand probeert te joinen ----
+    def _sleep_tick(self):
+        try:
+            if self.cfg.get("sleep_enabled") and self.srv_state == "online" and not getattr(self, "_sleeping", False):
+                busy = bool(self.players) or self.tab_map.gen["state"] in ("running", "paused")
+                now = time.time()
+                if busy or not getattr(self, "_idle_since", None):
+                    self._idle_since = now
+                else:
+                    mins = max(1, int(self.cfg.get("sleep_minutes", 10) or 10))
+                    if now - self._idle_since >= mins * 60:
+                        self._go_sleep(mins)
+        finally:
+            self.after(15000, self._sleep_tick)
+
+    def _go_sleep(self, mins):
+        self.log(f"Slaapstand: al {mins} minuten niemand online. De server wordt veilig gestopt en start vanzelf weer zodra iemand probeert te joinen.", "info")
+        self._sleeping = True
+        self.srv_stop(after=self._sleep_enter)
+
+    def _wake_ports(self):
+        folder = self.folder_var.get().strip()
+        props = read_properties(folder)
+        try:
+            jport = int(props.get("server-port") or 25565)
+        except ValueError:
+            jport = 25565
+        try:
+            maxp = int(props.get("max-players") or 20)
+        except ValueError:
+            maxp = 20
+        bport = 0
+        try:
+            if any("geyser" in f.lower() and f.lower().endswith(".jar") for f in os.listdir(os.path.join(folder, "plugins"))):
+                bport = int_var(self.reach_bport_var, 19132)
+        except OSError:
+            pass
+        return jport, bport, maxp
+
+    def _sleep_enter(self):
+        if not getattr(self, "_sleeping", False):
+            return
+        jport, bport, maxp = self._wake_ports()
+        self._wake_stop(keep=True)
+        lis = WakeListener(jport, bport, "💤 Server slaapt: verbind om hem wakker te maken", maxp,
+                           lambda who: self.q.put(("wake", who)), self.log)
+        errs = lis.start()
+        self._wake_lis = lis
+        if errs:
+            self.log("Slaapstand: kon niet luisteren op " + "; ".join(errs) + ". Start de server zelf met de knop.", "warn")
+        else:
+            self.log(f"Slaapstand: wacht op spelers (poort {jport}" + (f", Bedrock {bport}" if bport else "") + ").", "ok")
+        self._set_state("stopped")
+
+    def _wake_stop(self, keep=False):
+        lis = getattr(self, "_wake_lis", None)
+        if lis is not None:
+            lis.stop()
+            self._wake_lis = None
+        if not keep:
+            self._sleeping = False
+
+    def _wake(self, who):
+        if not getattr(self, "_sleeping", False) or self.srv_running():
+            return
+        self.log(f"Slaapstand: {who} probeert te joinen. De server wordt gestart…", "ok")
+        self._wake_stop()
+        self._set_state("stopped")
+        self.after(1200, self.srv_start)
 
     def _mcm_install(self, folder):
         """Zet (eenmalig) het kleine hulpplugin MCMTab in de plugins-map. Daarmee geeft de server zijn eigen Tab-aanvullingen door."""
@@ -8340,6 +8596,7 @@ class App(tk.Tk):
         if DONE_RE.search(msg) and self.srv_state == "starting":
             self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
+            self._idle_since = time.time()
             self.after(12000, self._learn_commands)
             self._startup_until = time.time() + 10
             if self.reach_auto_var.get():
@@ -9154,6 +9411,7 @@ class App(tk.Tk):
                                                  "opgeslagen) en daarna sluit het programma. Doorgaan?"):
                 return
             self._stop_blocking()
+        self._wake_stop()
         self._cleanup_tmp()
         self._graphs_save()
         self._save_cfg()
@@ -9831,6 +10089,13 @@ class SettingsDialog(tk.Toplevel):
         self._spin(f, "Wachttijd bij stoppen:", "stop_timeout", 9, 10, 600, "seconden, daarna krijg je een waarschuwing")
         self._spin(f, "Spelers/TPS verversen:", "poll_secs", 10, 0, 600, "seconden (0 = uit; stuurt 'list' en 'tps')")
         self._check(f, "Automatisch herstarten na een crash (max. 3x per 10 minuten)", self.v["auto_restart"], 11)
+        self._sep(f, 12)
+        self._check(f, "😴  Slaapstand: server stoppen als er niemand online is, en weer starten zodra iemand probeert te joinen",
+                    self.v["sleep_enabled"], 13)
+        self._spin(f, "Slapen na:", "sleep_minutes", 14, 1, 600, "minuten zonder spelers")
+        self._hint(f, "Tijdens de slaapstand luistert dit programma op de serverpoort; in de serverlijst staat dan 'Server slaapt'. "
+                      "De speler die probeert te joinen krijgt de melding dat de server start en kan het na ongeveer een minuut opnieuw proberen. "
+                      "Niet tijdens het genereren van de kaart.", 15)
 
     def _pick_java(self):
         f = filedialog.askopenfilename(parent=self, title="Kies java.exe",
@@ -9983,6 +10248,7 @@ class SettingsDialog(tk.Toplevel):
         c["server_backups_max"] = min(max(int(c["server_backups_max"]), 1), 999)
         c["plugin_backups_max"] = min(max(int(c["plugin_backups_max"]), 1), 999)
         c["net_timeout"] = min(max(int(c["net_timeout"]), 5), 180)
+        c["sleep_minutes"] = min(max(int(c["sleep_minutes"]), 1), 600)
         c["mc_override"] = c["mc_override"].strip()
         c["ignore_list"] = c["ignore_list"].strip()
         c["backup_dir"] = c["backup_dir"].strip()

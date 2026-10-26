@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.32
+- Nieuw: **Slaapstand** (Instellingen > Starten & Java). Staat er X minuten niemand online, dan stopt de server veilig en gaat het programma op de serverpoort luisteren. In de Minecraft-serverlijst staat dan "Server slaapt". Probeert iemand te joinen, dan krijgt die de melding dat de server start en wordt de server automatisch gestart; na ongeveer een minuut kan de speler gewoon joinen.
+- De server gaat niet slapen zolang Chunky de kaart genereert. De knop "Server starten" wekt de server ook.
+- Bedrock-spelers (Geyser) worden ook herkend, maar dat onderdeel is nog niet met een echte Bedrock-client getest.
+- Deze versie vereist een herstart.
+
 ## 2.31
 - Zuiniger: de grafieken op het Server-tabblad worden alleen nog hertekend als de lijn minstens een halve pixel is opgeschoven. Dat scheelt in rust grofweg driekwart van de processortijd.
 - Fix: de knop "Pagina" bij plugin-zoekresultaten deed niets (ontbrekende functie).

@@ -8,12 +8,13 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.30
+## Versies 2.2 t/m 2.31
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
 | Versie | Wat was nieuw |
 |---|---|
+| [`2.31`](mc_server_manager_2.31.py) | Zuinigere grafieken, knop "Pagina" gerepareerd |
 | [`2.30`](mc_server_manager_2.30.py) | Backuper-instellingen scrollbaar, DPI-schaling van vinkjes |
 | [`2.29`](mc_server_manager_2.29.py) | Backups toonde serverbestanden voor ftp/sftp/webdav-opslag |
 | [`2.28`](mc_server_manager_2.28.py) | Opgeschoonde, modernere interface |
