@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.7
+- **Nieuw tabblad Kaart:** terrein van je wereld (Overworld, Nether, End) uit de opgeslagen wereldbestanden, met alle spelers live erop:
+  gekleurde stip, naam, kijkrichting en een spoor van waar ze langs liepen. Slepen om te verschuiven, muiswiel om te zoomen,
+  raster met coordinaten, wereldrand en spawn, lijst met X/Y/Z per speler (dubbelklik = ernaartoe, of volg een speler).
+- Posities komen uit de server zelf (`data get entity`), dus geen extra plugin nodig; ze worden alleen opgevraagd zolang het tabblad open is.
+- Terrein wordt na een autosave van de server ververst; met de knop Kaart opnieuw inlezen kan het ook handmatig.
+
 ## 2.6.1
 - Scrollen met het muiswiel of de touchpad werkt nu in de hele plugin-lijst, ook als de muis boven een kaart of knop staat.
 

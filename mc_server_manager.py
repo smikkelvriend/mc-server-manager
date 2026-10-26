@@ -11,6 +11,7 @@ Optioneel: "pip install psutil" voor CPU- en geheugenstatistieken van de server.
 Bouwen naar .exe:  pyinstaller --onefile --windowed --name MCServerManager mc_server_manager.py
 """
 
+import gzip
 import hashlib
 import importlib
 import json
@@ -32,6 +33,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
+import zlib
 from collections import defaultdict, deque
 from datetime import datetime
 
@@ -44,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.6.1"
+APP_VERSION = "2.7"
 
 CHANGELOG = """
+2.7 - Nieuw tabblad Kaart: terrein van je wereld met alle spelers live erop (naam, richting, spoor, coordinaten).
 2.6.1 - Scrollen in de plugin-lijsten werkt nu ook als de muis boven een kaart staat.
 2.6 - Plugins-tabblad in kaartvorm: aantrekkelijker, met filter, sortering, aan/uit per plugin en installeren per zoekresultaat.
 2.5 - Vinkje bij Plugins zoeken: alleen plugins tonen die zeker werken met jouw Minecraft-versie.
@@ -134,6 +137,7 @@ DEFAULTS = {
     "stop_timeout": 60, "poll_secs": 30, "auto_restart": False, "console_max_lines": 5000, "console_font": 10,
     "graph_minutes": 5, "graph_zoom": True, "stats_secs": 2,
     "show_player_activity": True,
+    "map_poll_secs": 3, "map_names": True, "map_trails": True, "map_grid": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
     "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
@@ -2471,6 +2475,809 @@ class PluginsTab(ttk.Frame):
         self.after(120, self._poll)
 
 
+# ======================================================================================
+#  Wereldkaart: terrein uit de regiobestanden lezen en spelersposities verwerken
+# ======================================================================================
+MAP_RE = re.compile(r"^(\S+) has the following entity data: (.*)$")
+MAP_PX = 128            # pixels per regiobestand (512 blokken): 1 pixel = 4x4 blokken
+MAP_BG = "#0f172a"      # kleur van nog niet verkend gebied
+DIM_KEYS = {"minecraft:overworld": "overworld", "minecraft:the_nether": "nether", "minecraft:the_end": "end"}
+DIM_NAMES = {"overworld": "Overworld", "nether": "Nether", "end": "The End"}
+
+
+def _nbt_payload(b, p, t):
+    if t == 1:
+        return (b[p] if b[p] < 128 else b[p] - 256), p + 1
+    if t == 2:
+        return struct.unpack_from(">h", b, p)[0], p + 2
+    if t == 3:
+        return struct.unpack_from(">i", b, p)[0], p + 4
+    if t == 4:
+        return struct.unpack_from(">q", b, p)[0], p + 8
+    if t == 5:
+        return struct.unpack_from(">f", b, p)[0], p + 4
+    if t == 6:
+        return struct.unpack_from(">d", b, p)[0], p + 8
+    if t == 7:
+        n = struct.unpack_from(">i", b, p)[0]
+        return bytes(b[p + 4:p + 4 + n]), p + 4 + n
+    if t == 8:
+        n = struct.unpack_from(">H", b, p)[0]
+        return bytes(b[p + 2:p + 2 + n]).decode("utf-8", "replace"), p + 2 + n
+    if t == 9:
+        et = b[p]
+        n = struct.unpack_from(">i", b, p + 1)[0]
+        p += 5
+        out = []
+        for _ in range(n):
+            v, p = _nbt_payload(b, p, et)
+            out.append(v)
+        return out, p
+    if t == 10:
+        d = {}
+        while True:
+            tt = b[p]
+            p += 1
+            if tt == 0:
+                return d, p
+            nl = struct.unpack_from(">H", b, p)[0]
+            name = bytes(b[p + 2:p + 2 + nl]).decode("utf-8", "replace")
+            d[name], p = _nbt_payload(b, p + 2 + nl, tt)
+    if t == 11:
+        n = struct.unpack_from(">i", b, p)[0]
+        return bytes(b[p + 4:p + 4 + 4 * n]), p + 4 + 4 * n
+    if t == 12:
+        n = struct.unpack_from(">i", b, p)[0]
+        return bytes(b[p + 4:p + 4 + 8 * n]), p + 4 + 8 * n  # lange getallen blijven ruwe bytes: veel sneller
+    raise ValueError(f"onbekende NBT-tag {t}")
+
+
+def nbt_parse(buf):
+    """Minimale NBT-lezer: geeft de inhoud van de hoofd-compound als dict."""
+    if not buf or buf[0] != 10:
+        raise ValueError("geen NBT-compound")
+    nl = struct.unpack_from(">H", buf, 1)[0]
+    return _nbt_payload(buf, 3 + nl, 10)[0]
+
+
+def read_region_chunks(path):
+    """Geeft (index, chunk-dict) voor elke chunk in een .mca-bestand; kapotte chunks worden als (index, None) gemeld."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    for i in range(1024):
+        if len(data) < 4 * i + 4:
+            break
+        loc = int.from_bytes(data[4 * i:4 * i + 4], "big")
+        off = loc >> 8
+        if not off:
+            continue
+        start = off * 4096
+        try:
+            length = int.from_bytes(data[start:start + 4], "big")
+            comp = data[start + 4]
+            raw = data[start + 5:start + 4 + length]
+            if comp == 2:
+                raw = zlib.decompress(raw)
+            elif comp == 1:
+                raw = gzip.decompress(raw)
+            elif comp != 3:
+                yield i, None
+                continue
+            yield i, nbt_parse(raw)
+        except Exception:
+            yield i, None
+
+
+def _unpack_at(raw, idx, bits):
+    per = 64 // bits
+    li, off = divmod(idx, per)
+    return (struct.unpack_from(">Q", raw, li * 8)[0] >> (off * bits)) & ((1 << bits) - 1)
+
+
+def _hm_bits(n_longs):
+    for b in (9, 8, 10, 7, 11, 6, 12):
+        if -(-256 // (64 // b)) == n_longs:
+            return b
+    return 9
+
+
+BLOCK_COLOR_RULES = [
+    ("water", (46, 94, 190)), ("lava", (226, 96, 22)), ("kelp", (30, 100, 44)), ("seagrass", (30, 110, 52)),
+    ("powder_snow", (240, 246, 250)), ("snow", (245, 248, 250)), ("ice", (150, 182, 238)),
+    ("grass_block", (96, 160, 56)), ("mycelium", (112, 100, 106)), ("podzol", (92, 64, 26)),
+    ("crimson_nylium", (150, 32, 52)), ("warped_nylium", (32, 132, 122)), ("nether_wart_block", (116, 4, 4)),
+    ("warped_wart_block", (22, 122, 112)), ("netherrack", (112, 56, 54)), ("soul_sand", (84, 64, 52)),
+    ("soul_soil", (78, 60, 50)), ("basalt", (76, 76, 82)), ("blackstone", (44, 38, 44)), ("magma", (150, 62, 22)),
+    ("glowstone", (255, 220, 120)), ("shroomlight", (240, 150, 70)), ("end_stone", (222, 225, 160)),
+    ("purpur", (170, 120, 170)), ("obsidian", (24, 12, 34)), ("bedrock", (62, 62, 62)),
+    ("red_sand", (190, 102, 33)), ("sandstone", (216, 203, 155)), ("sand", (219, 207, 142)),
+    ("terracotta", (152, 94, 67)), ("gravel", (132, 128, 127)), ("clay", (160, 166, 179)),
+    ("farmland", (112, 76, 46)), ("dirt_path", (148, 122, 65)), ("dirt", (134, 96, 67)), ("mud", (60, 57, 60)),
+    ("moss", (90, 110, 46)), ("leaves", (50, 108, 36)), ("log", (104, 82, 52)), ("planks", (162, 130, 78)),
+    ("deepslate", (82, 82, 86)), ("tuff", (108, 109, 102)), ("calcite", (222, 222, 216)),
+    ("dripstone", (132, 102, 82)), ("copper", (192, 108, 82)), ("andesite", (136, 136, 136)),
+    ("diorite", (190, 190, 190)), ("granite", (150, 104, 86)), ("cobble", (122, 122, 122)), ("stone", (126, 126, 126)),
+    ("coral", (200, 90, 130)), ("grass", (96, 160, 56)), ("fern", (80, 140, 50)), ("bush", (70, 130, 46)),
+    ("sapling", (60, 120, 40)), ("flower", (100, 165, 60)), ("tulip", (100, 165, 60)), ("poppy", (100, 165, 60)),
+    ("dandelion", (100, 165, 60)), ("vine", (50, 110, 36)), ("sugar_cane", (130, 190, 90)), ("bamboo", (110, 160, 40)),
+    ("lily", (40, 110, 40)), ("azalea", (80, 120, 50)), ("sprout", (60, 120, 40)), ("pumpkin", (200, 120, 20)),
+    ("melon", (110, 160, 40)), ("hay", (190, 160, 30)), ("concrete", (150, 150, 160)),
+]
+_AIR = ("air", "cave_air", "void_air")
+_COLOR_CACHE = {}
+
+
+def block_color(name):
+    c = _COLOR_CACHE.get(name)
+    if c is None:
+        short = name.split(":", 1)[-1]
+        c = (128, 128, 128)
+        for key, col in BLOCK_COLOR_RULES:
+            if key in short:
+                c = col
+                break
+        _COLOR_CACHE[name] = c
+    return c
+
+
+def _block_name(S, x, y, z):
+    sec = S.get(y >> 4)
+    if sec is None:
+        return "minecraft:air"
+    pal, bits, data = sec
+    if not data:
+        return pal[0]
+    idx = ((y & 15) << 8) | (z << 4) | x
+    try:
+        return pal[_unpack_at(data, idx, bits)]
+    except (IndexError, struct.error):
+        return "minecraft:air"
+
+
+def _is_air(name):
+    return name.split(":", 1)[-1] in _AIR
+
+
+def _scan_down(S, x, z, y, y_min):
+    while y >= y_min:
+        if not _is_air(_block_name(S, x, y, z)):
+            return y
+        y -= 1
+    return None
+
+
+def sample_chunk(root, dim):
+    """Eén chunk -> 16 monsters (4x4 verdeeld over de chunk): lijst van (rgb, hoogte), of None als de chunk niet klaar is."""
+    lvl = root.get("Level") if isinstance(root.get("Level"), dict) else root
+    status = str(lvl.get("Status", "full"))
+    if "full" not in status:
+        return None
+    S = {}
+    for s in lvl.get("sections") or lvl.get("Sections") or []:
+        bs = s.get("block_states")
+        if not isinstance(bs, dict):
+            continue
+        pal = [p.get("Name", "minecraft:air") for p in bs.get("palette", []) if isinstance(p, dict)]
+        if not pal:
+            continue
+        data = bs.get("data")
+        S[s.get("Y", 0)] = (pal, 0, None) if (len(pal) == 1 or not data) else (pal, max(4, (len(pal) - 1).bit_length()), data)
+    if not S:
+        return None
+    hm = lvl.get("Heightmaps") if isinstance(lvl.get("Heightmaps"), dict) else {}
+    ws, of = hm.get("WORLD_SURFACE") or hm.get("MOTION_BLOCKING"), hm.get("OCEAN_FLOOR")
+    bits = _hm_bits(len(ws) // 8) if ws else 9
+    min_y = -64 if (bits >= 9 or (not ws and min(S) <= -4)) else 0
+    max_y = max(S) * 16 + 15
+    out = []
+    for sz in (2, 6, 10, 14):
+        for sx in (2, 6, 10, 14):
+            top = None
+            if dim == "nether" or not ws:
+                top = _scan_down(S, sx, sz, min(max_y, 120) if dim == "nether" else max_y, min_y)
+            else:
+                v = _unpack_at(ws, sx + sz * 16, bits)
+                if v:
+                    top = _scan_down(S, sx, sz, v + min_y - 1, min_y)
+            if top is None:
+                out.append((None, None))
+                continue
+            name = _block_name(S, sx, top, sz)
+            col = block_color(name)
+            if "water" in name and of and dim != "nether":
+                floor = _unpack_at(of, sx + sz * 16, bits) + min_y - 1
+                col = tuple(int(c * max(0.4, 1 - 0.035 * max(0, top - floor))) for c in col)
+            out.append((col, None if "water" in name else top))
+    return out
+
+
+def render_region(path, dim):
+    """Tekent één regiobestand als MAP_PX x MAP_PX pixels. Geeft (rijen met #rrggbb, aantal chunks, aantal onleesbaar)."""
+    cols = [[None] * MAP_PX for _ in range(MAP_PX)]
+    hts = [[None] * MAP_PX for _ in range(MAP_PX)]
+    ok = bad = 0
+    for idx, root in read_region_chunks(path):
+        if root is None:
+            bad += 1
+            continue
+        try:
+            res = sample_chunk(root, dim)
+        except Exception:
+            bad += 1
+            continue
+        if res is None:
+            continue
+        ok += 1
+        cx, cz = idx & 31, idx >> 5
+        for j, (c, h) in enumerate(res):
+            cols[cz * 4 + (j >> 2)][cx * 4 + (j & 3)] = c
+            hts[cz * 4 + (j >> 2)][cx * 4 + (j & 3)] = h
+    rows = []
+    for z in range(MAP_PX):
+        row = []
+        for x in range(MAP_PX):
+            c = cols[z][x]
+            if c is None:
+                row.append(MAP_BG)
+                continue
+            h = hts[z][x]
+            if h is not None:  # reliëf: lichter als het hoger ligt dan het noorden, donkerder als lager
+                n = hts[z - 1][x] if z > 0 and hts[z - 1][x] is not None else h
+                f = 1 + max(-0.4, min(0.4, (h - n) * 0.07))
+                c = tuple(max(0, min(255, int(v * f))) for v in c)
+            row.append("#%02x%02x%02x" % c)
+        rows.append(row)
+    return rows, ok, bad
+
+
+def find_world_dirs(folder):
+    """Zoekt per dimensie de map met regiobestanden (werkt voor de gewone, de Spigot/Paper- en de nieuwe indeling)."""
+    try:
+        lvl = read_properties(folder).get("level-name", "world") or "world"
+    except Exception:
+        lvl = "world"
+    j = os.path.join
+    cand = {"overworld": [j(folder, lvl, "region"), j(folder, lvl, "dimensions", "minecraft", "overworld", "region")],
+            "nether": [j(folder, lvl, "DIM-1", "region"), j(folder, lvl + "_nether", "DIM-1", "region"),
+                       j(folder, lvl, "dimensions", "minecraft", "the_nether", "region")],
+            "end": [j(folder, lvl, "DIM1", "region"), j(folder, lvl + "_the_end", "DIM1", "region"),
+                    j(folder, lvl, "dimensions", "minecraft", "the_end", "region")]}
+    out = {}
+    for k, paths in cand.items():
+        out[k] = next((p for p in paths if os.path.isdir(p) and any(f.endswith(".mca") for f in os.listdir(p))), None)
+    out["_level"] = j(folder, lvl)
+    return out
+
+
+def read_world_info(level_dir):
+    """Spawn en wereldgrens uit level.dat (best effort: het formaat verschilt per versie)."""
+    info = {}
+    try:
+        with open(os.path.join(level_dir, "level.dat"), "rb") as fh:
+            data = nbt_parse(gzip.decompress(fh.read())).get("Data", {})
+        if "SpawnX" in data:
+            info["spawn"] = (int(data["SpawnX"]), int(data.get("SpawnZ", 0)))
+        elif isinstance(data.get("spawn"), dict) and isinstance(data["spawn"].get("pos"), (bytes, list)):
+            pos = data["spawn"]["pos"]
+            if isinstance(pos, bytes) and len(pos) >= 12:
+                pos = struct.unpack(">3i", pos[:12])
+            info["spawn"] = (int(pos[0]), int(pos[2]))
+        if "BorderSize" in data:
+            info["border"] = (float(data.get("BorderCenterX", 0)), float(data.get("BorderCenterZ", 0)), float(data["BorderSize"]))
+    except Exception:
+        pass
+    return info
+
+
+def parse_entity_data(value):
+    """Verwerkt het antwoord van 'data get entity <speler> <pad>'. Geeft (soort, waarde) of None."""
+    v = value.strip()
+    if v.startswith('"') and v.endswith('"'):
+        return "dim", v.strip('"')
+    if v.startswith("[") and v.endswith("]"):
+        nums = re.findall(r"(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)[dDfFbBsSlL]?(?=\s*[,\]])", v)
+        try:
+            vals = [float(n) for n in nums]
+        except ValueError:
+            return None
+        if len(vals) == 3:
+            return "pos", vals
+        if len(vals) == 2:
+            return "rot", vals
+    return None
+
+
+
+
+class MapTab(ttk.Frame):
+    """Tabblad Kaart: terrein uit de wereldbestanden met alle spelers live erop."""
+    SCALES = (0.0625, 0.125, 0.25, 0.5, 1.0, 2.0)
+    BASE = 0.25  # pixels per blok van het opgeslagen kaartbeeld
+    COLORS = ("#ef4444", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899")
+    NAME_OK = re.compile(r"[A-Za-z0-9_.\-+]{1,32}")
+
+    def __init__(self, parent, app):
+        super().__init__(parent, padding=6)
+        self.app = app
+        self.q = queue.Queue()
+        self.dim, self.cx, self.cz, self.scale = "overworld", 0.0, 0.0, 0.5
+        self.base, self.imgs, self.mtimes = {}, {}, {}
+        self.pos, self.trails = {}, {}
+        self.world, self.winfo_ = {}, {}
+        self.scanning, self.visible, self.dirty = False, False, True
+        self._scan_t, self._swallow_until, self._ticks, self._answers, self._asked = 0.0, 0.0, 0, 0, 0
+        self._drag, self._busy_redraw, self._fit_done = None, False, False
+        c = app.cfg
+        self.names_var = tk.BooleanVar(value=bool(c.get("map_names", True)))
+        self.trails_var = tk.BooleanVar(value=bool(c.get("map_trails", True)))
+        self.grid_var = tk.BooleanVar(value=bool(c.get("map_grid", True)))
+        self.poll_var = tk.StringVar(value=str(c.get("map_poll_secs", 3)))
+        self.dim_var = tk.StringVar(value=DIM_NAMES[self.dim])
+        self.follow_var = tk.BooleanVar(value=False)
+        self.status_var, self.coord_var = tk.StringVar(), tk.StringVar()
+        self._build()
+        self.after(100, self._pump)
+
+    # ---------- opbouw ----------
+    def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
+        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg,
+                         relief="flat", bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
+
+    def _build(self):
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", pady=(0, 6))
+        cb = ttk.Combobox(bar, textvariable=self.dim_var, values=list(DIM_NAMES.values()), state="readonly", width=10)
+        cb.pack(side="left")
+        cb.bind("<<ComboboxSelected>>", lambda e: self._set_dim_from_ui())
+        for text, cmd, bg, fg in (("+", lambda: self._zoom(1), "#e5e7eb", "#111827"), ("−", lambda: self._zoom(-1), "#e5e7eb", "#111827"),
+                                  ("🎯  Alle spelers", self.fit_players, "#2563eb", "white"),
+                                  ("⌂  Spawn", self.goto_spawn, "#e5e7eb", "#111827"),
+                                  ("↻  Kaart opnieuw inlezen", lambda: self.scan(True), "#e5e7eb", "#111827")):
+            self._btn(bar, text, cmd, bg, fg).pack(side="left", padx=(6, 0))
+        for text, var in (("Namen", self.names_var), ("Sporen", self.trails_var), ("Raster", self.grid_var)):
+            ttk.Checkbutton(bar, text=text, variable=var, command=self._opts_changed).pack(side="left", padx=(12, 0))
+        tk.Label(bar, textvariable=self.status_var, fg="#6b7280", font=("Segoe UI", 9)).pack(side="right")
+        main = ttk.Frame(self)
+        main.pack(fill="both", expand=True)
+        side = ttk.Frame(main, width=300)
+        side.pack(side="right", fill="y", padx=(8, 0))
+        side.pack_propagate(False)
+        ttk.Label(side, text="Spelers op dit moment", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.tree = ttk.Treeview(side, columns=("name", "pos", "dim"), show="headings", height=12, selectmode="browse")
+        for cid, t, w in (("name", "Speler", 90), ("pos", "X  Y  Z", 120), ("dim", "Wereld", 70)):
+            self.tree.heading(cid, text=t)
+            self.tree.column(cid, width=w, anchor="w")
+        self.tree.pack(fill="both", expand=True, pady=(4, 6))
+        self.tree.bind("<Double-1>", lambda e: self._goto_selected())
+        ttk.Checkbutton(side, text="Volg de geselecteerde speler", variable=self.follow_var).pack(anchor="w")
+        row = ttk.Frame(side)
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text="Posities vernieuwen elke").pack(side="left")
+        pc = ttk.Combobox(row, textvariable=self.poll_var, values=["1", "2", "3", "5", "10"], width=3, state="readonly")
+        pc.pack(side="left", padx=4)
+        pc.bind("<<ComboboxSelected>>", lambda e: self._opts_changed())
+        ttk.Label(row, text="sec").pack(side="left")
+        tk.Label(side, justify="left", anchor="w", wraplength=290, fg="#6b7280", font=("Segoe UI", 8),
+                 text="Posities komen live uit de server (commando data get entity, zonder plugin) en worden alleen opgevraagd zolang dit "
+                      "tabblad open is. Het terrein komt uit de opgeslagen wereldbestanden: nieuw verkend gebied verschijnt na het "
+                      "volgende opslaan van de server.").pack(fill="x", pady=(8, 0))
+        self.cv = tk.Canvas(main, bg=MAP_BG, highlightthickness=0, cursor="fleur")
+        self.cv.pack(side="left", fill="both", expand=True)
+        tk.Label(self, textvariable=self.coord_var, anchor="w", fg="#4b5563", font=("Consolas", 9)).pack(fill="x", pady=(4, 0))
+        cv = self.cv
+        cv.bind("<Configure>", lambda e: self.redraw())
+        cv.bind("<ButtonPress-1>", self._press)
+        cv.bind("<B1-Motion>", self._motion_drag)
+        cv.bind("<ButtonRelease-1>", lambda e: setattr(self, "_drag", None))
+        cv.bind("<Motion>", self._hover)
+        cv.bind("<MouseWheel>", self._wheel)
+        cv.bind("<Button-4>", self._wheel)
+        cv.bind("<Button-5>", self._wheel)
+        cv.bind("<Double-Button-1>", lambda e: self._zoom(1, e.x, e.y))
+
+    # ---------- zichtbaarheid en timers ----------
+    def on_show(self):
+        self.visible = True
+        if not self.world or time.time() - self._scan_t > 90:
+            self.scan()
+        self._tick()
+        self.redraw()
+
+    def on_hide(self):
+        self.visible = False
+
+    def _tick(self):
+        if not self.visible:
+            return
+        self.poll_positions()
+        try:
+            secs = min(max(int(self.poll_var.get()), 1), 30)
+        except ValueError:
+            secs = 3
+        self._ticks += 1
+        if self._ticks % max(1, 90 // secs) == 0 and not self.scanning:
+            self.scan()  # af en toe kijken of de server nieuwe wereldbestanden heeft opgeslagen
+        self.after(secs * 1000, self._tick)
+
+    def _opts_changed(self):
+        c = self.app.cfg
+        c["map_names"], c["map_trails"], c["map_grid"] = self.names_var.get(), self.trails_var.get(), self.grid_var.get()
+        try:
+            c["map_poll_secs"] = int(self.poll_var.get())
+        except ValueError:
+            pass
+        save_config(c)
+        self.redraw()
+
+    # ---------- spelersposities ----------
+    def poll_positions(self):
+        app = self.app
+        if not app.srv_running() or app.srv_state != "online":
+            self.clear_positions()
+            return
+        names = [n for n in sorted(app.players, key=str.lower) if self.NAME_OK.fullmatch(n)]
+        for n in list(self.pos):
+            if n not in app.players:
+                self.pos.pop(n, None)
+                self.trails.pop(n, None)
+        if not names:
+            self._refresh_list()
+            self.redraw()
+            return
+        if len(names) > 15:  # grote servers: elke ronde een deel, zodat de console niet overspoeld wordt
+            k = (self._ticks * 15) % len(names)
+            names = (names + names)[k:k + 15]
+        self._swallow_until = time.time() + 2.5
+        for n in names:
+            app.srv_send(f"data get entity {n} Pos", echo=False)
+            app.srv_send(f"data get entity {n} Rotation", echo=False)
+            if n not in self.pos or "dim" not in self.pos[n] or self._ticks % 5 == 0:
+                app.srv_send(f"data get entity {n} Dimension", echo=False)
+            self._asked += 1
+        if self._asked >= 4 and self._answers == 0:
+            self.status_var.set("De server geeft geen posities terug (commando data get entity).")
+
+    def handle_line(self, msg):
+        """Aangeroepen voor elke consoleregel. True = regel is een positie-antwoord en moet niet in de console komen."""
+        m = MAP_RE.match(msg)
+        if not m or time.time() > self._swallow_until:
+            return False
+        name, val = m.group(1), m.group(2)
+        r = parse_entity_data(val)
+        if r is None:
+            return True
+        kind, v = r
+        p = self.pos.setdefault(name, {})
+        self._answers += 1
+        if kind == "pos":
+            old = (p.get("x"), p.get("z"))
+            p.update(x=v[0], y=v[1], z=v[2], t=time.time())
+            if old[0] is None or abs(old[0] - v[0]) + abs(old[1] - v[2]) >= 1:
+                tr = self.trails.setdefault(name, deque(maxlen=90))
+                tr.append((v[0], v[2], p.get("dim", self.dim)))
+        elif kind == "rot":
+            p["yaw"], p["pitch"] = v[0], v[1]
+        else:
+            p["dim"] = DIM_KEYS.get(v, "other")
+        self.dirty = True
+        return True
+
+    def clear_positions(self):
+        if self.pos or self.trails:
+            self.pos.clear()
+            self.trails.clear()
+            self._refresh_list()
+            self.dirty = True
+
+    def _refresh_list(self):
+        sel = self.tree.selection()
+        self.tree.delete(*self.tree.get_children())
+        for n in sorted(self.pos, key=str.lower):
+            p = self.pos[n]
+            if "x" not in p:
+                continue
+            self.tree.insert("", "end", iid=n, values=(n, f"{p['x']:.0f}  {p.get('y', 0):.0f}  {p['z']:.0f}",
+                                                       DIM_NAMES.get(p.get("dim"), "?")))
+        if sel and sel[0] in self.pos:
+            self.tree.selection_set(sel[0])
+
+    def _goto_selected(self):
+        sel = self.tree.selection()
+        if sel and sel[0] in self.pos and "x" in self.pos[sel[0]]:
+            p = self.pos[sel[0]]
+            if p.get("dim") in DIM_NAMES and p["dim"] != self.dim:
+                self.dim = p["dim"]
+                self.dim_var.set(DIM_NAMES[self.dim])
+            self.cx, self.cz = p["x"], p["z"]
+            self.scale = max(self.scale, 0.5)
+            self.dirty = True
+
+    # ---------- terrein inlezen ----------
+    def scan(self, force=False):
+        if self.scanning:
+            return
+        folder = self.app.folder_var.get().strip()
+        if not folder or not os.path.isdir(folder):
+            self.status_var.set("Kies eerst je servermap (tabblad Updates).")
+            return
+        self.world = find_world_dirs(folder)
+        self.winfo_ = read_world_info(self.world["_level"])
+        if not self.world.get("overworld") and not self.world.get("nether") and not self.world.get("end"):
+            self.status_var.set("Geen wereldbestanden (region) gevonden in de servermap.")
+            self.redraw()
+            return
+        if force:
+            self.mtimes.clear()
+        jobs = []
+        for dim in ("overworld", "nether", "end"):
+            d = self.world.get(dim)
+            if not d:
+                continue
+            for fn in os.listdir(d):
+                m = re.fullmatch(r"r\.(-?\d+)\.(-?\d+)\.mca", fn)
+                if not m:
+                    continue
+                path = os.path.join(d, fn)
+                try:
+                    mt = os.path.getmtime(path)
+                except OSError:
+                    continue
+                if self.mtimes.get((dim, int(m.group(1)), int(m.group(2)))) == mt:
+                    continue
+                jobs.append((dim, int(m.group(1)), int(m.group(2)), path, mt))
+        sp = self.winfo_.get("spawn", (0, 0))
+        jobs.sort(key=lambda j: (j[0] != self.dim, (j[1] * 512 + 256 - sp[0]) ** 2 + (j[2] * 512 + 256 - sp[1]) ** 2))
+        self._scan_t = time.time()
+        if not jobs:
+            self._status_done()
+            self._first_view()
+            return
+        self.scanning = True
+        self.status_var.set(f"Kaart inlezen… 0 / {len(jobs)}")
+
+        def work():
+            for i, (dim, rx, rz, path, mt) in enumerate(jobs, 1):
+                try:
+                    rows, ok, bad = render_region(path, dim)
+                    self.q.put(("region", dim, rx, rz, rows, ok, bad, mt))
+                except Exception as e:
+                    self.q.put(("regionerr", dim, rx, rz, str(e), mt))
+                self.q.put(("prog", i, len(jobs)))
+                time.sleep(0.01)
+            self.q.put(("done",))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _status_done(self):
+        n = sum(1 for k in self.base if k[0] == self.dim)
+        bad = sum(v for v in getattr(self, "_bad", {}).values())
+        self.status_var.set(f"{n} regio's van {DIM_NAMES[self.dim]} ingelezen" + (f", {bad} chunks onleesbaar" if bad else ""))
+
+    def _first_view(self):
+        if self._fit_done:
+            return
+        self._fit_done = True
+        if any("x" in p for p in self.pos.values()):
+            self.fit_players()
+        elif "spawn" in self.winfo_:
+            self.cx, self.cz = float(self.winfo_["spawn"][0]), float(self.winfo_["spawn"][1])
+        self.dirty = True
+
+    def _pump(self):
+        try:
+            for _ in range(40):
+                m = self.q.get_nowait()
+                if m[0] == "region":
+                    _k, dim, rx, rz, rows, ok, bad, mt = m
+                    self.mtimes[(dim, rx, rz)] = mt
+                    self._bad = getattr(self, "_bad", {})
+                    self._bad[(dim, rx, rz)] = bad
+                    for key in [k for k in self.imgs if k[:3] == (dim, rx, rz)]:
+                        del self.imgs[key]
+                    if ok:
+                        img = tk.PhotoImage(width=MAP_PX, height=MAP_PX)
+                        img.put(" ".join("{" + " ".join(r) + "}" for r in rows), to=(0, 0))
+                        self.base[(dim, rx, rz)] = img
+                        self.dirty = True
+                elif m[0] == "regionerr":
+                    self.mtimes[(m[1], m[2], m[3])] = m[5]
+                elif m[0] == "prog":
+                    self.status_var.set(f"Kaart inlezen… {m[1]} / {m[2]}")
+                elif m[0] == "done":
+                    self.scanning = False
+                    self._status_done()
+                    self._first_view()
+                    self.dirty = True
+        except queue.Empty:
+            pass
+        if self.dirty and self.visible:
+            self.dirty = False
+            self._refresh_list()
+            if self.follow_var.get():
+                sel = self.tree.selection()
+                if sel and sel[0] in self.pos and "x" in self.pos[sel[0]]:
+                    self.cx, self.cz = self.pos[sel[0]]["x"], self.pos[sel[0]]["z"]
+            self.redraw()
+        self.after(150, self._pump)
+
+    # ---------- weergave ----------
+    def _scaled(self, key):
+        s = self.scale
+        ratio = s / self.BASE
+        mode = ("z", int(round(ratio))) if ratio >= 1 else ("s", int(round(self.BASE / s)))
+        ck = key + mode
+        img = self.imgs.get(ck)
+        if img is None:
+            base = self.base[key]
+            img = base.zoom(mode[1], mode[1]) if mode[0] == "z" and mode[1] > 1 else (
+                base.subsample(mode[1], mode[1]) if mode[0] == "s" and mode[1] > 1 else base)
+            if len(self.imgs) > 48:
+                for old in list(self.imgs)[:24]:
+                    del self.imgs[old]
+            self.imgs[ck] = img
+        return img
+
+    def _w2c(self, x, z):
+        return self.cv.winfo_width() / 2 + (x - self.cx) * self.scale, self.cv.winfo_height() / 2 + (z - self.cz) * self.scale
+
+    def _color(self, name):
+        return self.COLORS[zlib.crc32(name.encode("utf-8")) % len(self.COLORS)]
+
+    def redraw(self):
+        cv = self.cv
+        W, H = cv.winfo_width(), cv.winfo_height()
+        if W < 20 or H < 20:
+            return
+        cv.delete("all")
+        s = self.scale
+        shown = 0
+        for key in list(self.base):
+            if key[0] != self.dim:
+                continue
+            x0, y0 = self._w2c(key[1] * 512, key[2] * 512)
+            size = 512 * s
+            if x0 > W or y0 > H or x0 + size < 0 or y0 + size < 0:
+                continue
+            cv.create_image(x0, y0, anchor="nw", image=self._scaled(key))
+            shown += 1
+        if self.grid_var.get():
+            self._draw_grid(W, H)
+        b = self.winfo_.get("border")
+        if b and b[2] < 5.9e7:
+            x1, y1 = self._w2c(b[0] - b[2] / 2, b[1] - b[2] / 2)
+            x2, y2 = self._w2c(b[0] + b[2] / 2, b[1] + b[2] / 2)
+            if self.dim == "overworld":
+                cv.create_rectangle(x1, y1, x2, y2, outline="#ef4444", width=2, dash=(6, 4))
+        sp = self.winfo_.get("spawn")
+        if sp and self.dim == "overworld":
+            sx, sy = self._w2c(sp[0], sp[1])
+            cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 16, "bold"))
+            cv.create_text(sx, sy + 16, text="Spawn", fill="#fde047", font=("Segoe UI", 8))
+        if not self.base or not shown:
+            msg = ("Kaart wordt ingelezen…" if self.scanning else
+                   ("Geen terrein voor deze wereld. Verken eerst iets en sla de wereld op (save-all)."
+                    if self.world else "Geen wereldbestanden gevonden."))
+            cv.create_text(W / 2, H / 2, text=msg, fill="#94a3b8", font=("Segoe UI", 12))
+        if self.trails_var.get():
+            for n, tr in self.trails.items():
+                pts = [self._w2c(x, z) for x, z, d in tr if d == self.dim or d == "other"]
+                if len(pts) >= 2:
+                    cv.create_line(*[v for p in pts for v in p], fill=self._color(n), width=2, dash=(3, 2))
+        for n in sorted(self.pos):
+            p = self.pos[n]
+            if "x" not in p or p.get("dim", self.dim) != self.dim:
+                continue
+            px, py = self._w2c(p["x"], p["z"])
+            if px < -40 or py < -40 or px > W + 40 or py > H + 40:
+                continue
+            col = self._color(n)
+            if "yaw" in p:
+                a = math.radians(p["yaw"])
+                cv.create_line(px, py, px - math.sin(a) * 18, py + math.cos(a) * 18, fill="white", width=3, arrow="last")
+            cv.create_oval(px - 7, py - 7, px + 7, py + 7, fill=col, outline="white", width=2)
+            if self.names_var.get():
+                t = cv.create_text(px, py - 18, text=n, fill="white", font=("Segoe UI", 9, "bold"))
+                bb = cv.bbox(t)
+                r = cv.create_rectangle(bb[0] - 4, bb[1] - 1, bb[2] + 4, bb[3] + 1, fill="#111827", outline=col)
+                cv.tag_lower(r, t)
+
+    def _draw_grid(self, W, H):
+        cv, s = self.cv, self.scale
+        step = next((v for v in (16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384) if v * s >= 80), 32768)
+        x_min, x_max = self.cx - W / 2 / s, self.cx + W / 2 / s
+        z_min, z_max = self.cz - H / 2 / s, self.cz + H / 2 / s
+        k = math.floor(x_min / step)
+        while k * step <= x_max:
+            x = k * step
+            sx, _ = self._w2c(x, 0)
+            cv.create_line(sx, 0, sx, H, fill="#e2e8f0" if x == 0 else "#64748b", dash=None if x == 0 else (1, 5))
+            cv.create_text(sx + 3, 10, text=str(x), anchor="w", fill="#cbd5e1", font=("Consolas", 8))
+            k += 1
+        k = math.floor(z_min / step)
+        while k * step <= z_max:
+            z = k * step
+            _, sy = self._w2c(0, z)
+            cv.create_line(0, sy, W, sy, fill="#e2e8f0" if z == 0 else "#64748b", dash=None if z == 0 else (1, 5))
+            cv.create_text(4, sy - 7, text=str(z), anchor="w", fill="#cbd5e1", font=("Consolas", 8))
+            k += 1
+
+    # ---------- bediening ----------
+    def _set_dim_from_ui(self):
+        for k, v in DIM_NAMES.items():
+            if v == self.dim_var.get():
+                self.dim = k
+        self._status_done()
+        self.dirty = True
+
+    def _zoom(self, d, mx=None, my=None):
+        i = min(range(len(self.SCALES)), key=lambda k: abs(self.SCALES[k] - self.scale))
+        j = max(0, min(len(self.SCALES) - 1, i + d))
+        new = self.SCALES[j]
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        if mx is not None:  # het punt onder de muis blijft staan
+            wx, wz = self.cx + (mx - W / 2) / self.scale, self.cz + (my - H / 2) / self.scale
+            self.cx, self.cz = wx - (mx - W / 2) / new, wz - (my - H / 2) / new
+        self.scale = new
+        self.redraw()
+
+    def _wheel(self, ev):
+        d = 1 if (getattr(ev, "num", 0) == 4 or getattr(ev, "delta", 0) > 0) else -1
+        self._zoom(d, ev.x, ev.y)
+
+    def _press(self, ev):
+        self._drag = (ev.x, ev.y, self.cx, self.cz)
+
+    def _motion_drag(self, ev):
+        if not self._drag:
+            return
+        x0, y0, cx0, cz0 = self._drag
+        self.cx, self.cz = cx0 - (ev.x - x0) / self.scale, cz0 - (ev.y - y0) / self.scale
+        self.follow_var.set(False)
+        if not self._busy_redraw:
+            self._busy_redraw = True
+            self.after(30, self._drag_redraw)
+
+    def _drag_redraw(self):
+        self._busy_redraw = False
+        self.redraw()
+
+    def _hover(self, ev):
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        wx, wz = self.cx + (ev.x - W / 2) / self.scale, self.cz + (ev.y - H / 2) / self.scale
+        txt = f"X {wx:7.0f}   Z {wz:7.0f}"
+        for n, p in self.pos.items():
+            if "x" in p and p.get("dim", self.dim) == self.dim:
+                px, py = self._w2c(p["x"], p["z"])
+                if abs(px - ev.x) < 12 and abs(py - ev.y) < 12:
+                    txt += f"     ● {n}  ({p['x']:.0f}, {p.get('y', 0):.0f}, {p['z']:.0f})"
+        self.coord_var.set(txt)
+
+    def fit_players(self):
+        pts = [(p["x"], p["z"]) for p in self.pos.values() if "x" in p and p.get("dim", self.dim) == self.dim]
+        if not pts:
+            others = [p for p in self.pos.values() if "x" in p and p.get("dim") in DIM_NAMES]
+            if others:
+                self.dim = others[0]["dim"]
+                self.dim_var.set(DIM_NAMES[self.dim])
+                pts = [(p["x"], p["z"]) for p in others if p["dim"] == self.dim]
+        if not pts:
+            self.status_var.set("Er zijn geen spelers met een bekende positie.")
+            return
+        xs, zs = [a for a, _ in pts], [b for _, b in pts]
+        self.cx, self.cz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+        W, H = max(self.cv.winfo_width(), 400), max(self.cv.winfo_height(), 300)
+        w, h = max(max(xs) - min(xs), 40), max(max(zs) - min(zs), 40)
+        self.scale = next((s for s in reversed(self.SCALES) if w * s < W - 160 and h * s < H - 160), self.SCALES[0])
+        self.scale = min(self.scale, 1.0)
+        self.redraw()
+
+    def goto_spawn(self):
+        sp = self.winfo_.get("spawn", (0, 0))
+        self.dim, self.cx, self.cz = "overworld", float(sp[0]), float(sp[1])
+        self.dim_var.set(DIM_NAMES[self.dim])
+        self.redraw()
+
+
 class App(tk.Tk):
     COLS = (("plugin", "Plugin", 190), ("file", "Bestand", 220), ("current", "Huidige versie", 130),
             ("latest", "Nieuwste versie", 130), ("source", "Bron", 80), ("status", "Status", 290))
@@ -2581,8 +3388,10 @@ class App(tk.Tk):
         self.tab_srv = ttk.Frame(self.nb, padding=10)
         self.tab_net = ttk.Frame(self.nb, padding=10)
         self.tab_plug = PluginsTab(self.nb, self)
+        self.tab_map = MapTab(self.nb, self)
         self.nb.add(self.tab_srv, text="   🖥  Server   ")
         self.nb.add(self.tab_plug, text="   🧩  Plugins   ")
+        self.nb.add(self.tab_map, text="   🗺  Kaart   ")
         self.nb.add(body, text="   🔧  Updates   ")
         self.nb.add(self.tab_net, text="   🌐  Bereikbaarheid   ")
         self._build_server_tab(self.tab_srv)
@@ -3434,8 +4243,13 @@ class App(tk.Tk):
 
     def _tab_changed(self, _e=None):
         try:
-            if self.nb.select() == str(self.tab_plug):
+            cur = self.nb.select()
+            if cur == str(self.tab_plug):
                 self.tab_plug.on_show()
+            if cur == str(self.tab_map):
+                self.tab_map.on_show()
+            else:
+                self.tab_map.on_hide()
         except tk.TclError:
             pass
 
@@ -3463,6 +4277,8 @@ class App(tk.Tk):
         msg = m.group(4) if m else raw
         now = time.time()
         suppress = False
+        if self.tab_map.handle_line(msg):
+            return
         lm = LIST_RE.search(msg)
         if lm:
             self._on_list(lm)
@@ -4701,7 +5517,8 @@ class SettingsDialog(tk.Toplevel):
         for k, default in DEFAULTS.items():
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
-                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat"):
+                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat",
+                     "map_poll_secs", "map_names", "map_trails", "map_grid"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))

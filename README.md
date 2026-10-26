@@ -7,6 +7,7 @@ te beheren, zonder meerdere vensters of commando's.
 - **Server:** starten, stoppen, herstarten en afsluiten, met console (met schone modus en commando's),
   CPU/geheugen/TPS, spelerslijst, RAM aanpassen, grafieken en de temperatuur van je laptop.
 - **Plugins:** beheren (aan/uit/verwijderen) en zoeken op naam of beschrijving, met installeren inclusief afhankelijkheden.
+- **Kaart:** wereldkaart met alle spelers live erop (naam, richting, spoor, coördinaten), zonder extra plugin.
   Optioneel direct laden met `/plm load` (op eigen risico).
 - **Updates:** plugins controleren en bijwerken via Modrinth (met Hangar, GitHub en GeyserMC als reserve) en
   `server.jar` via PaperMC. Back-ups worden bewaard, het aantal stel je zelf in.
