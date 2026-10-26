@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.6
+- Kaart laadt bij het opstarten veel sneller: de bewaarde kaart wordt nu als PNG opgeslagen en direct door Tk geladen. De eerste keer na deze update wordt de kaart nog één keer opnieuw opgebouwd.
+
 ## 2.8.5
 - Kaart: in- en uitzoomen haperde even. Nu worden de plaatjes voor het volgende en vorige zoomniveau alvast op de achtergrond klaargemaakt en wordt het terrein van het midden naar buiten getekend in kleine happen.
 

@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.5"
+APP_VERSION = "2.8.6"
 
 CHANGELOG = """
+2.8.6 - Kaart laadt veel sneller bij het opstarten (bewaarde kaart als PNG).
 2.8.5 - Kaart: in- en uitzoomen zonder haperen (zoomniveaus worden alvast voorbereid).
 2.8.4 - Zwart consolevenster wordt verborgen; kaart toont bij het aanwijzen van een regio waarom stukken ontbreken.
 2.8.3 - Programma-update: elke 5 minuten (en bij het terugkeren naar het venster) controleren in plaats van elke 6 uur.
@@ -2830,36 +2831,43 @@ def parse_entity_data(value):
 
 
 
+def rows_to_png(rows):
+    """Zet de kleurrijen van een regio om naar een klein PNG-bestand (Tk laadt dat veel sneller dan pixel voor pixel)."""
+    raw = b"".join(b"\x00" + bytes.fromhex("".join(c[1:] for c in r)) for r in rows)
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", MAP_PX, MAP_PX, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
+
+
 def map_cache_path(folder, dim, rx, rz):
     d = os.path.join(os.path.dirname(CONFIG_PATH), "map_cache", hashlib.sha1(os.path.abspath(folder).lower().encode("utf-8")).hexdigest()[:10])
-    return d, os.path.join(d, f"{dim}.{rx}.{rz}.rgn")
+    return d, os.path.join(d, f"{dim}.{rx}.{rz}.rg2")
 
 
-def map_cache_save(folder, dim, rx, rz, mt, rows, bad, skip=None):
+def map_cache_save(folder, dim, rx, rz, mt, png, bad, skip=None):
     try:
         d, f = map_cache_path(folder, dim, rx, rz)
         os.makedirs(d, exist_ok=True)
-        payload = zlib.compress("\n".join(" ".join(r) for r in rows).encode("ascii"), 6)
         with open(f + ".tmp", "wb") as fh:
-            fh.write((json.dumps({"mt": mt, "bad": bad, "skip": skip or {}}) + "\n").encode("ascii") + payload)
+            fh.write((json.dumps({"mt": mt, "bad": bad, "skip": skip or {}}) + "\n").encode("ascii") + png)
         os.replace(f + ".tmp", f)
     except Exception:
         pass
 
 
 def map_cache_load(folder, dim, rx, rz, mt):
-    """Geeft (rows, bad, skip) als er een bewaarde kaart is die bij deze versie van het regiobestand hoort, anders None."""
+    """Geeft (png-bytes, bad, skip) als er een bewaarde kaart is die bij deze versie van het regiobestand hoort, anders None."""
     try:
         f = map_cache_path(folder, dim, rx, rz)[1]
         with open(f, "rb") as fh:
-            head, _, payload = fh.read().partition(b"\n")
+            head, _, png = fh.read().partition(b"\n")
         hd = json.loads(head.decode("ascii"))
-        if float(hd["mt"]) != mt:
+        if float(hd["mt"]) != mt or not png.startswith(b"\x89PNG"):
             return None
-        rows = [ln.split(" ") for ln in zlib.decompress(payload).decode("ascii").split("\n")]
-        if len(rows) != MAP_PX or any(len(r) != MAP_PX for r in rows):
-            return None
-        return rows, int(hd["bad"]), hd.get("skip") or {}
+        return png, int(hd["bad"]), hd.get("skip") or {}
     except Exception:
         return None
 
@@ -3127,12 +3135,13 @@ class MapTab(ttk.Frame):
                 try:
                     cached = None if force else map_cache_load(folder, dim, rx, rz, mt)
                     if cached:
-                        self.q.put(("region", dim, rx, rz, self._pstr(cached[0]), 1, cached[1], mt, cached[2]))
+                        self.q.put(("region", dim, rx, rz, base64.b64encode(cached[0]).decode("ascii"), 1, cached[1], mt, cached[2]))
                         continue
                     rows, ok, bad = render_region(path, dim)
                     skip = dict(getattr(render_region, "last_skip", {}))
-                    map_cache_save(folder, dim, rx, rz, mt, rows, bad, skip)
-                    self.q.put(("region", dim, rx, rz, self._pstr(rows), ok, bad, mt, skip))
+                    png = rows_to_png(rows)
+                    map_cache_save(folder, dim, rx, rz, mt, png, bad, skip)
+                    self.q.put(("region", dim, rx, rz, base64.b64encode(png).decode("ascii"), ok, bad, mt, skip))
                     time.sleep(0.05)  # rustig aan: de achtergrondtaak mag de server en de rest van het programma niet storen
                 except Exception as e:
                     self.q.put(("regionerr", dim, rx, rz, str(e), mt))
@@ -3175,8 +3184,7 @@ class MapTab(ttk.Frame):
                     for key in [k for k in self.imgs if k[:3] == (dim, rx, rz)]:
                         del self.imgs[key]
                     if ok:
-                        img = tk.PhotoImage(width=MAP_PX, height=MAP_PX)
-                        img.put(rows, to=(0, 0))
+                        img = tk.PhotoImage(data=rows)
                         self.base[(dim, rx, rz)] = img
                         self.dirty = self._tdirty = True
                 elif m[0] == "regionerr":
@@ -3190,8 +3198,9 @@ class MapTab(ttk.Frame):
                     self.dirty = self._tdirty = True
         except queue.Empty:
             pass
-        if self.dirty and self.visible:
+        if self.dirty and self.visible and (not self.scanning or time.time() - getattr(self, "_last_full", 0) > 0.8):
             self.dirty = False
+            self._last_full = time.time()
             self._refresh_list()
             if self.follow_var.get():
                 sel = self.tree.selection()
