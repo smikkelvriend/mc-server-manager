@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.3.1
+- Programma-update haalt het bestand op via de exacte laatste commit van GitHub, zodat een oude cache de update niet kan
+  verbergen.
+
 ## 2.3
 - **Bedrock-controle met uitleg:** meldt de externe controle "offline", dan pingt het programma Geyser zelf (UDP), lokaal en
   via je domein, en toont wat elke controledienst zei. Zo zie je of Geyser draait en of alleen de poortdoorsturing ontbreekt.

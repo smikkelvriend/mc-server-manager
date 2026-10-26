@@ -43,9 +43,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.3"
+APP_VERSION = "2.3.1"
 
 CHANGELOG = """
+2.3.1 - Programma-update haalt het bestand nu op via de exacte laatste commit, zodat een verouderde cache niets meer uitmaakt.
 2.3 - Bedrock-controle laat nu zien wat er misgaat: eigen UDP-ping lokaal en via je domein, plus wat elke dienst zegt.
 2.2 - Temperatuur van je laptop (met grafiek en waarschuwing) en automatische programma-update via een link.
 2.1 - Bereikbaarheidscheck met serverkaart, speleracties altijd zichtbaar in de console, schonere opstart.
@@ -987,6 +988,17 @@ def fetch_update(url):
     cands = update_candidates(url)
     if not cands:
         raise ValueError("Geen geldige update-link: gebruik een https-link.")
+    gm = re.fullmatch(r"https://github\.com/([\w.\-]+)/([\w.\-]+?)(?:\.git)?/?", (url or "").strip())
+    if gm:  # exacte laatste commit opvragen: een bestand op commit-adres kan nooit verouderd uit de cache komen
+        try:
+            req = urllib.request.Request(f"https://api.github.com/repos/{gm.group(1)}/{gm.group(2)}/commits/HEAD",
+                                         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github.sha"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                sha = r.read(100).decode("ascii", "replace").strip()
+            if re.fullmatch(r"[0-9a-f]{40}", sha):
+                cands.insert(0, f"https://raw.githubusercontent.com/{gm.group(1)}/{gm.group(2)}/{sha}/mc_server_manager.py")
+        except Exception:
+            pass  # bijvoorbeeld API-limiet: dan de gewone adressen proberen
     last = None
     for cand in cands:
         try:
