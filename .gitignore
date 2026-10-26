@@ -1,2 +1,7 @@
+*.log
 __pycache__/
+mc_server_manager_config.json
 mc_server_manager_grafieken.json
+mc_server_manager_spelers.json
+programma_backups/
+updater_backups/
