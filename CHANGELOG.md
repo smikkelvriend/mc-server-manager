@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.41
+- Het tabblad Updates is samengevoegd met Plugins. Onder Plugins staan nu drie subtabs: Geïnstalleerd, Updates en Zoeken en toevoegen. Bij beschikbare updates knippert het tabblad Plugins met het aantal.
+- Deze versie vereist een herstart.
+
 ## 2.40
 - De grafieken voor CPU, geheugen en TPS zakken naar 0 zolang de server uit staat of slaapt, in plaats van te stoppen met tekenen. Dit kan zonder herstart worden toegepast.
 

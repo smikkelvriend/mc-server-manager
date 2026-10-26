@@ -60,7 +60,7 @@ Een `.exe` kan zichzelf niet bijwerken.
 
 ## Eerste keer gebruiken
 
-1. **Server-map kiezen** (tabblad Updates, bovenaan). Het programma herkent Paper, de Minecraft-versie en je plugins.
+1. **Server-map kiezen** (Plugins › Updates, bovenaan). Het programma herkent Paper, de Minecraft-versie en je plugins.
 2. **Server starten** met de groene knop. De console toont wat de server meldt.
 3. **Plugins en updates:** klik op *Alles controleren* bij Updates. Dat kost niets, er wordt pas iets veranderd als jij dat vraagt.
 4. Het tabblad **Netwerk** is handig om te testen of vrienden kunnen verbinden.

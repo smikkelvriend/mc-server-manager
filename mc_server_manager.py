@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.40"
+APP_VERSION = "2.41"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
-HOT_SAFE = True
+HOT_SAFE = False
 
 CHANGELOG = """
+2.41 - Het tabblad Updates is samengevoegd met Plugins: onder Plugins staan nu drie subtabs (Geïnstalleerd, Updates, Zoeken en toevoegen). Het tabblad Plugins knippert met het aantal beschikbare updates.
 2.40 - De grafieken (CPU, geheugen, TPS) zakken naar 0 zolang de server uit staat of slaapt, in plaats van te stoppen. Kan zonder herstart worden toegepast.
 2.39 - Het vinkje voor de slaapstand op het tabblad Server heet nu "Auto slaapstand".
 2.38 - Nieuwe knop "Nu in slaapstand" op het tabblad Server: zet de server meteen in slaapstand, ook als de automatische slaapstand uit staat.
@@ -2916,7 +2917,7 @@ class PluginsTab(ttk.Frame):
         if not vis:
             tk.Label(self.inner, bg=self.BG, fg="#6b7280", font=("Segoe UI", 11), pady=30,
                      text=("Geen plugins gevonden met dit filter." if self.items else
-                           "Nog geen plugins. Kies je servermap (tabblad Updates) of zoek er een bij 🔍 Zoeken en toevoegen.")).pack()
+                           "Nog geen plugins. Kies je servermap (Plugins › Updates) of zoek er een bij 🔍 Zoeken en toevoegen.")).pack()
         self._canvas_resized(type("E", (), {"width": max(self.canvas.winfo_width(), 800)})())
         self._refresh_selection()
         self.count_lbl.config(text=f"{len(vis)} van {len(self.items)} getoond" if len(vis) != len(self.items) else "")
@@ -3083,7 +3084,7 @@ class PluginsTab(ttk.Frame):
         if not self.app.folder_var.get().strip() or not os.path.isdir(pdir):
             self.card_vars.clear()
             self._render()
-            self.count_lbl.config(text="Kies eerst je servermap (tabblad Updates).")
+            self.count_lbl.config(text="Kies eerst je servermap (Plugins › Updates).")
             return
         for it in scan_plugins(pdir):
             self.items[it["file"]] = it
@@ -3258,7 +3259,7 @@ class PluginsTab(ttk.Frame):
         only = bool(self.compat_var.get())
         if only and not mc:
             only = False
-            self._note("Je Minecraft-versie is nog niet ingevuld (tabblad Updates), dus het filter staat niet aan.")
+            self._note("Je Minecraft-versie is nog niet ingevuld (Plugins › Updates), dus het filter staat niet aan.")
         if not self.items:
             try:
                 names = [x["name"] for x in scan_plugins(self.pdir())]
@@ -3313,7 +3314,7 @@ class PluginsTab(ttk.Frame):
         if not r or self.busy:
             return
         if not self.app.folder_var.get().strip() or not os.path.isdir(self.pdir()):
-            messagebox.showinfo(APP_NAME, "Kies eerst je servermap (tabblad Updates).")
+            messagebox.showinfo(APP_NAME, "Kies eerst je servermap (Plugins › Updates).")
             return
         if r["installed"] and not messagebox.askyesno(APP_NAME, f"{r['name']} lijkt al geïnstalleerd. Toch opnieuw proberen?"):
             return
@@ -7839,10 +7840,11 @@ class App(tk.Tk):
         self.btn_selfupd = tk.Button(header, text="⬆  Update", command=self._selfupd_ask, bg="#d97706", fg="white",
                                      activebackground="#b45309", activeforeground="white", relief="flat", bd=0,
                                      padx=12, pady=5, font=("Segoe UI", 10, "bold"), cursor="hand2")
-        body = ttk.Frame(self.nb, padding=10)
         self.tab_srv = ttk.Frame(self.nb, padding=10)
         self.tab_net = ttk.Frame(self.nb, padding=10)
         self.tab_plug = PluginsTab(self.nb, self)
+        body = ttk.Frame(self.tab_plug.sub, padding=10)      # Updates zit als subtabblad in Plugins
+        self.tab_plug.sub.insert(1, body, text="🔧  Updates")
         self.remote = RemoteServer(self)
         self.tab_map = MapTab(self.nb, self)
         self.tab_beheer = BeheerTab(self.nb, self)
@@ -7853,7 +7855,6 @@ class App(tk.Tk):
         self.nb.add(self.tab_beheer, text="🛠  Beheer")
         self.nb.add(self.tab_backup, text="💾  Backups")
         self.tab_upd = body
-        self.nb.add(body, text="🔧  Updates")
         self.nb.add(self.tab_net, text="🌐  Netwerk")
         self._build_server_tab(self.tab_srv)
         self._build_net_tab(self.tab_net)
@@ -9142,11 +9143,13 @@ class App(tk.Tk):
             if n:
                 self._blink = not getattr(self, "_blink", False)
                 txt = f"{'🔴' if self._blink else '🟠'}  Updates ({n})"
+                main = f"{'🔴' if self._blink else '🟠'}  Plugins ({n})"
             else:
-                txt = "🔧  Updates"
+                txt, main = "🔧  Updates", "🧩  Plugins"
             if txt != getattr(self, "_upd_txt", None):
                 self._upd_txt = txt
-                self.nb.tab(self.tab_upd, text=txt)
+                self.tab_plug.sub.tab(self.tab_upd, text=txt)
+                self.nb.tab(self.tab_plug, text=main)
         except tk.TclError:
             pass
         self.after(700, self._upd_tab_blink)
