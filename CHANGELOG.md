@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.9
+- **Het tabblad Kaart is verwijderd.** De wereldkaart werkte niet betrouwbaar genoeg op jouw wereld. De versies 2.7 t/m 2.8.11 hieronder beschrijven de kaart; die code zit er niet meer in. De rest (plugins, temperatuur, snellere updatemeldingen, consolevenster verbergen) blijft.
+
 ## 2.8.11
 - Kaart: als regiobestanden verdeeld staan over meerdere mappen (bijvoorbeeld `world/region` en `world/dimensions/minecraft/overworld/region`), worden ze nu allemaal gebruikt; bij dubbele regio's telt de nieuwste.
 
