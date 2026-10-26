@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.47
+- Nieuwe interface, Overzicht: alle grafieken (geheugen, processor, TPS en temperatuur) staan nu gecombineerd in één grafiek bovenaan, met de huidige waarden in de legenda. Elke lijn is op zijn eigen schaal getekend (TPS 0 tot 20, temperatuur 0 tot 110 °C), dus de hoogte zegt niets over de waarde zelf.
+- Het aantal spelers staat nu tussen haakjes achter "Spelers online"; de losse tegels zijn weg.
+- Het Overzicht past op één scherm zonder scrollen; de console krijgt de overgebleven ruimte.
+- Deze versie vereist een herstart.
+
 ## 2.46
 - Nieuwe interface: de grafiek Belasting loopt nu soepel door. De lijn schuift continu mee in plaats van per meting te springen (met 30 beelden per seconde, alleen zolang het Overzicht open staat) en gebruikt de volledige reeks metingen.
 - Plugins: elke plugin heeft nu een duidelijk label **Aan** of **Uit**, uitgeschakelde plugins staan gedimd onderaan, en bovenaan staat hoeveel er aan en uit staan.

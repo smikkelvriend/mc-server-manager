@@ -18,7 +18,7 @@ nav a span.nm{flex:1}.bd{min-width:20px;padding:1px 7px;border-radius:99px;backg
 .sw{width:34px;height:20px;border-radius:99px;background:#3a4452;position:relative;cursor:pointer;flex:none;transition:.15s}
 .sw::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--bg);transition:.15s}
 .sw.on{background:var(--g)}.sw.on::after{left:17px}
-main{flex:1;min-width:0;display:flex;flex-direction:column;padding:22px 28px;gap:18px;overflow:auto}
+main{flex:1;min-width:0;display:flex;flex-direction:column;padding:22px 28px;gap:18px;overflow:auto}main.fit{overflow:hidden}
 header{display:flex;align-items:center;gap:14px;flex:none}
 h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
 .pill{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:99px;font-weight:500;font-size:13px;background:#123024;color:var(--g2)}
@@ -40,8 +40,8 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--a);padding:0;flex
 .tile{gap:6px}.tile .k{font-size:12px;color:var(--m);font-weight:500;text-transform:uppercase;letter-spacing:.06em}
 .tile .v{font-size:28px;font-weight:600;letter-spacing:-.02em}.tile .v small{font-size:16px;color:var(--m);font-weight:500}
 .tile canvas{width:100%;height:32px;display:block}.meter{height:8px;border-radius:99px;background:#222a34;margin-top:10px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bl);transition:width .5s}
-.mid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;height:210px;flex:none}
-.low{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;flex:1;min-height:440px}
+.mid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;height:clamp(210px,36vh,340px);flex:none}
+.low{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;flex:1;min-height:0}
 .two{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
 .leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--m2);font-weight:400}.leg i{width:10px;height:3px;border-radius:2px}
 canvas.big{flex:1;min-height:0;width:100%;display:block}
@@ -117,21 +117,21 @@ const ico={ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="
 const TABS=[['ov','Overzicht'],['con','Console'],['pl','Spelers'],['plug','Plugins'],['upd','Updates'],['map','Kaart'],['bk','Backups'],['set','Instellingen']];
 function build(){$('nav').innerHTML=TABS.map(t=>`<a data-t="${t[0]}" onclick="setTab('${t[0]}')"><svg class="i" viewBox="0 0 24 24">${ico[t[0]==='plug'?'plug':t[0]]}</svg><span class="nm">${t[1]}</span><span class="bd hide" id="bd-${t[0]}"></span></a>`).join('');setTab(TABS.some(t=>t[0]==tab)?tab:'ov')}
 function setTab(t){if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('dtab',t)}catch(e){}
- document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));$('ttl').textContent=TABS.find(x=>x[0]==t)[1];$('view').innerHTML='';(V[t]||V.ov)();if(S.stats)draw()}
+ document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));document.querySelector('main').classList.toggle('fit',t=='ov');$('ttl').textContent=TABS.find(x=>x[0]==t)[1];$('view').innerHTML='';(V[t]||V.ov)();if(S.stats)draw()}
 const V={};
 /* ---------- helpers ---------- */
 const num=s=>{const m=String(s==null?'':s).replace(',','.').match(/-?\d+(\.\d+)?/);return m?parseFloat(m[0]):null};
 function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth||100,h=c.clientHeight||32,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let l=lo!=null?lo:Math.min(...d),hh=hi!=null?hi:Math.max(...d);if(hh-l<1e-6){hh=l+1}
  x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-2-(Math.min(Math.max(v,l),hh)-l)/(hh-l)*(h-4);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
-const CH={t:0,tc:0,dt:2000,cpu:[],ram:[],xmx:0,N:150};
+const CH={t:0,tc:0,dt:2000,cpu:[],ram:[],tps:[],temp:[],xmx:0,N:150};
 function chartLoop(){if(tab!='ov'||!$('cBig'))return;const now=performance.now();if(now-(CH.last||0)>30){CH.last=now;const f=Math.min(1,(now-CH.tc)/CH.dt);
- const rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);bigChart('cBig',[[smoothTail(rp,f),'#6ea8fe'],[smoothTail(CH.cpu,f),'#f5a524']])}requestAnimationFrame(chartLoop)}
+ const rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);bigChart('cBig',[[smoothTail(rp,f),'#6ea8fe'],[smoothTail(CH.cpu,f),'#f5a524'],[smoothTail((CH.tps||[]).map(v=>v==null?null:v*5),f),'#3ddc97'],[smoothTail((CH.temp||[]).map(v=>v==null?null:v/110*100),f),'#f87171']])}requestAnimationFrame(chartLoop)}
 /* de lijn schuift continu: het laatste stuk loopt van de vorige naar de nieuwste meting */
-function smoothTail(d,f){const n=d.length;if(n<3)return null;const N=CH.N,pts=[];for(let i=0;i<=n-2;i++)pts.push([1-(n-2+f-i)/(N-1),d[i]]);pts.push([1,d[n-2]+(d[n-1]-d[n-2])*f]);return pts}
+function smoothTail(d,f){const n=d.length;if(n<3)return null;const N=CH.N,pts=[];for(let i=0;i<=n-2;i++)if(d[i]!=null)pts.push([1-(n-2+f-i)/(N-1),d[i]]);if(d[n-2]!=null&&d[n-1]!=null)pts.push([1,d[n-2]+(d[n-1]-d[n-2])*f]);return pts}
 function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
- x.fillStyle='#6b7684';x.font='11px sans-serif';[100,66,33,0].forEach((v,i)=>x.fillText(v+'%',4,10+i*(h-20)/3-3));
+ 
  x.save();x.beginPath();x.rect(0,0,w,h);x.clip();for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();let first=1;for(const [px,v] of d){const X=px*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);if(X<-5)continue;first?x.moveTo(X,Y):x.lineTo(X,Y);first=0}x.stroke()}x.restore()}
 function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();im.src=hd(n,t);im.alt='';im.onerror=()=>{im.remove();d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase()};d.appendChild(im);return d}
 function skinHtml(n,t,cls){return `<span class="skin ${cls||''}"><img src="${hd(n,t)}" alt="" onerror="this.remove();"></span>`}
@@ -140,12 +140,8 @@ const fb2=n=>n>1e9?(n/1e9).toFixed(1).replace('.',',')+' GB':n>1e6?(n/1e6).toFix
 const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
 const OKI='<svg class="i" viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>',WARNI='<svg class="i" viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>';
 /* ---------- Overzicht ---------- */
-V.ov=()=>{$('view').innerHTML=`<section class="tiles">
- <div class="card tile"><span class="k">TPS</span><span class="v" id="vTps">-</span><canvas id="sTps"></canvas></div>
- <div class="card tile"><span class="k">Spelers</span><span class="v" id="vPl">-</span></div>
- <div class="card tile"><span class="k">Temperatuur</span><span class="v" id="vTmp">-</span><canvas id="sTmp"></canvas></div></section>
- <section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen <b id="lgRam" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f5a524"></i>Processor <b id="lgCpu" style="color:var(--t)"></b></span></h3><canvas class="big" id="cBig"></canvas></div>
- <div class="card"><h3>Spelers online <span class="sp"></span><a class="mut" style="cursor:pointer;font-size:13px;color:var(--bl)" onclick="setTab('pl')">Alles beheren</a></h3><div id="ovPl" style="overflow:auto"></div></div></section>
+V.ov=()=>{$('view').innerHTML=`<section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen <b id="lgRam" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f5a524"></i>Processor <b id="lgCpu" style="color:var(--t)"></b></span><span class="leg"><i style="background:#3ddc97"></i>TPS <b id="lgTps" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f87171"></i>Temperatuur <b id="lgTmp" style="color:var(--t)"></b></span></h3><canvas class="big" id="cBig"></canvas></div>
+ <div class="card"><h3>Spelers online <span id="plCnt" class="mut" style="font-weight:400"></span><span class="sp"></span><a class="mut" style="cursor:pointer;font-size:13px;color:var(--bl)" onclick="setTab('pl')">Alles beheren</a></h3><div id="ovPl" style="overflow:auto"></div></div></section>
  <section class="low"><div class="con"><div class="bar"><b>Console</b><span class="mut" style="font-size:12px" id="cleanTx"></span><div class="sp"></div></div><div class="log" id="con"></div>
  <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div>
  <div class="card"><h3>Aandacht</h3><div id="att"></div></div></section>`;
@@ -275,14 +271,13 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
  const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
  const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}const bu=$('bd-upd');if(bu){bu.classList.toggle('hide',!j.selfupd);bu.textContent='1'}
  const g=j.graphs||{};
- if($('vTps')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
-  $('vTps').textContent=j.stats.tps&&j.stats.tps!='-'?j.stats.tps:'-';
+ if($('cBig')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
   $('lgRam').textContent=ram==null?'':(ram/1024).toFixed(1).replace('.',',')+(j.xmx?' / '+(j.xmx/1024).toFixed(0):'')+' GB';
   $('lgCpu').textContent=cpu==null?'':Math.round(cpu)+'%';
-  const pc=num(j.stats.players),pm=String(j.stats.players||'').split('/')[1];$('vPl').innerHTML=pc==null?'-':pc+(pm?` <small>/ ${esc(pm.trim())}</small>`:'');
-  $('vTmp').innerHTML=tmp==null?'<small>niet beschikbaar</small>':Math.round(tmp)+' <small>°C</small>';
-  spark('sTps',g.tps,'#3ddc97',0,20);spark('sTmp',g.temp,'#f87171',null,null);
-  if(j.gd&&j.gd.t!=CH.t){CH.t=j.gd.t;CH.tc=performance.now();CH.dt=j.gd.dt*1000}if(j.gd){CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.xmx=j.xmx}
+  $('lgTps').textContent=tps==null?'':String(tps).replace('.',',');
+  $('lgTmp').textContent=tmp==null?'':Math.round(tmp)+' °C';
+  const pc=j.players.length,pm=String(j.stats.players||'').split('/')[1];$('plCnt').textContent='('+pc+(pm?' / '+pm.trim():'')+')';
+  if(j.gd&&j.gd.t!=CH.t){CH.t=j.gd.t;CH.tc=performance.now();CH.dt=j.gd.dt*1000}if(j.gd){CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx}
   const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
