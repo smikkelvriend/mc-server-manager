@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.2"
+APP_VERSION = "2.8.3"
 
 CHANGELOG = """
+2.8.3 - Programma-update: elke 5 minuten (en bij het terugkeren naar het venster) controleren in plaats van elke 6 uur.
 2.8.2 - Kaart veel sneller en stabieler: soepel slepen en zoomen, geen ontbrekende stukken meer bij ander zoomniveau.
 2.8.1 - Temperatuur wordt nu ook gelezen via de webserver van LibreHardwareMonitor (Options > Remote Web Server).
 2.8 - Kaart wordt bewaard en staat direct klaar; op de achtergrond wordt hij stil bijgewerkt, ook als het tabblad dicht is.
@@ -3455,6 +3456,7 @@ class App(tk.Tk):
         self.after(2000, self._stats_tick)
         self.after(3000, self._temp_tick)
         self.after(5000, self._selfupd_startup)
+        self.bind("<FocusIn>", self._selfupd_focus)
         self.after(200, self._startup)
 
     # ---------------- UI opbouw ----------------
@@ -5022,7 +5024,13 @@ class App(tk.Tk):
     def _selfupd_startup(self):
         if self.cfg.get("selfupdate_check", True) and (self.cfg.get("update_url") or "").strip():
             self.selfupdate_check()
-        self.after(6 * 3600 * 1000, self._selfupd_startup)
+        self.after(5 * 60 * 1000, self._selfupd_startup)  # elke 5 minuten kijken of er een nieuwe versie is
+
+    def _selfupd_focus(self, _e=None):
+        """Als je het venster weer actief maakt (en de laatste controle > 1 minuut geleden is) meteen even kijken."""
+        if (_e is None or _e.widget is self) and time.time() - getattr(self, "_upd_last", 0) > 60 \
+                and self.cfg.get("selfupdate_check", True) and (self.cfg.get("update_url") or "").strip():
+            self.selfupdate_check()
 
     def selfupdate_check(self, manual=False):
         url = (self.cfg.get("update_url") or "").strip()
@@ -5033,6 +5041,7 @@ class App(tk.Tk):
         if self._upd_busy:
             return
         self._upd_busy = True
+        self._upd_last = time.time()
 
         def work():
             try:
@@ -5045,14 +5054,19 @@ class App(tk.Tk):
     def _selfupd_result(self, info, err, manual):
         self._upd_busy = False
         if err:
-            self.log(f"Programma-update controleren mislukt: {err}", "warn")
+            if manual or not getattr(self, "_upd_err_logged", False):
+                self.log(f"Programma-update controleren mislukt: {err}", "warn")
+            self._upd_err_logged = True
             if manual:
                 messagebox.showwarning(APP_NAME, f"Controleren op een programma-update is mislukt:\n{err}")
             return
         if not is_newer(info["version"], APP_VERSION):
             self._upd = None
             self.btn_selfupd.pack_forget()
-            self.log(f"Het programma is up-to-date (versie {APP_VERSION}).", "ok")
+            self._upd_err_logged = False
+            if manual or not getattr(self, "_upd_uptodate_logged", False):
+                self.log(f"Het programma is up-to-date (versie {APP_VERSION}).", "ok")
+                self._upd_uptodate_logged = True
             if manual:
                 messagebox.showinfo(APP_NAME, f"Je hebt de nieuwste versie ({APP_VERSION}).")
             return

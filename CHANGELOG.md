@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.3
+- Updatemelding sneller: het programma controleert elke 5 minuten op een nieuwe versie (was elke 6 uur), en ook zodra je terugkeert naar het venster. Er komt maar één melding per nieuwe versie.
+
 ## 2.8.2
 - **Kaart veel sneller:** slepen verschuift het beeld in één keer, bij nieuwe spelerposities wordt alleen de spelerslaag opnieuw getekend en het inladen van veel regio's blokkeert het venster niet meer.
 - **Fout opgelost:** bij veel zichtbare regio's verdwenen stukken van de kaart (en op een ander zoomniveau weer andere stukken), doordat plaatjes te vroeg werden weggegooid.
