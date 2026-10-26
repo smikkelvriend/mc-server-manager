@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.13
+- **Gebied genereren op de kaart:** klik op *Gebied genereren*, sleep een rechthoek over de kaart (zoals Knipprogramma) en kies *Start genereren*. Het programma stuurt de Chunky-commando's, toont een voortgangsbalk met percentage, chunks, resterende tijd en snelheid (de Chunky-regels verdwijnen uit de console) en werkt daarna automatisch de kaart bij met squaremap. Pauzeren en stoppen kan ook.
+
 ## 2.12.7
 - Kaart: de regel onderin toont bij de muis welke tegel het is en of die geladen is of op de server niet bestaat.
 

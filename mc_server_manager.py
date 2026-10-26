@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.7"
+APP_VERSION = "2.13"
 
 CHANGELOG = """
+2.13 - Kaart: sleep een gebied (zoals Knipprogramma), het programma laat Chunky het genereren met voortgangsbalk en werkt daarna de kaart bij.
 2.12.7 - Kaart: onderin staat per tegel of hij geladen is of niet bestaat op de server (voor diagnose).
 2.12.6 - Bedrock (NetherNet): korte groene melding als alles werkt.
 2.12.5 - Bedrock-check begrijpt Geyser NetherNet: test TCP-poort in plaats van RakNet-ping.
@@ -2742,6 +2743,10 @@ class MapTab(ttk.Frame):
         self.visible, self.online, self.loading = False, False, False
         self._drag, self._moved, self._dirty, self._tok = None, False, True, 0
         self._last_refresh = self._last_players = 0.0
+        self.sel_mode, self.sel, self._selstart, self._seltmp = False, None, None, None
+        self.gen = {"state": "idle"}          # idle | ready | running | paused | rendering | done
+        self.autorender_var = tk.BooleanVar(value=True)
+        self._fast_until = 0.0
         self._build()
 
     # ---------- opbouw ----------
@@ -2770,6 +2775,8 @@ class MapTab(ttk.Frame):
             m.add_command(label=label, command=lambda t=tpl: self.cmd(t))
         self.render_btn.config(menu=m)
         self.render_btn.pack(side="left", padx=(12, 0))
+        self.sel_btn = self._btn(bar, "\U0001F4D0  Gebied genereren", self.toggle_sel, "#7c3aed", "white")
+        self.sel_btn.pack(side="left", padx=(6, 0))
         tk.Label(bar, textvariable=self.status_var, fg="#6b7280", font=("Segoe UI", 9)).pack(side="right")
         main = ttk.Frame(self)
         main.pack(fill="both", expand=True)
@@ -2793,10 +2800,13 @@ class MapTab(ttk.Frame):
         self._btn(side, "Open in browser", lambda: webbrowser.open(self.url_var.get())).pack(anchor="w", pady=(6, 0))
         self.cv = tk.Canvas(main, bg=self.BG, highlightthickness=0, cursor="fleur")
         self.cv.pack(side="left", fill="both", expand=True)
-        tk.Label(self, textvariable=self.coord_var, anchor="w", fg="#4b5563", font=("Consolas", 9)).pack(fill="x", pady=(4, 0))
+        self.coord_lbl = tk.Label(self, textvariable=self.coord_var, anchor="w", fg="#4b5563", font=("Consolas", 9))
+        self.coord_lbl.pack(fill="x", pady=(4, 0))
+        self._build_gen()
         cv = self.cv
         cv.bind("<Configure>", lambda e: self._draw())
-        cv.bind("<ButtonPress-1>", lambda e: setattr(self, "_drag", (e.x, e.y)))
+        cv.bind("<ButtonPress-1>", self._press)
+        self.winfo_toplevel().bind("<Escape>", lambda e: self.toggle_sel(False) if self.sel_mode else None, add="+")
         cv.bind("<B1-Motion>", self._motion)
         cv.bind("<ButtonRelease-1>", self._release)
         cv.bind("<Motion>", self._hover)
@@ -2895,7 +2905,7 @@ class MapTab(ttk.Frame):
         if self.worlds and now - self._last_players > 3:
             self._last_players = now
             self.fetch_players()
-        if self.worlds and now - self._last_refresh > 60:
+        if self.worlds and now - self._last_refresh > (10 if now < self._fast_until else 60):
             self.refresh()
         if not self.worlds and not self.loading and now - self._last_players > 5:
             self._last_players = now
@@ -3168,6 +3178,7 @@ class MapTab(ttk.Frame):
     def _draw_overlay(self):
         cv = self.cv
         W, H = cv.winfo_width(), cv.winfo_height()
+        self._draw_area()
         for n, tr in self.trails.items():
             pts = [self._w2c(x, z) for x, z, w in tr if w == self.cur]
             if len(pts) >= 2:
@@ -3191,6 +3202,8 @@ class MapTab(ttk.Frame):
 
     # ---------- bediening ----------
     def _motion(self, ev):
+        if self.sel_mode:
+            return self._sel_motion(ev)
         if not self._drag:
             return
         dx, dy = ev.x - self._drag[0], ev.y - self._drag[1]
@@ -3204,10 +3217,23 @@ class MapTab(ttk.Frame):
             self.follow_var.set(False)
 
     def _release(self, ev):
+        if self.sel_mode:
+            return self._sel_release(ev)
         self._drag = None
         if self._moved:
             self._moved = False
             self._draw()
+
+    def _press(self, ev):
+        if self.sel_mode and self.cur:
+            self._selstart = self._c2w(ev.x, ev.y)
+            self._seltmp = None
+        else:
+            self._drag = (ev.x, ev.y)
+
+    def _c2w(self, x, y):
+        s = self._scale()
+        return (self.cx + (x - self.cv.winfo_width() / 2) / s, self.cz + (y - self.cv.winfo_height() / 2) / s)
 
     def _hover(self, ev):
         if not self.cur:
@@ -3226,6 +3252,249 @@ class MapTab(ttk.Frame):
                 if abs(px - ev.x) < 12 and abs(py - ev.y) < 12:
                     txt += f"     ● {p.get('name')}  ({p['x']}, {p.get('y', 0)}, {p['z']})"
         self.coord_var.set(txt)
+
+    # ---------- gebied kiezen + Chunky ----------
+    def _build_gen(self):
+        f = self.gen_fr = tk.Frame(self, bg="#111827", padx=10, pady=8)
+        top = tk.Frame(f, bg="#111827")
+        top.pack(fill="x")
+        self.gen_title = tk.Label(top, text="", bg="#111827", fg="white", font=("Segoe UI", 10, "bold"), anchor="w")
+        self.gen_title.pack(side="left")
+        self.gen_close = self._btn(top, "✕", self.gen_hide, "#374151", "white")
+        self.gen_close.pack(side="right", padx=(6, 0))
+        self.gen_stop = self._btn(top, "■  Stop", self.gen_cancel, "#b91c1c", "white")
+        self.gen_stop.pack(side="right", padx=(6, 0))
+        self.gen_pause = self._btn(top, "⏸  Pauze", self.gen_toggle_pause, "#4b5563", "white")
+        self.gen_pause.pack(side="right", padx=(6, 0))
+        self.gen_start = self._btn(top, "▶  Start genereren", self.gen_begin, "#059669", "white")
+        self.gen_start.pack(side="right", padx=(6, 0))
+        mid = tk.Frame(f, bg="#111827")
+        mid.pack(fill="x", pady=(8, 0))
+        self.gen_pb = ttk.Progressbar(mid, mode="determinate", maximum=100)
+        self.gen_pb.pack(side="left", fill="x", expand=True)
+        self.gen_info = tk.Label(mid, text="", bg="#111827", fg="#d1d5db", font=("Segoe UI", 9), anchor="e", width=80)
+        self.gen_info.pack(side="left", padx=(10, 0))
+        self.gen_auto = tk.Checkbutton(f, text="Daarna automatisch de kaart bijwerken (squaremap)", variable=self.autorender_var,
+                                       bg="#111827", fg="#d1d5db", selectcolor="#111827", activebackground="#111827",
+                                       activeforeground="white", font=("Segoe UI", 9))
+        self.gen_auto.pack(anchor="w", pady=(6, 0))
+
+    def gen_show(self):
+        if not self.gen_fr.winfo_ismapped():
+            self.gen_fr.pack(fill="x", before=self.coord_lbl, pady=(6, 0))
+
+    def gen_hide(self):
+        if self.gen["state"] in ("running", "paused"):
+            self.status_var.set("Er loopt nog een taak: stop of pauzeer die eerst")
+            return
+        self.gen = {"state": "idle"}
+        self.sel = None
+        self.gen_fr.pack_forget()
+        self._draw_overlay_only()
+
+    def toggle_sel(self, on=None):
+        if self.gen["state"] in ("running", "paused", "rendering"):
+            self.status_var.set("Er loopt al een taak")
+            return
+        self.sel_mode = (not self.sel_mode) if on is None else on
+        self.sel_btn.config(bg="#4c1d95" if self.sel_mode else "#7c3aed",
+                            text="\U0001F4D0  Sleep een gebied op de kaart…" if self.sel_mode else "\U0001F4D0  Gebied genereren")
+        self.cv.config(cursor="crosshair" if self.sel_mode else "fleur")
+        self._selstart = None
+        if self.sel_mode:
+            self.status_var.set("")
+
+    def _snap(self, a, b):
+        x1, x2 = sorted((a[0], b[0]))
+        z1, z2 = sorted((a[1], b[1]))
+        return (math.floor(x1 / 16) * 16, math.floor(z1 / 16) * 16, (math.floor(x2 / 16) + 1) * 16, (math.floor(z2 / 16) + 1) * 16)
+
+    def _sel_motion(self, ev):
+        if not self._selstart:
+            return
+        self._seltmp = self._snap(self._selstart, self._c2w(ev.x, ev.y))
+        self._draw_overlay_only()
+
+    def _sel_release(self, ev):
+        if not self._selstart:
+            return
+        r = self._snap(self._selstart, self._c2w(ev.x, ev.y))
+        self._selstart = self._seltmp = None
+        self.toggle_sel(False)
+        if (r[2] - r[0]) < 32 or (r[3] - r[1]) < 32:
+            self._draw_overlay_only()
+            return
+        self.sel = r
+        self.gen = {"state": "ready", "world": self.cur, "area": r, "chunks": ((r[2] - r[0]) // 16) * ((r[3] - r[1]) // 16)}
+        self._gen_refresh_ui()
+        self._draw_overlay_only()
+
+    def _draw_area(self):
+        r = self._seltmp or (self.gen.get("area") if self.gen.get("world") == self.cur else None)
+        if not r:
+            return
+        x1, y1 = self._w2c(r[0], r[1])
+        x2, y2 = self._w2c(r[2], r[3])
+        st = self.gen["state"]
+        col = {"running": "#22c55e", "paused": "#f59e0b", "rendering": "#38bdf8", "done": "#22c55e"}.get(st, "#c084fc")
+        self.cv.create_rectangle(x1, y1, x2, y2, outline=col, width=2, dash=(6, 3), fill=col, stipple="gray12", tags="o")
+        cur = self.gen.get("cur")
+        if cur and st in ("running", "paused"):
+            cx, cy = self._w2c(cur[0] * 16 + 8, cur[1] * 16 + 8)
+            self.cv.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill="white", outline=col, width=2, tags="o")
+
+    def _bukkit_world(self):
+        lvl = read_properties(self.app.folder_var.get().strip()).get("level-name", "world")
+        n = (self.cur or "").lower()
+        return lvl + "_nether" if "nether" in n else lvl + "_the_end" if n.endswith("end") else lvl
+
+    def _chunky_installed(self):
+        try:
+            return any(f.lower().startswith("chunky") and f.lower().endswith(".jar")
+                       for f in os.listdir(os.path.join(self.app.folder_var.get().strip(), "plugins")))
+        except OSError:
+            return False
+
+    @staticmethod
+    def _fmt_n(n):
+        return f"{int(n):,}".replace(",", ".")
+
+    def _gen_refresh_ui(self):
+        g, st = self.gen, self.gen["state"]
+        self.gen_show()
+        a = g.get("area")
+        size = f"{a[2] - a[0]} × {a[3] - a[1]} blokken  ({self._fmt_n(g['chunks'])} chunks)" if a else ""
+        pb = self.gen_pb
+        pb.stop()
+        pb.config(mode="determinate")
+        for b in (self.gen_start, self.gen_pause, self.gen_stop):
+            b.pack_forget()
+        if st == "ready":
+            self.gen_title.config(text="Gebied: " + size)
+            self.gen_info.config(text="Klaar om te genereren")
+            pb["value"] = 0
+            self.gen_stop.pack(side="right", padx=(6, 0))
+            self.gen_stop.config(text="✕  Ander gebied", command=lambda: (self.gen_hide(), self.toggle_sel(True)))
+            self.gen_start.pack(side="right", padx=(6, 0))
+        elif st in ("running", "paused"):
+            self.gen_title.config(text=("Chunks genereren" if st == "running" else "⏸  Gepauzeerd") + "  •  " + size)
+            self.gen_stop.config(text="■  Stop", command=self.gen_cancel)
+            self.gen_stop.pack(side="right", padx=(6, 0))
+            self.gen_pause.config(text="⏸  Pauze" if st == "running" else "▶  Hervat")
+            self.gen_pause.pack(side="right", padx=(6, 0))
+        elif st == "rendering":
+            self.gen_title.config(text="✔ Chunks klaar  •  kaart wordt bijgewerkt…")
+            self.gen_info.config(text="De kaart ververst vanzelf zodra squaremap klaar is")
+            pb.config(mode="indeterminate")
+            pb.start(20)
+        elif st == "done":
+            self.gen_title.config(text="✔ Klaar  •  " + size)
+            self.gen_info.config(text="")
+            pb["value"] = 100
+
+    def gen_begin(self):
+        app = self.app
+        if not app.srv_running() or app.srv_state != "online":
+            messagebox.showinfo(APP_NAME, "De server draait niet. Start hem eerst op het tabblad Server.")
+            return
+        if not self._chunky_installed():
+            messagebox.showinfo(APP_NAME, "Chunky staat niet in de plugins-map. Zet hem aan of installeer hem via het tabblad "
+                                          "Plugins (zoeken: Chunky) en herstart de server.")
+            return
+        a = self.gen["area"]
+        w = self._bukkit_world()
+        self.gen.update(state="running", bworld=w, t0=time.time(), pct=0.0, done=0)
+        for c in (f"chunky world {w}", "chunky shape rectangle", f"chunky corners {a[0]} {a[1]} {a[2]} {a[3]}",
+                  "chunky quiet 2", "chunky start"):
+            app.srv_send(c, echo=False)
+        app.log(f"Chunky gestart voor {w}: {a[0]},{a[1]} t/m {a[2]},{a[3]} ({self.gen['chunks']} chunks).", "info")
+        self.gen_info.config(text="Starten…")
+        self.gen_pb["value"] = 0
+        self._gen_refresh_ui()
+        self._draw_overlay_only()
+
+    def gen_toggle_pause(self):
+        st = self.gen["state"]
+        if st == "running":
+            self.app.srv_send("chunky pause", echo=False)
+            self.gen["state"] = "paused"
+        elif st == "paused":
+            self.app.srv_send("chunky continue", echo=False)
+            self.gen["state"] = "running"
+        self._gen_refresh_ui()
+        self._draw_overlay_only()
+
+    def gen_cancel(self):
+        if self.gen["state"] in ("running", "paused"):
+            self.app.srv_send("chunky cancel", echo=False)
+            self.gen = {"state": "ready", "world": self.gen.get("world"), "area": self.gen.get("area"), "chunks": self.gen.get("chunks")}
+            self._gen_refresh_ui()
+            self.gen_info.config(text="Gestopt")
+            self._draw_overlay_only()
+
+    def on_chunky(self, msg):
+        """Leest een Chunky-regel uit de console. Geeft True terug als die regel bij de lopende taak hoorde."""
+        km = re.search(r"Task (running|finished|paused|cancelled|canceled|stopped)\b", msg)
+        if not km or self.gen["state"] not in ("running", "paused"):
+            return False
+        kind = km.group(1)
+        pm = re.search(r"Processed:\s*(\d+) chunks \(([\d.,]+)%\)", msg)
+        em = re.search(r"(?:ETA|Total time):\s*([\d:]+)", msg)
+        rm = re.search(r"Rate:\s*([\d.,]+) cps", msg)
+        cm = re.search(r"Current:\s*(-?\d+),\s*(-?\d+)", msg)
+        done, pct = (pm.group(1), pm.group(2)) if pm else (None, None)
+        eta, rate = (em.group(1) if em else None), (rm.group(1) if rm else None)
+        cx, cz = (cm.group(1), cm.group(2)) if cm else (None, None)
+        g = self.gen
+        num = lambda x: float(x.replace(",", ".")) if x else 0.0
+        if kind == "running":
+            g["pct"] = num(pct)
+            g["done"] = int(done or 0)
+            if cx is not None:
+                g["cur"] = (int(cx), int(cz))
+            self.gen_pb["value"] = g["pct"]
+            self.gen_info.config(text=f"{g['pct']:.1f} %  •  {self._fmt_n(g['done'])} / {self._fmt_n(g['chunks'])} chunks  •  "
+                                      f"nog {eta or '?'}  •  {num(rate):.0f} chunks/s")
+            self._dirty_overlay()
+            return True
+        if kind == "finished":
+            g["pct"] = 100.0
+            self.gen_pb["value"] = 100
+            self.app.log("Chunky is klaar met genereren.", "ok")
+            self._gen_finished()
+            return True
+        if kind in ("cancelled", "canceled", "stopped") and g["state"] != "ready":
+            self.gen_cancel()
+            return True
+        return False
+
+    def _dirty_overlay(self):
+        now = time.time()
+        if now - getattr(self, "_ov_t", 0) > 1.0:
+            self._ov_t = now
+            self._draw_overlay_only()
+
+    def _gen_finished(self):
+        g = self.gen
+        a = g["area"]
+        if self.autorender_var.get():
+            cx, cz = (a[0] + a[2]) // 2, (a[1] + a[3]) // 2
+            r = max(a[2] - a[0], a[3] - a[1]) // 2 + 32
+            g["state"] = "rendering"
+            self._fast_until = time.time() + 900
+            self.cmd(f"radiusrender {{w}} {r} {cx} {cz}")
+            self.after(60000, self._gen_render_done)
+        else:
+            g["state"] = "done"
+        self._gen_refresh_ui()
+        self._draw_overlay_only()
+
+    def _gen_render_done(self):
+        if self.gen["state"] == "rendering":
+            self.gen["state"] = "done"
+            self._gen_refresh_ui()
+            self.refresh(True)
+            self._draw_overlay_only()
 
     def cmd(self, template):
         app = self.app
@@ -4283,6 +4552,8 @@ class App(tk.Tk):
             self._on_tps(tm)
             suppress = suppress or now < self._sup["tps"]
         if now < self._sup["any"] and "nknown" in msg and "ommand" in msg:
+            suppress = True
+        if self.tab_map.gen["state"] in ("running", "paused") and self.tab_map.on_chunky(msg):
             suppress = True
         gm = re.search(r"Started Geyser on (?:UDP )?port (\d+)", msg)
         if gm and gm.group(1).isdigit() and 0 < int(gm.group(1)) < 65536:
