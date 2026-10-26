@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.1"
+APP_VERSION = "2.12.2"
 
 CHANGELOG = """
+2.12.2 - Bedrock-check probeert ook je netwerk-adres (Geyser kan aan dat adres gebonden zijn).
 2.12.1 - Bedrock-check zoekt zelf op welke UDP-poort Geyser echt gebruikt.
 2.12 - Grafieken lopen soepel door; Updates-tabje knippert met aantal bij beschikbare updates.
 2.11.4 - Kaart: geen dunne strepen meer tussen tegels op bepaalde zoomniveaus.
@@ -861,6 +862,37 @@ def detect_geyser_port(folder, java_port=25565):
                     return int(java_port), "clone-remote-port staat aan: Geyser gebruikt dezelfde poort als Java"
                 if port:
                     return int(port.group(1)), f"{d}/config.yml"
+    except OSError:
+        pass
+    return None
+
+
+def lan_ips():
+    ips = []
+    try:
+        so = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        so.connect(("192.0.2.1", 9))
+        ips.append(so.getsockname()[0])
+        so.close()
+    except OSError:
+        pass
+    try:
+        ips += [i for i in socket.gethostbyname_ex(socket.gethostname())[2]]
+    except OSError:
+        pass
+    return [i for i in dict.fromkeys(ips) if not i.startswith("127.")]
+
+
+def geyser_bind_address(folder):
+    try:
+        pdir = os.path.join(folder, "plugins")
+        for d in sorted(os.listdir(pdir)):
+            cfg = os.path.join(pdir, d, "config.yml")
+            if d.lower().startswith("geyser") and os.path.isfile(cfg):
+                text = open(cfg, encoding="utf-8", errors="replace").read()
+                m = re.search(r"^bedrock:\s*\n((?:[ \t]+.*\n?|\s*\n|#.*\n)+)", text, re.M)
+                a = re.search(r"^\s+address:\s*[\"']?([^\s\"'#]+)", m.group(1) if m else "", re.M)
+                return a.group(1) if a else None
     except OSError:
         pass
     return None
@@ -4654,6 +4686,12 @@ class App(tk.Tk):
                     except Exception as e:
                         res["bed_err"] = describe_net_error(e)
                     if not (res.get("bed") and res["bed"]["online"]):
+                        for lip in lan_ips():
+                            try:
+                                res["bed_lan"] = (lip, raknet_ping(lip, bport, timeout=1.5))
+                                break
+                            except Exception:
+                                pass
                         for key, h in (("bed_loc", "127.0.0.1"), ("bed_own", host)):
                             try:
                                 res[key] = raknet_ping(h, bport)
@@ -4751,6 +4789,9 @@ class App(tk.Tk):
                                       "Draait Geyser en klopt de poort in config.yml?"))
             lines.append(f"Via {res['host']}: " + (f"✔ antwoordt vanaf deze pc ({bo['ms']} ms)." if bo else
                                                    f"✖ geen antwoord ({res.get('bed_own_err', '?')})."))
+            if res.get("bed_lan") and not bl:
+                lines.append(f"✔ Geyser antwoordt wél op je netwerk-adres {res['bed_lan'][0]} (niet op 127.0.0.1): "
+                             "Geyser is aan dat adres gebonden. Dat is prima voor Bedrock zelf.")
             if bl and not bo:
                 lines.append("→ UDP-poort doorsturen in je router en toestaan in de firewall ontbreekt waarschijnlijk.")
             elif bl and bo:

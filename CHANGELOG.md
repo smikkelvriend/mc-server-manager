@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.12.2
+- Bedrock-check pingt Geyser ook op je netwerk-adres, voor het geval Geyser niet aan 127.0.0.1 gebonden is.
+
 ## 2.12.1
 - **Bedrock-poort automatisch gevonden:** antwoordt Geyser niet op de ingestelde UDP-poort, dan kijkt het programma welke UDP-poorten Java open heeft, probeert die en stelt de werkende in. Lukt dat niet, dan staat er welke poorten open zijn.
 
