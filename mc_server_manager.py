@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.2"
+APP_VERSION = "2.12.3"
 
 CHANGELOG = """
+2.12.3 - Bedrock-check: ping met herhaling en ook IPv6, en meldt dat Geyser luistert als Java de UDP-poort open heeft.
 2.12.2 - Bedrock-check probeert ook je netwerk-adres (Geyser kan aan dat adres gebonden zijn).
 2.12.1 - Bedrock-check zoekt zelf op welke UDP-poort Geyser echt gebruikt.
 2.12 - Grafieken lopen soepel door; Updates-tabje knippert met aantal bij beschikbare updates.
@@ -902,13 +903,19 @@ def raknet_ping(host, port, timeout=4):
     """Eigen Bedrock-ping (RakNet, UDP): antwoordt Geyser op deze poort?"""
     pkt = b"\x01" + struct.pack(">Q", int(time.time() * 1000) & 0x7FFFFFFFFFFFFFFF) + RAKNET_MAGIC + os.urandom(8)
     last = None
-    for addr in sorted({i[4] for i in socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_DGRAM)}):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(timeout)
+    for fam, addr in sorted({(i[0], i[4]) for i in socket.getaddrinfo(host, int(port), socket.AF_UNSPEC, socket.SOCK_DGRAM)}):
+        sock = socket.socket(fam, socket.SOCK_DGRAM)
+        sock.settimeout(timeout / 2)
         try:
             t0 = time.time()
-            sock.sendto(pkt, addr)
-            data, _ = sock.recvfrom(4096)
+            for attempt in range(2):  # UDP kan een pakket kwijtraken: één herhaling
+                try:
+                    sock.sendto(pkt, addr)
+                    data, _ = sock.recvfrom(4096)
+                    break
+                except socket.timeout:
+                    if attempt:
+                        raise
             if not data or data[0] != 0x1C or len(data) < 35:
                 raise ValueError("onverwacht antwoord")
             n = struct.unpack(">H", data[33:35])[0]
@@ -4692,7 +4699,7 @@ class App(tk.Tk):
                                 break
                             except Exception:
                                 pass
-                        for key, h in (("bed_loc", "127.0.0.1"), ("bed_own", host)):
+                        for key, h in (("bed_loc", "localhost"), ("bed_own", host)):
                             try:
                                 res[key] = raknet_ping(h, bport)
                             except Exception as e:
@@ -4777,6 +4784,10 @@ class App(tk.Tk):
         if bed and not bed["online"]:
             tried = ", ".join(f"{n} ({'online' if o else 'offline' if o is not None else 'fout'})" for n, o in bed.get("tried", []))
             lines = [f"Bedrock (Geyser): ✖ de controlediensten zien hem niet op UDP-poort {res['bport']}."]
+            if res["bport"] in (res.get("udp_ports") or []):
+                lines.append(f"Wel: een Java-proces heeft UDP-poort {res['bport']} open, dus Geyser luistert. Alleen de ping-test "
+                             "krijgt geen antwoord (sommige Geyser-instellingen negeren pings). Verbindt Bedrock bij jou wel, "
+                             "dan werkt het gewoon.")
             if res.get("bed_found"):
                 lines.append(f"Geyser gevonden op UDP-poort {res['bed_found']} (automatisch ingesteld). "
                              "Zet in je router de UDP-doorsturing op die poort.")

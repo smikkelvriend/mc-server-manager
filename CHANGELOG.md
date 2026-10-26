@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.12.3
+- Bedrock-check: ping probeert opnieuw en ook via IPv6; als Java de UDP-poort open heeft maar niet op de ping antwoordt, staat er dat Geyser wel luistert.
+
 ## 2.12.2
 - Bedrock-check pingt Geyser ook op je netwerk-adres, voor het geval Geyser niet aan 127.0.0.1 gebonden is.
 
