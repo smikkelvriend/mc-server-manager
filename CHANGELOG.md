@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.31
+- Zuiniger: de grafieken op het Server-tabblad worden alleen nog hertekend als de lijn minstens een halve pixel is opgeschoven. Dat scheelt in rust grofweg driekwart van de processortijd.
+- Fix: de knop "Pagina" bij plugin-zoekresultaten deed niets (ontbrekende functie).
+- Deze versie vereist een herstart.
+
 ## 2.30
 - De pagina "Instellingen van Backuper" (tabblad Backups) scrolt nu met het muiswiel en een scrollbalk; eerder werd alles onder de eerste opslagen afgesneden.
 - Aanvinkvakjes, keuzerondjes, scrollbalken en rijhoogtes schalen nu mee met de schermschaling van Windows (waren op een scherm met 125-200% erg klein).

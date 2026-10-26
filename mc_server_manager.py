@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.30"
+APP_VERSION = "2.31"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.31 - Grafieken verbruiken veel minder processortijd (alleen hertekenen als de lijn echt verschuift: van ca. 15% naar 4% van een kern in rust); de knop "Pagina" bij plugin-zoekresultaten werkt weer.
 2.30 - De Backuper-instellingen scrollen nu (muiswiel en balk). Aanvinkvakjes, keuzerondjes, scrollbalken en lijstrijen schalen mee met de Windows-schermschaling.
 2.29 - Backups-tabblad toonde de bestanden van je serverfolder als backups: bij ftp/sftp/webdav-opslag is "backupsFolder" een map op een andere computer en wordt niet meer als lokale map gelezen.
 2.28 - Opgeschoonde, modernere interface: één vlak kleurenschema (licht en donker), rustiger knoppen (blauw = hoofdactie, groen = starten/aanzetten, rood = verwijderen, de rest grijs), duidelijkere tabbladen, uitleg bovenaan tabbladen, welkomsttekst in de console en een logischere volgorde in Instellingen.
@@ -1456,6 +1457,7 @@ class Spark(tk.Canvas):
         super().__init__(parent, height=104, width=90, bg="#111827", highlightthickness=0)
         self.title, self.color, self.lo, self.hi, self.unit, self.min_span = title, color, lo, hi, unit, min_span
         self.data = deque(maxlen=12000)
+        self._lt = 0.0
         self.window, self.zoom, self.hi_fn = 300, True, None  # window in seconden
         self.bind("<Configure>", lambda e: self.redraw())
 
@@ -1486,7 +1488,14 @@ class Spark(tk.Canvas):
         gaps = sorted(b - a for a, b in zip(ts, ts[1:]))
         return min(max(gaps[len(gaps) // 2] * 1.15, 0.5), 4.0)
 
+    def tick(self):
+        """Alleen opnieuw tekenen als de lijn minstens een halve pixel is opgeschoven (scheelt veel processortijd)."""
+        step = min(max(self.window / max(self.winfo_width(), 40) * 0.5, 0.05), 1.0)
+        if time.time() - self._lt >= step:
+            self.redraw()
+
     def redraw(self):
+        self._lt = time.time()
         self.delete("all")
         w, h = self.winfo_width(), self.winfo_height()
         if w < 40 or h < 50:
@@ -2914,6 +2923,13 @@ class PluginsTab(ttk.Frame):
             self.app.log(f"Verwijderd (verplaatst naar {trash}): " + ", ".join(i["name"] for i in sel), "ok")
 
         self._with_server_stopped(f"{len(sel)} plugin(s) verwijderen", act)
+
+    def _open_page(self, r):
+        url = (r.get("page") or "") if isinstance(r, dict) else ""
+        if re.match(r"^https?://", url):
+            webbrowser.open(url)
+        else:
+            messagebox.showinfo(APP_NAME, "Van deze plugin is geen webpagina bekend.")
 
     def _open_dir(self):
         d = self.pdir()
@@ -8165,7 +8181,7 @@ class App(tk.Tk):
             if self.state() != "iconic" and self.nb.select() == str(self.tab_srv):
                 for sk in (self.spark_cpu, self.spark_ram, self.spark_tps, self.spark_temp):
                     if sk.data:
-                        sk.redraw()
+                        sk.tick()
         except tk.TclError:
             pass
         self.after(50, self._spark_anim)
