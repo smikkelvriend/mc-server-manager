@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.29
+- Fix: het tabblad Backups toonde bestanden uit je serverfolder (spigot.yml, ops.json, …) als backups. Bij Backuper-opslag via ftp, sftp of webdav is `backupsFolder` een map op een andere computer; die werd ten onrechte als lokale map gelezen. Alleen lokale opslag wordt nu getoond.
+- Deze versie vereist een herstart.
+
 ## 2.28
 - Opgeschoonde en modernere interface: een vlak, rustig kleurenschema voor licht én donker, dat er op elk systeem hetzelfde uitziet (dus niet meer afhankelijk van het Windows-thema).
 - Knoppen hebben nu vaste betekenis: blauw = hoofdactie, groen = starten/aanzetten, rood = verwijderen of wissen, grijs = de rest (geen regenboog meer). Uitgeschakelde knoppen blijven zichtbaar.

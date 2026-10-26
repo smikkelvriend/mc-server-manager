@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.28"
+APP_VERSION = "2.29"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.29 - Backups-tabblad toonde de bestanden van je serverfolder als backups: bij ftp/sftp/webdav-opslag is "backupsFolder" een map op een andere computer en wordt niet meer als lokale map gelezen.
 2.28 - Opgeschoonde, modernere interface: één vlak kleurenschema (licht en donker), rustiger knoppen (blauw = hoofdactie, groen = starten/aanzetten, rood = verwijderen, de rest grijs), duidelijkere tabbladen, uitleg bovenaan tabbladen, welkomsttekst in de console en een logischere volgorde in Instellingen.
 2.27 - Pijltje omhoog/omlaag haalt ook commando's terug die de server afkeurde (om ze te verbeteren); alleen de Tab-aanvulling slaat die over. Volgorde van de geschiedenis blijft kloppen na herstart.
 2.26 - Fout hersteld: het Instellingen-venster toonde alleen het tabblad Backups (een dubbele functienaam brak het opbouwen), en de uptime/online-tijd had een ander formaat gekregen.
@@ -6530,7 +6531,7 @@ def backuper_state(folder):
         for k, kind, _l in BK_STORAGE:
             if ("storages", sid, k) in sc:
                 d[k] = yml_val(sc[("storages", sid, k)][1], kind)
-        if d["type"] == "local" or "backupsFolder" in d:
+        if d["type"] == "local":  # bij ftp/sftp/webdav is backupsFolder een map op de andere computer, geen lokale map
             bf = d.get("backupsFolder") or "./plugins/Backuper/Backups"
             d["path"] = os.path.normpath(bf if os.path.isabs(bf) else os.path.join(folder, bf))
         st["storages"].append(d)
