@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.29"
+APP_VERSION = "2.30"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.30 - De Backuper-instellingen scrollen nu (muiswiel en balk). Aanvinkvakjes, keuzerondjes, scrollbalken en lijstrijen schalen mee met de Windows-schermschaling.
 2.29 - Backups-tabblad toonde de bestanden van je serverfolder als backups: bij ftp/sftp/webdav-opslag is "backupsFolder" een map op een andere computer en wordt niet meer als lokale map gelezen.
 2.28 - Opgeschoonde, modernere interface: één vlak kleurenschema (licht en donker), rustiger knoppen (blauw = hoofdactie, groen = starten/aanzetten, rood = verwijderen, de rest grijs), duidelijkere tabbladen, uitleg bovenaan tabbladen, welkomsttekst in de console en een logischere volgorde in Instellingen.
 2.27 - Pijltje omhoog/omlaag haalt ook commando's terug die de server afkeurde (om ze te verbeteren); alleen de Tab-aanvulling slaat die over. Volgorde van de geschiedenis blijft kloppen na herstart.
@@ -2290,6 +2291,11 @@ def flat_style(style, P):
     except tk.TclError:
         pass
     F = "Segoe UI"
+    try:
+        sc = max(1.0, style.master.winfo_fpixels("1i") / 96.0)  # schermschaal (Windows-schaling 125%, 150%, ...)
+    except Exception:
+        sc = 1.0
+    ind = max(12, round(13 * sc))
     style.configure(".", background=P["bg"], foreground=P["fg"], fieldbackground=P["field"], bordercolor=P["border"],
                     lightcolor=P["bg"], darkcolor=P["bg"], troughcolor=P["field"], selectbackground=P["acc"],
                     selectforeground="white", insertcolor=P["fg"], focuscolor=P["bg"], font=(F, 10))
@@ -2310,12 +2316,12 @@ def flat_style(style, P):
                   foreground=[("disabled", P["muted"])], bordercolor=[("disabled", P["btn"]), ("active", hov)],
                   lightcolor=[("active", hov)], darkcolor=[("active", hov)])
     style.configure("TCheckbutton", background=P["bg"], foreground=P["fg"], indicatorbackground=P["field"],
-                    indicatorforeground="white", indicatorcolor=P["field"], padding=2)
+                    indicatorforeground="white", indicatorcolor=P["field"], padding=2, indicatorsize=ind, indicatormargin=(0, 0, 4, 0))
     style.map("TCheckbutton", background=[("active", P["bg"])],
               indicatorcolor=[("selected", P["acc"]), ("active", P["hover"])],
               indicatorbackground=[("selected", P["acc"]), ("active", P["hover"])])
     style.configure("TRadiobutton", background=P["bg"], foreground=P["fg"], indicatorbackground=P["field"],
-                    indicatorcolor=P["field"], padding=2)
+                    indicatorcolor=P["field"], padding=2, indicatorsize=ind, indicatormargin=(0, 0, 4, 0))
     style.map("TRadiobutton", background=[("active", P["bg"])], indicatorcolor=[("selected", P["acc"])],
               indicatorbackground=[("selected", P["acc"])])
     for w in ("TEntry", "TSpinbox", "TCombobox"):
@@ -2331,13 +2337,13 @@ def flat_style(style, P):
     style.map("TNotebook.Tab", background=[("selected", P["card"]), ("active", P["hover"])],
               foreground=[("selected", P["accfg"]), ("active", P["fg"])], font=[("selected", (F, 10, "bold"))])
     style.configure("Treeview", background=P["card"], fieldbackground=P["card"], foreground=P["fg"], bordercolor=P["border"],
-                    rowheight=26, font=(F, 10), borderwidth=1)
+                    rowheight=round(26 * sc), font=(F, 10), borderwidth=1)
     style.map("Treeview", background=[("selected", P["acc"])], foreground=[("selected", "white")])
     style.configure("Treeview.Heading", background=P["head"], foreground=P["fg"], bordercolor=P["border"], relief="flat",
                     font=(F, 9, "bold"), padding=(6, 5))
     style.map("Treeview.Heading", background=[("active", P["hover"])])
     style.configure("TScrollbar", background=P["btn"], troughcolor=P["bg"], arrowcolor=P["muted"], bordercolor=P["bg"],
-                    lightcolor=P["btn"], darkcolor=P["btn"], relief="flat", arrowsize=13)
+                    lightcolor=P["btn"], darkcolor=P["btn"], relief="flat", arrowsize=round(13 * sc))
     style.map("TScrollbar", background=[("active", P["hover"])])
     style.configure("TProgressbar", background=P["acc"], troughcolor=P["btn"], bordercolor=P["btn"], lightcolor=P["acc"],
                     darkcolor=P["acc"])
@@ -2351,6 +2357,41 @@ def flat_style(style, P):
 
 def dark_style(style):
     flat_style(style, DARK)
+
+
+def make_scroll_frame(parent):
+    """Geeft (buitenste frame, binnenste frame): zet dingen in het binnenste frame; het buitenste scrolt (muiswiel + balk)."""
+    P = DARK if DARK_ON else LIGHT
+    outer = ttk.Frame(parent)
+    cv = tk.Canvas(outer, highlightthickness=0, bg=P["bg"])
+    sb = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+    inner = ttk.Frame(cv)
+    win = cv.create_window((0, 0), window=inner, anchor="nw")
+    inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+    cv.bind("<Configure>", lambda e: cv.itemconfigure(win, width=e.width))
+    cv.configure(yscrollcommand=sb.set)
+    sb.pack(side="right", fill="y")
+    cv.pack(side="left", fill="both", expand=True)
+
+    def over(ev):
+        try:
+            w = cv.winfo_containing(ev.x_root, ev.y_root)
+        except (KeyError, tk.TclError):
+            return False
+        while w is not None:
+            if w is cv:
+                return True
+            w = getattr(w, "master", None)
+        return False
+
+    def wheel(ev):
+        if over(ev) and cv.bbox("all") and cv.bbox("all")[3] > cv.winfo_height():
+            d = -1 if (getattr(ev, "num", 0) == 4 or getattr(ev, "delta", 0) > 0) else 1
+            cv.yview_scroll(d * 3, "units")
+
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        cv.bind_all(seq, wheel, add="+")
+    return outer, inner
 
 
 def make_btn(parent, text, cmd, bg="#e5e7eb", fg="#111827", padx=10, pady=4):
@@ -6658,8 +6699,8 @@ class BackupTab(ttk.Frame):
         ttk.Label(r, text="Terugzetten doe je met de hand: stop de server, pak de zip uit in de wereldmap. Zo kan er niets misgaan.",
                   foreground="#6b7280").pack(side="left", padx=8)
         # instellingen
-        self.cf_box = ttk.Frame(self.pg_cf)
-        self.cf_box.pack(fill="both", expand=True)
+        _o, self.cf_box = make_scroll_frame(self.pg_cf)
+        _o.pack(fill="both", expand=True)
         # bestanden
         f = self.pg_fl
         r = ttk.Frame(f)
@@ -7054,7 +7095,7 @@ class App(tk.Tk):
             return [e for e in style.map("Treeview", query_opt=option) if e[:2] != ("!disabled", "!selected")]
 
         style.map("Treeview", foreground=fixed_map("foreground"), background=fixed_map("background"))
-        style.configure("Heads.Treeview", rowheight=28)
+        style.configure("Heads.Treeview", rowheight=max(28, round(28 * max(1.0, self.winfo_fpixels("1i") / 96.0))))
 
     def _build(self):
         header = tk.Frame(self, bg="#1f2937")

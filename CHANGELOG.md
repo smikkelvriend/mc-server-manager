@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.30
+- De pagina "Instellingen van Backuper" (tabblad Backups) scrolt nu met het muiswiel en een scrollbalk; eerder werd alles onder de eerste opslagen afgesneden.
+- Aanvinkvakjes, keuzerondjes, scrollbalken en rijhoogtes schalen nu mee met de schermschaling van Windows (waren op een scherm met 125-200% erg klein).
+- Deze versie vereist een herstart.
+
 ## 2.29
 - Fix: het tabblad Backups toonde bestanden uit je serverfolder (spigot.yml, ops.json, …) als backups. Bij Backuper-opslag via ftp, sftp of webdav is `backupsFolder` een map op een andere computer; die werd ten onrechte als lokale map gelezen. Alleen lokale opslag wordt nu getoond.
 - Deze versie vereist een herstart.
