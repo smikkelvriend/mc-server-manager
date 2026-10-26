@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.25
+- De grafieken (CPU, geheugen, TPS, temperatuur) worden bewaard (laatste 6 uur) en lopen door na een herstart van de server of van het programma. Wanneer de server uit was, laat de lijn een gat zien in plaats van door te trekken.
+- Deze versie vereist een herstart.
+
 ## 2.24
 - Soepel zoomen werkt nu ook op de diepste zoomniveaus (waar squaremap geen scherpere tegels meer heeft), en het einde van de animatie springt niet meer. Met Pillow worden die niveaus vloeiend vergroot in plaats van blokkerig.
 - Deze versie vereist een herstart.

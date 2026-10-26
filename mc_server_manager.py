@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.24"
+APP_VERSION = "2.25"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.25 - De grafieken (CPU, geheugen, TPS, temperatuur) blijven bewaard bij een herstart van de server of het programma en lopen gewoon door; een onderbreking wordt als gat getoond.
 2.24 - Soepel zoomen werkt nu ook op de diepste zoomniveaus (voorbij wat squaremap rendert), zonder sprong aan het eind.
 2.23 - Tab in de console geeft nu dezelfde aanvullingen als de echte console (via het kleine hulpplugin MCMTab, wordt automatisch geplaatst; herstart de server één keer). Kaart zoomt veel vlotter (een frame in één keer), meldt eerlijk wanneer squaremap niet bereikbaar is en probeert dan opnieuw. Resterende helpregels ("Aliases: …") verdwijnen uit de console.
 2.22 - Soepel zoomen met echte tussenbeelden (via Pillow, wordt eenmalig met een knop geïnstalleerd; zonder Pillow blijft het stapsgewijs). Help-regels van de server komen niet meer in de console terecht tijdens het leren van commando's.
@@ -1461,6 +1462,12 @@ class Spark(tk.Canvas):
         self.data.clear()
         self.redraw()
 
+    def gap(self):
+        """Markeert een onderbreking (server uit): de lijn loopt daar niet door, de geschiedenis blijft staan."""
+        if self.data and self.data[-1][1] is not None:
+            self.data.append((time.time(), None))
+        self.redraw()
+
     @staticmethod
     def _num(x, rng):
         return f"{x:.1f}" if rng < 10 else f"{x:.0f}"
@@ -1488,6 +1495,8 @@ class Spark(tk.Canvas):
         pts, nxt = [], None
         for t, v in reversed(self.data):  # van achter naar voren, stopt zodra we buiten het venster zijn
             if v is None:
+                if t <= td and pts and pts[-1][1] is not None:
+                    pts.append((t, None))
                 continue
             if t > td:
                 nxt = (t, v)
@@ -1496,6 +1505,9 @@ class Spark(tk.Canvas):
             if t < t0:
                 break
         pts.reverse()
+        while pts and pts[-1][1] is None:
+            pts.pop()
+            nxt = None
         if not pts:
             return
         if nxt and pts[-1][0] < td:  # tussen twee metingen doorrekenen: het uiteinde schuift gelijkmatig mee
@@ -1504,7 +1516,7 @@ class Spark(tk.Canvas):
             pts.append((td, va + (vb - va) * f))
         elif pts[-1][0] < td:
             pts.append((td, pts[-1][1]))
-        vals = [v for _, v in pts]
+        vals = [v for _, v in pts if v is not None]
         fixed_hi = (self.hi_fn() if self.hi_fn else None) or self.hi
         if self.zoom:
             vmin, vmax = min(vals), max(vals)
@@ -1536,10 +1548,13 @@ class Spark(tk.Canvas):
             return bot - (min(max(v, lo_v), hi_v) - lo_v) / rng * (bot - top)
 
         xy = []
-        for t, v in pts:
-            xy += [X(t), Y(v)]
-        if len(xy) >= 4:
-            self.create_line(*xy, fill=self.color, width=2)
+        for t, v in pts + [(0, None)]:
+            if v is None:
+                if len(xy) >= 4:
+                    self.create_line(*xy, fill=self.color, width=2)
+                xy = []
+            else:
+                xy += [X(t), Y(v)]
         last = next((v for t, v in reversed(self.data) if v is not None), vals[-1])  # echte laatste waarde
         self.create_text(w - 6, 4, anchor="ne", fill="white", font=("Segoe UI", 9, "bold"), text=f"{last:.1f}{self.unit}")
         self.create_text(w - 6, 18, anchor="ne", fill="#6b7280", font=("Segoe UI", 7), text=self._num(hi_v, rng))
@@ -4859,7 +4874,7 @@ class RemoteServer:
         a = self.app
         try:
             def series(sk):
-                pts = [v for _t, v in list(sk.data)[-150:]]
+                pts = [v for _t, v in list(sk.data)[-150:] if v is not None]
                 return pts[::max(1, len(pts) // 60)]
             pl = []
             for iid in a.ptree.get_children():
@@ -7268,6 +7283,41 @@ class App(tk.Tk):
         return (self.cfg.get("backup_dir") or "").strip() or os.path.join(self.folder_var.get().strip(),
                                                                           "updater_backups")
 
+    GRAPHS_PATH = os.path.join(app_dir(), "mc_server_manager_grafieken.json")
+
+    def _sparks(self):
+        return {"cpu": self.spark_cpu, "ram": self.spark_ram, "tps": self.spark_tps, "temp": self.spark_temp}
+
+    def _graphs_load(self):
+        """De grafieken lopen door na een herstart van de server of van het programma."""
+        try:
+            with open(self.GRAPHS_PATH, encoding="utf-8") as fh:
+                d = json.load(fh)
+            lim = time.time() - 6 * 3600
+            for k, sk in self._sparks().items():
+                for t, v in d.get(k, []):
+                    if t >= lim:
+                        sk.data.append((float(t), None if v is None else float(v)))
+                sk.gap()
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _graphs_save(self):
+        try:
+            lim = time.time() - 6 * 3600
+            out = {k: [[round(t, 1), None if v is None else round(v, 2)] for t, v in sk.data if t >= lim][-6000:]
+                   for k, sk in self._sparks().items()}
+            tmp = self.GRAPHS_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(out, fh)
+            os.replace(tmp, self.GRAPHS_PATH)
+        except (OSError, ValueError):
+            pass
+
+    def _graphs_tick(self):
+        self._graphs_save()
+        self.after(60000, self._graphs_tick)
+
     def _save_cfg(self):
         self.cfg.update(folder=self.folder_var.get().strip(), jar=self.jar_var.get().strip(),
                         unstable=self.unstable_var.get(), update_folder=self.updfolder_var.get(),
@@ -7278,6 +7328,7 @@ class App(tk.Tk):
         save_config(self.cfg)
 
     def _startup(self):
+        self.after(60000, self._graphs_tick)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
             self.load_folder()
             if self.cfg.get("auto_check"):
@@ -7380,6 +7431,7 @@ class App(tk.Tk):
         self.spark_tps = Spark(gc, "TPS", "#fbbf24", lo=0, hi=20, min_span=2)
         self.spark_temp = Spark(gc, "Temperatuur", "#f87171", lo=0, hi=110, unit=" °C", min_span=10)
         self.spark_ram.hi_fn = lambda: self.srv_xmx
+        self._graphs_load()
         for w in (self.spark_cpu, self.spark_ram, self.spark_tps, self.spark_temp):
             w.pack(side="left", fill="both", expand=True, padx=3)
 
@@ -7558,7 +7610,7 @@ class App(tk.Tk):
         self.max_players = None
         self._refresh_players()
         for sk in (self.spark_cpu, self.spark_ram, self.spark_tps):
-            sk.clear()
+            sk.gap()
         self.sv["tps"].set("-")
         self._set_state("starting")
         self._console_add("▶ Starten: " + subprocess.list2cmdline(cmd), own=True)
@@ -8988,6 +9040,7 @@ class App(tk.Tk):
                 return
             self._stop_blocking()
         self._cleanup_tmp()
+        self._graphs_save()
         self._save_cfg()
         self.destroy()
 
