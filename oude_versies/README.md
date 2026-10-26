@@ -8,12 +8,13 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.33
+## Versies 2.2 t/m 2.34
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
 | Versie | Wat was nieuw |
 |---|---|
+| [`2.34`](mc_server_manager_2.34.py) | Slaapstand: Bedrock NetherNet (experimenteel) |
 | [`2.33`](mc_server_manager_2.33.py) | Bedrock-serverlijst bij slaapstand |
 | [`2.32`](mc_server_manager_2.32.py) | Slaapstand |
 | [`2.31`](mc_server_manager_2.31.py) | Zuinigere grafieken, knop "Pagina" gerepareerd |

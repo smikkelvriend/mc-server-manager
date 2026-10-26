@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.35
+- De kaart wordt op de achtergrond voorgeladen: kort na het starten van het programma en 30 seconden nadat de server online is. Wereldlijst en de tegels rond het startpunt staan dan al klaar als je het tabblad Kaart opent, dat daarna meteen ververst.
+- Deze versie vereist een herstart.
+
 ## 2.34
 - Slaapstand, Bedrock met NetherNet (experimenteel): het programma luistert nu ook op TCP van de Bedrock-poort, schrijft in het logboek wat een Bedrock-client daar vraagt en wekt de server bij een join-verzoek. Het exacte NetherNet-verzoek is nog niet bevestigd; het log helpt om dat vast te stellen.
 - Deze versie vereist een herstart.

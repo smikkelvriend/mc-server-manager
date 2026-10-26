@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.34"
+APP_VERSION = "2.35"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.35 - De kaart wordt op de achtergrond voorgeladen (bij het opstarten van het programma en 30 seconden nadat de server online is), zodat hij er meteen staat als je het tabblad Kaart opent.
 2.34 - Slaapstand: eerste stap voor Bedrock met NetherNet. Het programma luistert nu ook op TCP van de Bedrock-poort, logt wat de Bedrock-client daar vraagt en wekt de server bij een join-verzoek. Experimenteel: het formaat is nog niet bevestigd.
 2.33 - Slaapstand: in de Bedrock-serverlijst staat nu duidelijk "💤 Server slaapt" met "Join = starten, wacht ±1 min". (Een melding bij het joinen zelf is bij Bedrock niet mogelijk zonder het volledige Bedrock-protocol na te bouwen.)
 2.32 - Nieuw: Slaapstand (Instellingen > Starten & Java). Als er X minuten niemand online is, stopt de server veilig en luistert het programma op de serverpoort. In de serverlijst staat dan "Server slaapt"; zodra iemand probeert te joinen start de server vanzelf weer (die speler probeert het na ca. een minuut opnieuw). Niet tijdens kaartgeneratie.
@@ -3612,11 +3613,49 @@ class MapTab(ttk.Frame):
             self.after(800, self._ask_pil)
         if not self.worlds:
             self.load_worlds()
+        elif time.time() - self._last_refresh > 4:
+            self._last_refresh = 0   # meteen verversen met de nieuwste tegels (de voorgeladen kunnen oud zijn)
         self._loop(self._tok)
 
     def on_hide(self):
         self.visible = False
         self._tok += 1
+
+    # ---------- alvast laden op de achtergrond, zodat de kaart er meteen staat als je het tabblad opent ----------
+    def prewarm(self):
+        """Haalt de wereldlijst en de tegels rond het startpunt op terwijl het tabblad nog dicht is."""
+        if self.visible or getattr(self, "_warming", False):
+            return
+        self._warming = True
+        self._warm_end = time.time() + 45
+        self._warm_asked = False
+        self._warm_tried = False
+        if self._disk_mode:
+            self._disk_until = 0
+        if not self.worlds or self._disk_mode:
+            self._warm_tried = True
+            self.load_worlds()
+        self._warm_loop()
+
+    def _warm_loop(self):
+        if self.visible or time.time() > self._warm_end:
+            self._warming = False
+            return
+        self._drain()
+        if self.worlds and self.cur and not self._warm_asked:
+            self._warm_asked = True
+            W, H = (self.cv.winfo_width(), self.cv.winfo_height()) if self.cv.winfo_width() >= 20 else (1100, 700)
+            for key in self._view_keys(0.5, (W, H)):
+                if key not in self.imgs:
+                    self.fetch_tile(key)
+            self.fetch_players()
+        elif not self.worlds and not self.loading and self._warm_tried:
+            self._warming = False   # niets te laden (squaremap niet bereikbaar en geen opgeslagen kaart)
+            return
+        if self._warm_asked and not self.pending and not self.loading:
+            self._warming = False
+            return
+        self.after(150, self._warm_loop)
 
     def _loop(self, tok):
         """Eén rustige timer, alleen actief zolang het tabblad open is."""
@@ -3892,11 +3931,11 @@ class MapTab(ttk.Frame):
         self._wp = wp
         return native, span, wp / span
 
-    def _view_keys(self, margin=0.5):
-        if not self.cur or self.cv.winfo_width() < 20:
+    def _view_keys(self, margin=0.5, wh=None):
+        if not self.cur or (wh is None and self.cv.winfo_width() < 20):
             return []
         native, span, s = self._geometry()
-        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        W, H = wh if wh else (self.cv.winfo_width(), self.cv.winfo_height())
         x0, x1 = self.cx - W / 2 / s - span * margin, self.cx + W / 2 / s + span * margin
         z0, z1 = self.cz - H / 2 / s - span * margin, self.cz + H / 2 / s + span * margin
         out = []
@@ -7669,6 +7708,7 @@ class App(tk.Tk):
     def _startup(self):
         self.after(60000, self._graphs_tick)
         self.after(15000, self._sleep_tick)
+        self.after(4000, self.tab_map.prewarm)
         self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
                           "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
@@ -8643,6 +8683,7 @@ class App(tk.Tk):
             self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
             self._idle_since = time.time()
+            self.after(30000, self.tab_map.prewarm)   # squaremap is dan klaar: kaart alvast laden
             self.after(12000, self._learn_commands)
             self._startup_until = time.time() + 10
             if self.reach_auto_var.get():
