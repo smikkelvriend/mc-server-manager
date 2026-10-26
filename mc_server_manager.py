@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.3"
+APP_VERSION = "2.12.4"
 
 CHANGELOG = """
+2.12.4 - Bedrock: als Java de UDP-poort open heeft maar niet op de ping antwoordt, oranje waarschuwing in plaats van rood kruis.
 2.12.3 - Bedrock-check: ping met herhaling en ook IPv6, en meldt dat Geyser luistert als Java de UDP-poort open heeft.
 2.12.2 - Bedrock-check probeert ook je netwerk-adres (Geyser kan aan dat adres gebonden zijn).
 2.12.1 - Bedrock-check zoekt zelf op welke UDP-poort Geyser echt gebruikt.
@@ -4784,14 +4785,15 @@ class App(tk.Tk):
         if bed and not bed["online"]:
             tried = ", ".join(f"{n} ({'online' if o else 'offline' if o is not None else 'fout'})" for n, o in bed.get("tried", []))
             lines = [f"Bedrock (Geyser): ✖ de controlediensten zien hem niet op UDP-poort {res['bport']}."]
-            if res["bport"] in (res.get("udp_ports") or []):
-                lines.append(f"Wel: een Java-proces heeft UDP-poort {res['bport']} open, dus Geyser luistert. Alleen de ping-test "
-                             "krijgt geen antwoord (sommige Geyser-instellingen negeren pings). Verbindt Bedrock bij jou wel, "
-                             "dan werkt het gewoon.")
+            listening = res["bport"] in (res.get("udp_ports") or [])
+            if listening:
+                lines = [f"Bedrock (Geyser): ⚠ draait en luistert op UDP-poort {res['bport']} (Java heeft de poort open), "
+                         "maar de ping-test krijgt geen antwoord.",
+                         "Dat zegt weinig: Geyser kan pings negeren. Verbindt Bedrock bij jou wel, dan werkt het gewoon."]
             if res.get("bed_found"):
                 lines.append(f"Geyser gevonden op UDP-poort {res['bed_found']} (automatisch ingesteld). "
                              "Zet in je router de UDP-doorsturing op die poort.")
-            elif res.get("udp_ports") is not None:
+            elif res.get("udp_ports") is not None and not listening:
                 lines.append("Java heeft geen UDP-poort open die op Bedrock antwoordt" +
                              (f" (open: {', '.join(map(str, res['udp_ports']))})." if res["udp_ports"] else
                               " (er is helemaal geen UDP-poort van Java open: draait Geyser wel? Bij lazymc slaapt de server)."))
@@ -4810,7 +4812,7 @@ class App(tk.Tk):
                              "van buiten niet doorkrijgen. Test ook met een telefoon via mobiel internet.")
             if tried:
                 lines.append("Geraadpleegd: " + tried + ".")
-            self.net_bed.config(fg="#d97706" if (bl and bo) else "#b91c1c", text="\n".join(lines), justify="left")
+            self.net_bed.config(fg="#d97706" if ((bl and bo) or listening) else "#b91c1c", text="\n".join(lines), justify="left")
         elif bed:
             if bed["online"]:
                 on, mx = bed["players"]
