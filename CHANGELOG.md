@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.36
+- Fix: in het spelersmenu knipperde af en toe de spelerskop. De lijst werd bij elke verversing leeggemaakt en opnieuw opgebouwd, waardoor de kop even weg was. Bestaande rijen blijven nu staan en worden alleen bijgewerkt; nieuwe spelers krijgen hun kop meteen.
+- Deze versie vereist een herstart.
+
 ## 2.35
 - De kaart wordt op de achtergrond voorgeladen: kort na het starten van het programma en 30 seconden nadat de server online is. Wereldlijst en de tegels rond het startpunt staan dan al klaar als je het tabblad Kaart opent, dat daarna meteen ververst.
 - Deze versie vereist een herstart.

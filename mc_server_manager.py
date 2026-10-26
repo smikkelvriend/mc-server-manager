@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.35"
+APP_VERSION = "2.36"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.36 - Fix: de spelerskop in het spelersmenu knipperde af en toe omdat de lijst bij elke verversing werd leeggemaakt en opnieuw opgebouwd. Rijen blijven nu staan en worden alleen bijgewerkt.
 2.35 - De kaart wordt op de achtergrond voorgeladen (bij het opstarten van het programma en 30 seconden nadat de server online is), zodat hij er meteen staat als je het tabblad Kaart opent.
 2.34 - Slaapstand: eerste stap voor Bedrock met NetherNet. Het programma luistert nu ook op TCP van de Bedrock-poort, logt wat de Bedrock-client daar vraagt en wekt de server bij een join-verzoek. Experimenteel: het formaat is nog niet bevestigd.
 2.33 - Slaapstand: in de Bedrock-serverlijst staat nu duidelijk "💤 Server slaapt" met "Join = starten, wacht ±1 min". (Een melding bij het joinen zelf is bij Bedrock niet mogelijk zonder het volledige Bedrock-protocol na te bouwen.)
@@ -8730,14 +8731,25 @@ class App(tk.Tk):
     # ---------- spelers ----------
     def _refresh_players(self):
         tree = self.ptree
-        sel = tree.selection()
-        tree.delete(*tree.get_children())
         now = time.time()
-        for name in sorted(self.players, key=str.lower):
+        names = sorted(self.players, key=str.lower)
+        for iid in tree.get_children():          # alleen wat weg is verwijderen: bestaande rijen blijven staan (geen geknipper van de kop)
+            if iid not in self.players:
+                tree.delete(iid)
+        for i, name in enumerate(names):
             kind = "Bedrock" if name.startswith(".") else "Java"
-            tree.insert("", "end", iid=name, values=(name, kind, fmt_dur(now - self.players[name])[-8:]))
-        if sel and tree.exists(sel[0]):
-            tree.selection_set(sel[0])
+            vals = (name, kind, fmt_dur(now - self.players[name])[-8:])
+            if tree.exists(name):
+                if tuple(str(v) for v in tree.item(name, "values")) != vals:
+                    tree.item(name, values=vals)
+                if tree.index(name) != i:
+                    tree.move(name, "", i)
+            else:
+                try:
+                    im = self.heads.photo(name, kind)
+                except Exception:
+                    im = None
+                tree.insert("", i, iid=name, values=vals, **({"image": im} if im is not None else {}))
         if self.srv_running():
             mx = self.max_players if self.max_players is not None else "?"
             self.sv["players"].set(f"{len(self.players)} / {mx}")
