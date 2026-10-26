@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.3"
+APP_VERSION = "2.8.4"
 
 CHANGELOG = """
+2.8.4 - Zwart consolevenster wordt verborgen; kaart toont bij het aanwijzen van een regio waarom stukken ontbreken.
 2.8.3 - Programma-update: elke 5 minuten (en bij het terugkeren naar het venster) controleren in plaats van elke 6 uur.
 2.8.2 - Kaart veel sneller en stabieler: soepel slepen en zoomen, geen ontbrekende stukken meer bij ander zoomniveau.
 2.8.1 - Temperatuur wordt nu ook gelezen via de webserver van LibreHardwareMonitor (Options > Remote Web Server).
@@ -2730,6 +2731,7 @@ def render_region(path, dim):
     cols = [[None] * MAP_PX for _ in range(MAP_PX)]
     hts = [[None] * MAP_PX for _ in range(MAP_PX)]
     ok = bad = 0
+    skip = {}
     for idx, root in read_region_chunks(path):
         if root is None:
             bad += 1
@@ -2740,6 +2742,9 @@ def render_region(path, dim):
             bad += 1
             continue
         if res is None:
+            lv = root.get("Level") if isinstance(root.get("Level"), dict) else root
+            st = str(lv.get("Status", "?")).replace("minecraft:", "")
+            skip[st] = skip.get(st, 0) + 1
             continue
         ok += 1
         cx, cz = idx & 31, idx >> 5
@@ -2761,6 +2766,7 @@ def render_region(path, dim):
                 c = tuple(max(0, min(255, int(v * f))) for v in c)
             row.append("#%02x%02x%02x" % c)
         rows.append(row)
+    render_region.last_skip = skip
     return rows, ok, bad
 
 
@@ -2828,31 +2834,31 @@ def map_cache_path(folder, dim, rx, rz):
     return d, os.path.join(d, f"{dim}.{rx}.{rz}.rgn")
 
 
-def map_cache_save(folder, dim, rx, rz, mt, rows, bad):
+def map_cache_save(folder, dim, rx, rz, mt, rows, bad, skip=None):
     try:
         d, f = map_cache_path(folder, dim, rx, rz)
         os.makedirs(d, exist_ok=True)
         payload = zlib.compress("\n".join(" ".join(r) for r in rows).encode("ascii"), 6)
         with open(f + ".tmp", "wb") as fh:
-            fh.write(f"{mt!r} {bad}\n".encode("ascii") + payload)
+            fh.write((json.dumps({"mt": mt, "bad": bad, "skip": skip or {}}) + "\n").encode("ascii") + payload)
         os.replace(f + ".tmp", f)
     except Exception:
         pass
 
 
 def map_cache_load(folder, dim, rx, rz, mt):
-    """Geeft (rows, bad) als er een bewaarde kaart is die bij deze versie van het regiobestand hoort, anders None."""
+    """Geeft (rows, bad, skip) als er een bewaarde kaart is die bij deze versie van het regiobestand hoort, anders None."""
     try:
         f = map_cache_path(folder, dim, rx, rz)[1]
         with open(f, "rb") as fh:
             head, _, payload = fh.read().partition(b"\n")
-        smt, sbad = head.decode("ascii").split()
-        if float(smt) != mt:
+        hd = json.loads(head.decode("ascii"))
+        if float(hd["mt"]) != mt:
             return None
         rows = [ln.split(" ") for ln in zlib.decompress(payload).decode("ascii").split("\n")]
         if len(rows) != MAP_PX or any(len(r) != MAP_PX for r in rows):
             return None
-        return rows, int(sbad)
+        return rows, int(hd["bad"]), hd.get("skip") or {}
     except Exception:
         return None
 
@@ -3120,11 +3126,12 @@ class MapTab(ttk.Frame):
                 try:
                     cached = None if force else map_cache_load(folder, dim, rx, rz, mt)
                     if cached:
-                        self.q.put(("region", dim, rx, rz, self._pstr(cached[0]), 1, cached[1], mt))
+                        self.q.put(("region", dim, rx, rz, self._pstr(cached[0]), 1, cached[1], mt, cached[2]))
                         continue
                     rows, ok, bad = render_region(path, dim)
-                    map_cache_save(folder, dim, rx, rz, mt, rows, bad)
-                    self.q.put(("region", dim, rx, rz, self._pstr(rows), ok, bad, mt))
+                    skip = dict(getattr(render_region, "last_skip", {}))
+                    map_cache_save(folder, dim, rx, rz, mt, rows, bad, skip)
+                    self.q.put(("region", dim, rx, rz, self._pstr(rows), ok, bad, mt, skip))
                     time.sleep(0.05)  # rustig aan: de achtergrondtaak mag de server en de rest van het programma niet storen
                 except Exception as e:
                     self.q.put(("regionerr", dim, rx, rz, str(e), mt))
@@ -3158,7 +3165,9 @@ class MapTab(ttk.Frame):
             while time.time() < t_end:
                 m = self.q.get_nowait()
                 if m[0] == "region":
-                    _k, dim, rx, rz, rows, ok, bad, mt = m
+                    _k, dim, rx, rz, rows, ok, bad, mt, skip = m
+                    self.rstats = getattr(self, "rstats", {})
+                    self.rstats[(dim, rx, rz)] = (bad, skip)
                     self.mtimes[(dim, rx, rz)] = mt
                     self._bad = getattr(self, "_bad", {})
                     self._bad[(dim, rx, rz)] = bad
@@ -3356,6 +3365,13 @@ class MapTab(ttk.Frame):
         W, H = self.cv.winfo_width(), self.cv.winfo_height()
         wx, wz = self.cx + (ev.x - W / 2) / self.scale, self.cz + (ev.y - H / 2) / self.scale
         txt = f"X {wx:7.0f}   Z {wz:7.0f}"
+        rk = (self.dim, math.floor(wx / 512), math.floor(wz / 512))
+        if rk in self.base:
+            bad, skip = getattr(self, "rstats", {}).get(rk, (0, {}))
+            txt += f"     regio r.{rk[1]}.{rk[2]}" + (f", {bad} onleesbaar" if bad else "") + \
+                   ("".join(f", {n}x '{st}'" for st, n in skip.items()) if skip else "")
+        elif os.path.exists(os.path.join(self.world.get(self.dim) or "", f"r.{rk[1]}.{rk[2]}.mca")):
+            txt += f"     regio r.{rk[1]}.{rk[2]} bestaat maar kon niet getekend worden"
         for n, p in self.pos.items():
             if "x" in p and p.get("dim", self.dim) == self.dim:
                 px, py = self._w2c(p["x"], p["z"])
@@ -5116,7 +5132,11 @@ class App(tk.Tk):
         self._cleanup_tmp()
         self._save_cfg()
         try:
-            subprocess.Popen([sys.executable, os.path.abspath(__file__)] + sys.argv[1:], cwd=app_dir(), close_fds=True)
+            exe = sys.executable
+            pw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+            if os.name == "nt" and os.path.exists(pw):
+                exe = pw  # herstarten zonder zwart consolevenster
+            subprocess.Popen([exe, os.path.abspath(__file__)] + sys.argv[1:], cwd=app_dir(), close_fds=True)
         except Exception as e:
             messagebox.showerror(APP_NAME, f"Herstarten mislukt: {e}\nStart het programma zelf opnieuw.")
             return
@@ -5971,7 +5991,24 @@ class SettingsDialog(tk.Toplevel):
         self.destroy()
 
 
+def hide_own_console():
+    """Verbergt het zwarte consolevenster als dat alleen bij dit programma hoort (python.exe i.p.v. pythonw.exe)."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        hwnd = k.GetConsoleWindow()
+        if hwnd:
+            procs = (ctypes.c_uint * 4)()
+            if k.GetConsoleProcessList(procs, 4) <= 1:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
+    hide_own_console()
     try:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)

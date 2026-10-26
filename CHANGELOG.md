@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.4
+- Het zwarte consolevenster dat naast het programma openstond wordt nu automatisch verborgen (en bij herstarten niet meer opnieuw geopend).
+- Kaart: als je met de muis boven een regio staat zie je onderaan hoeveel chunks onleesbaar zijn of nog niet klaar, handig om te zien waarom een stuk leeg blijft.
+
 ## 2.8.3
 - Updatemelding sneller: het programma controleert elke 5 minuten op een nieuwe versie (was elke 6 uur), en ook zodra je terugkeert naar het venster. Er komt maar één melding per nieuwe versie.
 
