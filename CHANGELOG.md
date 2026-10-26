@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.10
+- De vraag om te herstarten na een programma-update toont nu ook wat er nieuw is (en het staat in het logboek).
+
 ## 2.8.9
 - Kaart: chunks die wel bestaan maar helemaal leeg zijn (geen enkel blok, bijvoorbeeld een leegte) worden nu als vlak, iets lichter dan de achtergrond getoond. Zo zie je het verschil tussen 'nooit gegenereerd' en 'leeg'.
 

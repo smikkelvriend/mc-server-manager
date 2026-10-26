@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.9"
+APP_VERSION = "2.8.10"
 
 CHANGELOG = """
+2.8.10 - De herstartvraag na een update toont nu wat er nieuw is.
 2.8.9 - Kaart: lege chunks (leegte zonder blokken) worden nu als vlak getoond in plaats van als niet-ingelezen.
 2.8.8 - Kaart begint gecentreerd op de spawn in plaats van op 0,0.
 2.8.7 - Kaart-diagnose: toont de reden waarom een chunk niet getekend kan worden en de gebruikte wereldmap.
@@ -5222,8 +5223,14 @@ class App(tk.Tk):
             return
         self._upd = None
         self.btn_selfupd.pack_forget()
+        notes = changelog_since(info["text"], APP_VERSION)
+        lines = notes.splitlines()
+        notes = "\n".join(lines[:12]) + (f"\n… en nog {len(lines) - 12} meer" if len(lines) > 12 else "")
         self.log(f"Programma bijgewerkt naar versie {info['version']}. De vorige versie staat in {bak}", "ok")
-        if messagebox.askyesno(APP_NAME, f"Versie {info['version']} is geïnstalleerd.\n\nNu herstarten om hem te gebruiken?"
+        for ln in lines:
+            self.log("Nieuw: " + ln.lstrip("• "), "info")
+        if messagebox.askyesno(APP_NAME, f"Versie {info['version']} is geïnstalleerd.\n\n"
+                                         + (f"Wat is er nieuw:\n{notes}\n\n" if notes else "") + "Nu herstarten om hem te gebruiken?"
                                          + ("\n(De server wordt eerst veilig gestopt.)" if self.srv_running() else "")):
             self._restart_self()
 
