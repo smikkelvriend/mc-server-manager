@@ -44,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.5"
+APP_VERSION = "2.6"
 
 CHANGELOG = """
+2.6 - Plugins-tabblad in kaartvorm: aantrekkelijker, met filter, sortering, aan/uit per plugin en installeren per zoekresultaat.
 2.5 - Vinkje bij Plugins zoeken: alleen plugins tonen die zeker werken met jouw Minecraft-versie.
 2.4.2 - Plugins sorteren door op een kolomnaam te klikken (downloads, datum, naam, enz.).
 2.4.1 - Slimmer zoeken: Nederlandse restwoorden blokkeren Modrinth niet meer, en bomen omhakken wordt herkend.
@@ -1784,7 +1785,7 @@ class PluginsTab(ttk.Frame):
         super().__init__(parent, padding=10)
         self.app = app
         self.q = queue.Queue()
-        self.items, self.results, self.busy = {}, {}, False
+        self.items, self.busy, self._search_mc = {}, False, ""
         self.plm_var = tk.BooleanVar(value=bool(app.cfg.get("plm_load", False)))
         self.query_var = tk.StringVar()
         self.compat_var = tk.BooleanVar(value=bool(app.cfg.get("plugins_only_compat", False)))
@@ -1807,79 +1808,346 @@ class PluginsTab(ttk.Frame):
     # ---------- opbouw ----------
     def _build_installed(self):
         f = self.pg_inst
-        bar = ttk.Frame(f)
-        bar.pack(fill="x")
-        for text, cmd in (("↻  Vernieuwen", self.refresh), ("⏸  Uitzetten", lambda: self._toggle(False)),
-                          ("▶  Aanzetten", lambda: self._toggle(True)), ("🗑  Verwijderen…", self._remove),
-                          ("⚡  Nu laden (/plm load)", self._load_selected), ("📂  Map openen", self._open_dir)):
-            ttk.Button(bar, text=text, command=cmd).pack(side="left", padx=(0, 6))
-        self.count_lbl = ttk.Label(bar, text="")
+        self.card_vars, self._cards, self._desc_labels = {}, {}, []
+        self.f_text, self.f_state = tk.StringVar(), tk.StringVar(value="Alles")
+        self.s_key, self.s_desc = tk.StringVar(value="Naam"), False
+        # --- teller-tegels ---
+        tiles = tk.Frame(f, bg=self.BG)
+        tiles.pack(fill="x", pady=(0, 8))
+        self.tiles = {}
+        for key, label, color in (("total", "Plugins", "#2563eb"), ("on", "Aan", "#16a34a"),
+                                  ("off", "Uit", "#6b7280"), ("warn", "Aandacht nodig", "#d97706")):
+            t = tk.Frame(tiles, bg="white", highlightbackground="#e5e7eb", highlightthickness=1)
+            t.pack(side="left", padx=(0, 8))
+            tk.Frame(t, bg=color, width=5).pack(side="left", fill="y")
+            n = tk.Label(t, text="0", bg="white", fg=color, font=("Segoe UI", 20, "bold"))
+            n.pack(side="left", padx=(12, 6), pady=2)
+            tk.Label(t, text=label, bg="white", fg="#4b5563", font=("Segoe UI", 10)).pack(side="left", padx=(0, 14))
+            self.tiles[key] = n
+        # --- filter en sortering ---
+        row = tk.Frame(f, bg=self.BG)
+        row.pack(fill="x", pady=(0, 6))
+        e = ttk.Entry(row, textvariable=self.f_text, width=28, font=("Segoe UI", 10))
+        e.pack(side="left")
+        e.bind("<KeyRelease>", lambda ev: self._render())
+        tk.Label(row, text="🔎 filter op naam of omschrijving", bg=self.BG, fg="#9ca3af", font=("Segoe UI", 9)).pack(side="left", padx=6)
+        cb = ttk.Combobox(row, textvariable=self.f_state, values=["Alles", "Aan", "Uit", "Met probleem"], state="readonly", width=12)
+        cb.pack(side="left", padx=(14, 0))
+        cb.bind("<<ComboboxSelected>>", lambda ev: self._render())
+        tk.Label(row, text="Sorteer op", bg=self.BG, fg="#4b5563", font=("Segoe UI", 9)).pack(side="left", padx=(14, 4))
+        sc = ttk.Combobox(row, textvariable=self.s_key, values=["Naam", "Status", "Grootte", "Versie"], state="readonly", width=9)
+        sc.pack(side="left")
+        sc.bind("<<ComboboxSelected>>", lambda ev: self._render())
+        self.btn_dir = self._btn(row, "▲", self._flip_sort, "#e5e7eb", "#111827", pad=6)
+        self.btn_dir.pack(side="left", padx=4)
+        self.count_lbl = tk.Label(row, text="", bg=self.BG, fg="#6b7280", font=("Segoe UI", 9))
         self.count_lbl.pack(side="right")
-        cols = ("state", "name", "version", "needs", "file", "size")
-        wrap = ttk.Frame(f)
-        wrap.pack(fill="both", expand=True, pady=(8, 4))
-        self.tree = ttk.Treeview(wrap, columns=cols, show="headings", selectmode="extended")
-        self.i_heads = {}
-        for c, t, w in (("state", "Status", 90), ("name", "Plugin", 190), ("version", "Versie", 110),
-                        ("needs", "Heeft nodig", 190), ("file", "Bestand", 240), ("size", "Grootte", 80)):
-            self.i_heads[c] = t
-            self.tree.heading(c, text=t, command=lambda c=c: self._sort_installed(c))
-            self.tree.column(c, width=w, anchor="w")
-        sb = ttk.Scrollbar(wrap, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=sb.set)
-        self.tree.pack(side="left", fill="both", expand=True)
+        # --- acties ---
+        bar = tk.Frame(f, bg=self.BG)
+        bar.pack(fill="x", pady=(0, 8))
+        for text, cmd, bg, fg in (("▶  Aanzetten", lambda: self._toggle(True), "#16a34a", "white"),
+                                  ("⏸  Uitzetten", lambda: self._toggle(False), "#d97706", "white"),
+                                  ("🗑  Verwijderen…", self._remove, "#dc2626", "white"),
+                                  ("⚡  Nu laden (/plm load)", self._load_selected, "#7c3aed", "white"),
+                                  ("☑  Alles selecteren", self._select_all, "#e5e7eb", "#111827"),
+                                  ("📂  Map openen", self._open_dir, "#e5e7eb", "#111827"),
+                                  ("↻  Vernieuwen", self.refresh, "#e5e7eb", "#111827")):
+            self._btn(bar, text, cmd, bg, fg).pack(side="left", padx=(0, 6))
+        tk.Label(bar, text="Vink plugins aan om meer tegelijk te beheren, of gebruik de knop op de kaart.", bg=self.BG,
+                 fg="#9ca3af", font=("Segoe UI", 9)).pack(side="right")
+        # --- scrollbare lijst met kaarten ---
+        wrap = tk.Frame(f, bg=self.BG)
+        wrap.pack(fill="both", expand=True)
+        self.canvas = tk.Canvas(wrap, bg=self.BG, highlightthickness=0)
+        sb = ttk.Scrollbar(wrap, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
-        self.tree.tag_configure("off", foreground="#9ca3af")
-        self.tree.tag_configure("warn", foreground="#b45309")
-        self.tree.bind("<<TreeviewSelect>>", lambda e: self._show_installed_info())
-        self.info_lbl = ttk.Label(f, text="", wraplength=900, justify="left", foreground="#374151")
-        self.info_lbl.pack(fill="x")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.inner = tk.Frame(self.canvas, bg=self.BG)
+        self._win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>", lambda ev: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>", self._canvas_resized)
+        for w in (self.canvas, self.inner):
+            w.bind("<Enter>", self._bind_wheel)
+            w.bind("<Leave>", self._unbind_wheel)
+
+    @property
+    def BG(self):
+        try:
+            return ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
+        except Exception:
+            return "#f0f0f0"
+
+    @staticmethod
+    def _btn(parent, text, cmd, bg, fg, pad=10):
+        b = tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg,
+                      relief="flat", bd=0, padx=pad, pady=4, font=("Segoe UI", 9, "bold"), cursor="hand2")
+        return b
+
+    def _canvas_resized(self, ev):
+        self.canvas.itemconfigure(self._win, width=ev.width)
+        for lbl in self._desc_labels:
+            try:
+                lbl.config(wraplength=max(300, ev.width - 330))
+            except Exception:
+                pass
+
+    def _bind_wheel(self, _e=None):
+        self.canvas.bind_all("<MouseWheel>", self._wheel)
+        self.canvas.bind_all("<Button-4>", lambda ev: self.canvas.yview_scroll(-3, "units"))
+        self.canvas.bind_all("<Button-5>", lambda ev: self.canvas.yview_scroll(3, "units"))
+
+    def _unbind_wheel(self, _e=None):
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.canvas.unbind_all(seq)
+
+    def _wheel(self, ev):
+        if self.inner.winfo_height() > self.canvas.winfo_height():
+            self.canvas.yview_scroll(int(-ev.delta / 120) * 3 or (-3 if ev.delta > 0 else 3), "units")
+
+    def _flip_sort(self):
+        self.s_desc = not self.s_desc
+        self.btn_dir.config(text="▼" if self.s_desc else "▲")
+        self._render()
+
+    def _select_all(self):
+        vis = [i["file"] for i in self._visible()]
+        everything = all(self.card_vars[f].get() for f in vis if f in self.card_vars)
+        for f in vis:
+            if f in self.card_vars:
+                self.card_vars[f].set(not everything)
+        self._refresh_selection()
+
+    def _visible(self):
+        text = norm_text(self.f_text.get().strip())
+        mode = self.f_state.get()
+        out = []
+        for it in self.items.values():
+            if mode == "Aan" and not it["enabled"]:
+                continue
+            if mode == "Uit" and it["enabled"]:
+                continue
+            if mode == "Met probleem" and not (it["enabled"] and it["missing"]):
+                continue
+            if text and text not in norm_text(it["name"] + " " + it["desc"] + " " + it["file"]):
+                continue
+            out.append(it)
+        keys = {"Naam": lambda i: i["name"].lower(), "Status": lambda i: (not i["enabled"], bool(i["missing"]), i["name"].lower()),
+                "Grootte": lambda i: i["size"], "Versie": lambda i: (ver_nums(i["version"] or "") or (0,), i["version"] or "")}
+        out.sort(key=keys[self.s_key.get()], reverse=self.s_desc)
+        return out
+
+    def _make_card(self, it):
+        enabled, problem = it["enabled"], bool(it["enabled"] and it["missing"])
+        accent = "#d97706" if problem else ("#16a34a" if enabled else "#9ca3af")
+        fg_main, fg_sub = ("#111827", "#4b5563") if enabled else ("#6b7280", "#9ca3af")
+        card = tk.Frame(self.inner, bg="white", highlightbackground="#e5e7eb", highlightthickness=1)
+        card.pack(fill="x", padx=(0, 6), pady=3)
+        tk.Frame(card, bg=accent, width=6).pack(side="left", fill="y")
+        var = self.card_vars.setdefault(it["file"], tk.BooleanVar(value=False))
+        tk.Checkbutton(card, variable=var, bg="white", activebackground="white", bd=0, highlightthickness=0,
+                       command=self._refresh_selection).pack(side="left", padx=(8, 2))
+        body = tk.Frame(card, bg="white")
+        body.pack(side="left", fill="x", expand=True, padx=(4, 8), pady=7)
+        top = tk.Frame(body, bg="white")
+        top.pack(fill="x")
+        tk.Label(top, text=it["name"], bg="white", fg=fg_main, font=("Segoe UI", 12, "bold")).pack(side="left")
+        if it["version"]:
+            tk.Label(top, text=it["version"], bg="#eef2ff" if enabled else "#f3f4f6", fg="#3730a3" if enabled else "#6b7280",
+                     font=("Segoe UI", 9), padx=6).pack(side="left", padx=8)
+        if problem:
+            pill, pbg, pfg = "⚠ MIST " + ", ".join(it["missing"]).upper(), "#fef3c7", "#92400e"
+        elif enabled:
+            pill, pbg, pfg = "AAN", "#dcfce7", "#166534"
+        else:
+            pill, pbg, pfg = "UIT", "#e5e7eb", "#4b5563"
+        tk.Label(top, text=pill, bg=pbg, fg=pfg, font=("Segoe UI", 8, "bold"), padx=7).pack(side="left")
+        desc = tk.Label(body, text=it["desc"] or "(geen omschrijving in de plugin)", bg="white", fg=fg_sub, anchor="w",
+                        justify="left", font=("Segoe UI", 10), wraplength=700)
+        desc.pack(fill="x", pady=(2, 0))
+        self._desc_labels.append(desc)
+        meta = []
+        if it["depend"]:
+            meta.append("Heeft nodig: " + ", ".join(it["depend"]))
+        if it["needed_by"]:
+            meta.append("Nodig voor: " + ", ".join(it["needed_by"]))
+        if it["commands"]:
+            meta.append(" ".join("/" + c for c in it["commands"][:4]) + (" …" if len(it["commands"]) > 4 else ""))
+        meta.append(f"{it['file']}  ·  {fmt_size(it['size'])}")
+        tk.Label(body, text="   ·   ".join(meta), bg="white", fg="#9ca3af", anchor="w", justify="left",
+                 font=("Segoe UI", 9)).pack(fill="x", pady=(3, 0))
+        right = tk.Frame(card, bg="white")
+        right.pack(side="right", padx=10)
+        if enabled:
+            self._btn(right, "⏸  Uitzetten", lambda it=it: self._toggle(False, [it]), "#fef3c7", "#92400e").pack()
+        else:
+            self._btn(right, "▶  Aanzetten", lambda it=it: self._toggle(True, [it]), "#dcfce7", "#166534").pack()
+        self._cards[it["file"]] = card
+        return card
+
+    def _refresh_selection(self):
+        for fn, card in self._cards.items():
+            on = fn in self.card_vars and self.card_vars[fn].get()
+            card.config(highlightbackground="#3b82f6" if on else "#e5e7eb", highlightthickness=2 if on else 1)
+
+    def _render(self):
+        for w in self.inner.winfo_children():
+            w.destroy()
+        self._cards, self._desc_labels = {}, []
+        vis = self._visible()
+        for it in vis:
+            self._make_card(it)
+        if not vis:
+            tk.Label(self.inner, bg=self.BG, fg="#6b7280", font=("Segoe UI", 11), pady=30,
+                     text=("Geen plugins gevonden met dit filter." if self.items else
+                           "Nog geen plugins. Kies je servermap (tabblad Updates) of zoek er een bij 🔍 Zoeken en toevoegen.")).pack()
+        self._canvas_resized(type("E", (), {"width": max(self.canvas.winfo_width(), 800)})())
+        self._refresh_selection()
+        self.count_lbl.config(text=f"{len(vis)} van {len(self.items)} getoond" if len(vis) != len(self.items) else "")
 
     def _build_find(self):
         f = self.pg_find
+        self.res_list, self.res_info, self.res_mc = [], {}, ""
+        self.r_key, self.r_desc = tk.StringVar(value="Relevantie"), False
         row = ttk.Frame(f)
         row.pack(fill="x")
         row.columnconfigure(0, weight=1)
         e = ttk.Entry(row, textvariable=self.query_var, font=("Segoe UI", 11))
         e.grid(row=0, column=0, sticky="ew")
         e.bind("<Return>", lambda ev: self.search())
-        self.btn_search = ttk.Button(row, text="Zoeken", command=self.search, style="Big.TButton")
-        self.btn_search.grid(row=0, column=1, padx=(8, 0))
-        self.compat_chk = ttk.Checkbutton(f, text="Alleen plugins die zeker werken met mijn Minecraft-versie",
+        self.btn_search = self._btn(row, "🔍  Zoeken", self.search, "#2563eb", "white", pad=16)
+        self.btn_search.grid(row=0, column=1, padx=(8, 0), ipady=3)
+        opt = tk.Frame(f, bg=self.BG)
+        opt.pack(fill="x", pady=(6, 0))
+        self.compat_chk = ttk.Checkbutton(opt, text="Alleen plugins die zeker werken met mijn Minecraft-versie",
                                           variable=self.compat_var, command=self._compat_toggled)
-        self.compat_chk.pack(anchor="w", pady=(4, 0))
-        ttk.Label(f, foreground="#6b7280", wraplength=900, justify="left",
-                  text="Klik op een kolomnaam om te sorteren. Typ een naam (bijv. “worldedit”, “luckperms”) of beschrijf wat je zoekt (bijv. “een plugin die de nacht "
-                       "overslaat als 1 speler slaapt”, “spelers kunnen land claimen”). Nederlands en Engels werken allebei."
-                  ).pack(anchor="w", pady=(4, 2))
-        self.interp_lbl = ttk.Label(f, text="", foreground="#2563eb", wraplength=900, justify="left")
-        self.interp_lbl.pack(anchor="w")
-        wrap = ttk.Frame(f)
-        wrap.pack(fill="both", expand=True, pady=(6, 4))
-        cols = ("name", "desc", "dl", "upd", "mc", "src", "state")
-        self.rtree = ttk.Treeview(wrap, columns=cols, show="headings", selectmode="browse")
-        self.r_heads, self._rsort = {}, ("state", True)
-        for c, t, w, a in (("name", "Plugin", 160, "w"), ("desc", "Wat doet het", 380, "w"), ("dl", "Downloads", 80, "e"),
-                           ("upd", "Bijgewerkt", 90, "w"), ("mc", "Jouw MC-versie", 110, "w"), ("src", "Bron", 80, "w"),
-                           ("state", "Relevantie", 110, "w")):
-            self.r_heads[c] = t
-            self.rtree.heading(c, text=t, command=lambda c=c: self._sort_results(c))
-            self.rtree.column(c, width=w, anchor=a)
-        sb = ttk.Scrollbar(wrap, orient="vertical", command=self.rtree.yview)
-        self.rtree.configure(yscrollcommand=sb.set)
-        self.rtree.pack(side="left", fill="both", expand=True)
+        self.compat_chk.pack(side="left")
+        self.btn_rdir = self._btn(opt, "▲", self._flip_rsort, "#e5e7eb", "#111827", pad=6)
+        self.btn_rdir.pack(side="right")
+        rc = ttk.Combobox(opt, textvariable=self.r_key, values=["Relevantie", "Downloads", "Bijgewerkt", "Naam", "Past bij mijn MC"],
+                          state="readonly", width=16)
+        rc.pack(side="right", padx=4)
+        rc.bind("<<ComboboxSelected>>", lambda ev: self._render_results())
+        tk.Label(opt, text="Sorteer op", bg=self.BG, fg="#4b5563", font=("Segoe UI", 9)).pack(side="right")
+        tk.Label(f, bg=self.BG, fg="#6b7280", wraplength=1000, justify="left", anchor="w", font=("Segoe UI", 9),
+                 text="Typ een naam (“worldedit”, “luckperms”) of beschrijf wat je zoekt (“een plugin die de nacht overslaat als 1 speler "
+                      "slaapt”, “spelers kunnen land claimen”). Nederlands en Engels werken allebei."
+                 ).pack(fill="x", pady=(4, 2))
+        self.interp_lbl = tk.Label(f, text="", bg=self.BG, fg="#2563eb", wraplength=1000, justify="left", anchor="w",
+                                   font=("Segoe UI", 9))
+        self.interp_lbl.pack(fill="x", pady=(0, 4))
+        wrap = tk.Frame(f, bg=self.BG)
+        wrap.pack(fill="both", expand=True)
+        self.rcanvas = tk.Canvas(wrap, bg=self.BG, highlightthickness=0)
+        sb = ttk.Scrollbar(wrap, orient="vertical", command=self.rcanvas.yview)
+        self.rcanvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
-        self.rtree.tag_configure("exact", background="#dcfce7")
-        self.rtree.tag_configure("have", foreground="#9ca3af")
-        self.rtree.bind("<<TreeviewSelect>>", lambda e: self._show_result())
-        self.rtree.bind("<Double-1>", lambda e: self.install())
-        self.detail = tk.Text(f, height=7, wrap="word", font=("Segoe UI", 10), relief="flat", bg="#f3f4f6", state="disabled")
-        self.detail.pack(fill="x", pady=(2, 6))
-        bar = ttk.Frame(f)
-        bar.pack(fill="x")
-        self.btn_install = ttk.Button(bar, text="⬇  Installeren", command=self.install, style="Big.TButton")
-        self.btn_install.pack(side="left")
-        ttk.Button(bar, text="🌐  Pagina openen", command=self._open_page).pack(side="left", padx=8)
+        self.rcanvas.pack(side="left", fill="both", expand=True)
+        self.rinner = tk.Frame(self.rcanvas, bg=self.BG)
+        self._rwin = self.rcanvas.create_window((0, 0), window=self.rinner, anchor="nw")
+        self.rinner.bind("<Configure>", lambda ev: self.rcanvas.configure(scrollregion=self.rcanvas.bbox("all")))
+        self._rdesc = []
+
+        def resized(ev):
+            self.rcanvas.itemconfigure(self._rwin, width=ev.width)
+            for lbl in self._rdesc:
+                try:
+                    lbl.config(wraplength=max(300, ev.width - 330))
+                except Exception:
+                    pass
+
+        self.rcanvas.bind("<Configure>", resized)
+        self._rresize = resized
+
+        def bind(_e=None):
+            self.rcanvas.bind_all("<MouseWheel>", lambda ev: self.rcanvas.yview_scroll(-3 if ev.delta > 0 else 3, "units"))
+            self.rcanvas.bind_all("<Button-4>", lambda ev: self.rcanvas.yview_scroll(-3, "units"))
+            self.rcanvas.bind_all("<Button-5>", lambda ev: self.rcanvas.yview_scroll(3, "units"))
+
+        def unbind(_e=None):
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                self.rcanvas.unbind_all(seq)
+
+        for w in (self.rcanvas, self.rinner):
+            w.bind("<Enter>", bind)
+            w.bind("<Leave>", unbind)
+        self._render_results()
+
+    def _flip_rsort(self):
+        self.r_desc = not self.r_desc
+        self.btn_rdir.config(text="▼" if self.r_desc else "▲")
+        self._render_results()
+
+    def _sorted_results(self):
+        k = self.r_key.get()
+        keys = {"Relevantie": lambda r: r["score"], "Downloads": lambda r: r["downloads"],
+                "Bijgewerkt": lambda r: r["updated"] or datetime.min, "Naam": lambda r: r["name"].lower(),
+                "Past bij mijn MC": lambda r: ({True: 2, None: 1, False: 0}[r["compat"]], r["score"])}
+        asc_default = k == "Naam"
+        return sorted(self.res_list, key=keys[k], reverse=(not asc_default) != self.r_desc)
+
+    def _result_card(self, r):
+        mc = self.res_mc
+        if r["exact"]:
+            accent = "#16a34a"
+        elif r["compat"] is True:
+            accent = "#2563eb"
+        elif r["compat"] is False:
+            accent = "#d97706"
+        else:
+            accent = "#9ca3af"
+        card = tk.Frame(self.rinner, bg="white", highlightbackground="#e5e7eb", highlightthickness=1)
+        card.pack(fill="x", padx=(0, 6), pady=3)
+        tk.Frame(card, bg=accent, width=6).pack(side="left", fill="y")
+        body = tk.Frame(card, bg="white")
+        body.pack(side="left", fill="x", expand=True, padx=(12, 8), pady=8)
+        top = tk.Frame(body, bg="white")
+        top.pack(fill="x")
+        tk.Label(top, text=r["name"], bg="white", fg="#111827", font=("Segoe UI", 12, "bold")).pack(side="left")
+
+        def badge(text, bg, fg):
+            tk.Label(top, text=text, bg=bg, fg=fg, font=("Segoe UI", 8, "bold"), padx=7).pack(side="left", padx=(8, 0))
+
+        if r["exact"]:
+            badge("★ BESTE MATCH", "#dcfce7", "#166534")
+        if r["compat"] is True:
+            badge(f"✔ PAST BIJ {mc}" if mc else "✔ COMPATIBEL", "#dbeafe", "#1e40af")
+        elif r["compat"] is False:
+            badge(("TOT " + r["versions"][-1]) if r["versions"] else "MC-VERSIE ONBEKEND", "#fef3c7", "#92400e")
+        else:
+            badge("MC-VERSIE ONBEKEND", "#f3f4f6", "#6b7280")
+        if r["installed"]:
+            badge("✔ GEÏNSTALLEERD", "#e5e7eb", "#4b5563")
+        upd = r["updated"].strftime("%d-%m-%Y") if r["updated"] else "?"
+        tk.Label(top, text=f"⬇ {fmt_count(r['downloads'])}   ·   bijgewerkt {upd}   ·   {' + '.join(r['sources'])}",
+                 bg="white", fg="#6b7280", font=("Segoe UI", 9)).pack(side="right")
+        desc = tk.Label(body, text=r["desc"] or "(geen omschrijving)", bg="white", fg="#374151", anchor="w", justify="left",
+                        font=("Segoe UI", 10), wraplength=700)
+        desc.pack(fill="x", pady=(3, 0))
+        self._rdesc.append(desc)
+        if r["why"]:
+            tk.Label(body, text="Waarom hier: " + r["why"], bg="white", fg="#2563eb", anchor="w",
+                     font=("Segoe UI", 9)).pack(fill="x", pady=(3, 0))
+        if r["compat"] is False:
+            tk.Label(body, text=f"Vermeldt Minecraft {mc} niet. Vaak werkt het toch, maar probeer het eerst op een testserver.",
+                     bg="white", fg="#92400e", anchor="w", font=("Segoe UI", 9)).pack(fill="x", pady=(2, 0))
+        right = tk.Frame(card, bg="white")
+        right.pack(side="right", padx=12)
+        self._btn(right, "⬇  Installeren" if not r["installed"] else "⬇  Opnieuw", lambda r=r: self.install(r),
+                  "#2563eb" if not r["installed"] else "#e5e7eb", "white" if not r["installed"] else "#111827").pack(fill="x")
+        self._btn(right, "🌐  Pagina", lambda r=r: self._open_page(r), "#e5e7eb", "#111827").pack(fill="x", pady=(6, 0))
+
+    def _render_results(self):
+        for w in self.rinner.winfo_children():
+            w.destroy()
+        self._rdesc = []
+        for r in self._sorted_results():
+            self._result_card(r)
+        if not self.res_list:
+            tk.Label(self.rinner, bg=self.BG, fg="#6b7280", font=("Segoe UI", 11), pady=30, justify="center",
+                     text=self.res_empty if getattr(self, "res_empty", "") else
+                     "Zoek hierboven naar een plugin: op naam, of met een beschrijving van wat hij moet doen.").pack()
+        self._rresize(type("E", (), {"width": max(self.rcanvas.winfo_width(), 800)})())
 
     # ---------- hulpjes ----------
     def pdir(self):
@@ -1904,83 +2172,29 @@ class PluginsTab(ttk.Frame):
         return names
 
     # ---------- sorteren op kolom ----------
-    @staticmethod
-    def _sort_rows(tree, data, keyf, desc):
-        for idx, iid in enumerate(sorted(data, key=lambda i: keyf(data[i]), reverse=desc)):
-            tree.move(iid, "", idx)
-
-    @staticmethod
-    def _arrows(tree, heads, col, desc):
-        for c, t in heads.items():
-            tree.heading(c, text=t + ((" ▼" if desc else " ▲") if c == col else ""))
-
-    def _sort_results(self, col):
-        keys = {"name": lambda r: r["name"].lower(), "desc": lambda r: r["desc"].lower(),
-                "dl": lambda r: r["downloads"], "upd": lambda r: r["updated"] or datetime.min,
-                "mc": lambda r: {True: 2, None: 1, False: 0}[r["compat"]], "src": lambda r: " + ".join(r["sources"]),
-                "state": lambda r: r["score"]}
-        prev_col, prev_desc = self._rsort
-        desc = (not prev_desc) if col == prev_col else col in ("dl", "upd", "mc", "state")
-        self._rsort = (col, desc)
-        self._sort_rows(self.rtree, self.results, keys[col], desc)
-        self._arrows(self.rtree, self.r_heads, col, desc)
-
-    def _sort_installed(self, col):
-        keys = {"state": lambda i: (i["enabled"], bool(i["missing"])), "name": lambda i: i["name"].lower(),
-                "version": lambda i: (ver_nums(i["version"] or "") or (0,), i["version"] or ""),
-                "needs": lambda i: len(i["depend"]), "file": lambda i: i["file"].lower(), "size": lambda i: i["size"]}
-        prev = getattr(self, "_isort", None)
-        desc = (not prev[1]) if prev and prev[0] == col else col in ("size", "state")
-        self._isort = (col, desc)
-        self._sort_rows(self.tree, self.items, keys[col], desc)
-        self._arrows(self.tree, self.i_heads, col, desc)
-
     # ---------- geïnstalleerde plugins ----------
     def refresh(self):
-        self.tree.delete(*self.tree.get_children())
         self.items = {}
         pdir = self.pdir()
         if not self.app.folder_var.get().strip() or not os.path.isdir(pdir):
+            self.card_vars.clear()
+            self._render()
             self.count_lbl.config(text="Kies eerst je servermap (tabblad Updates).")
             return
         for it in scan_plugins(pdir):
             self.items[it["file"]] = it
-            needs = ", ".join(it["depend"]) or "-"
-            tag = "off" if not it["enabled"] else ("warn" if it["missing"] else "")
-            st = "● aan" if it["enabled"] else "⏸ uit"
-            if it["enabled"] and it["missing"]:
-                st = "⚠ aan"
-                needs += f"   (mist: {', '.join(it['missing'])})"
-            self.tree.insert("", "end", iid=it["file"], tags=(tag,),
-                             values=(st, it["name"], it["version"] or "?", needs, it["file"], fmt_size(it["size"])))
+        for fn in list(self.card_vars):
+            if fn not in self.items:
+                del self.card_vars[fn]
         on = sum(1 for i in self.items.values() if i["enabled"])
-        self.count_lbl.config(text=f"{on} aan, {len(self.items) - on} uit")
-        if getattr(self, "_isort", None):  # gekozen sortering behouden na vernieuwen
-            col, desc = self._isort
-            self._isort = (col, not desc)
-            self._sort_installed(col)
-        self._show_installed_info()
+        warn = sum(1 for i in self.items.values() if i["enabled"] and i["missing"])
+        for key, val in (("total", len(self.items)), ("on", on), ("off", len(self.items) - on), ("warn", warn)):
+            self.tiles[key].config(text=str(val))
+        self._render()
         self.app._plug_cache = None
 
     def _selected(self):
-        return [self.items[i] for i in self.tree.selection() if i in self.items]
-
-    def _show_installed_info(self):
-        sel = self._selected()
-        if len(sel) != 1:
-            self.info_lbl.config(text="Selecteer een plugin voor meer informatie." if not sel else f"{len(sel)} plugins geselecteerd.")
-            return
-        i = sel[0]
-        parts = [i["desc"] or "(geen omschrijving)"]
-        if i["authors"]:
-            parts.append(f"Door: {i['authors']}")
-        if i["needed_by"]:
-            parts.append(f"Nodig voor: {', '.join(i['needed_by'])}")
-        if i["soft"]:
-            parts.append(f"Werkt beter met: {', '.join(i['soft'])}")
-        if i["commands"]:
-            parts.append("Commando's: " + ", ".join("/" + c for c in i["commands"][:12]) + (" …" if len(i["commands"]) > 12 else ""))
-        self.info_lbl.config(text="\n".join(parts))
+        return [self.items[f] for f, v in self.card_vars.items() if f in self.items and v.get()]
 
     def _server_running(self):
         return self.app.srv_running()
@@ -2006,10 +2220,10 @@ class PluginsTab(ttk.Frame):
 
         self.app.srv_stop(after=go)
 
-    def _toggle(self, enable):
-        sel = [i for i in self._selected() if i["enabled"] != enable]
+    def _toggle(self, enable, only=None):
+        sel = [i for i in (only if only is not None else self._selected()) if i["enabled"] != enable]
         if not sel:
-            messagebox.showinfo(APP_NAME, "Selecteer eerst plugins die " + ("uit" if enable else "aan") + " staan.")
+            messagebox.showinfo(APP_NAME, "Vink eerst plugins aan die " + ("uit" if enable else "aan") + " staan.")
             return
         if not enable:
             names = {i["name"].lower() for i in sel}
@@ -2129,6 +2343,7 @@ class PluginsTab(ttk.Frame):
         self.btn_search.config(state="disabled")
         self._note("Bezig met zoeken op Modrinth en Hangar…")
         names, mc, loaders = self._installed_names(), self._mc(), self._loaders()
+        self._search_mc = mc
         only = bool(self.compat_var.get())
         if only and not mc:
             only = False
@@ -2154,8 +2369,8 @@ class PluginsTab(ttk.Frame):
             self.search()
 
     def _show_results(self, results, info):
-        self.rtree.delete(*self.rtree.get_children())
-        self.results = {}
+        self.res_list, self.res_info = results, info
+        self.res_mc = self._search_mc
         if info["concepts"]:
             msg = "Ik snap dit als: " + " / ".join(info["concepts"]) + "."
         elif info["name_like"]:
@@ -2164,72 +2379,26 @@ class PluginsTab(ttk.Frame):
             msg = "Ik zoek op: " + ", ".join(info["translated"][:6]) + "."
         msg += "  Gezocht op: " + ", ".join(q for q, _w in info["queries"][:6])
         if info.get("only_compat"):
-            msg += f"   Filter aan: alleen plugins met een versie voor Minecraft {self._mc()}."
+            msg += f"   Filter aan: alleen plugins met een versie voor Minecraft {self.res_mc}."
         if info.get("errors"):
             msg += "   (let op: " + "; ".join(info["errors"]) + ")"
         self.interp_lbl.config(text=msg)
-        self._rsort = ("state", True)
-        self._arrows(self.rtree, self.r_heads, "state", True)
-        mc = self._mc()
-        for n, r in enumerate(results):
-            iid = f"r{n}"
-            self.results[iid] = r
-            if r["compat"] is True:
-                mcs = f"✔ {mc}"
-            elif r["compat"] is False:
-                mcs = f"tot {r['versions'][-1]}" if r["versions"] else "?"
-            else:
-                mcs = "onbekend"
-            upd = r["updated"].strftime("%d-%m-%Y") if r["updated"] else "?"
-            state = "✔ geïnstalleerd" if r["installed"] else ("★ beste match" if r["exact"] else "")
-            tags = ("exact",) if r["exact"] else (("have",) if r["installed"] else ())
-            self.rtree.insert("", "end", iid=iid, tags=tags,
-                              values=(r["name"], r["desc"][:140], fmt_count(r["downloads"]), upd, mcs, " + ".join(r["sources"]), state))
+        self.r_key.set("Relevantie")
+        self.r_desc = False
+        self.btn_rdir.config(text="▲")
+        self.res_empty = ""
         if results:
-            self.rtree.selection_set("r0")
             self._note(f"{len(results)} resultaten.")
         else:
-            self._note("Niets gevonden. Probeer andere woorden, of beschrijf het in het Engels."
-                       + (" Of zet het filter voor jouw Minecraft-versie uit." if info.get("only_compat") else ""))
-            self._set_detail("Niets gevonden.\n\nTips: gebruik de naam van de plugin, of beschrijf wat hij moet doen met een paar "
-                             "kernwoorden (bijv. “claim land”, “night skip”, “custom enchants”).")
-
-    def _set_detail(self, text):
-        self.detail.config(state="normal")
-        self.detail.delete("1.0", "end")
-        self.detail.insert("1.0", text)
-        self.detail.config(state="disabled")
-
-    def _current_result(self):
-        sel = self.rtree.selection()
-        return self.results.get(sel[0]) if sel else None
-
-    def _show_result(self):
-        r = self._current_result()
-        if not r:
-            return
-        lines = [f"{r['name']}" + (f"  — door {r['author']}" if r["author"] else ""), r["desc"], ""]
-        if r["why"]:
-            lines.append(f"Waarom hier: {r['why']}")
-        mc = self._mc()
-        if r["compat"] is True:
-            lines.append(f"Ondersteunt Minecraft {mc}.")
-        elif r["compat"] is False:
-            lines.append(f"Vermeldt Minecraft {mc} niet (laatste: {r['versions'][-1] if r['versions'] else '?'}). "
-                         "Vaak werkt het toch, maar probeer het eerst op een testserver.")
-        lines.append(f"Downloads: {r['downloads']:,}".replace(",", ".") + f"   Bron: {' + '.join(r['sources'])}")
-        self._set_detail("\n".join(lines))
-
-    def _open_page(self):
-        r = self._current_result()
-        if r:
-            page = r["pages"].get("Modrinth") or next(iter(r["pages"].values()), "")
-            if page:
-                webbrowser.open(page)
+            self._note("Niets gevonden.")
+            self.res_empty = ("Niets gevonden.\n\nProbeer andere woorden, de naam van de plugin, of een paar kernwoorden in het Engels "
+                              "(bijv. “claim land”, “night skip”)." + ("\nOf zet het filter voor jouw Minecraft-versie uit."
+                                                                    if info.get("only_compat") else ""))
+        self._render_results()
+        self.rcanvas.yview_moveto(0)
 
     # ---------- installeren ----------
-    def install(self):
-        r = self._current_result()
+    def install(self, r=None):
         if not r or self.busy:
             return
         if not self.app.folder_var.get().strip() or not os.path.isdir(self.pdir()):
@@ -2238,7 +2407,6 @@ class PluginsTab(ttk.Frame):
         if r["installed"] and not messagebox.askyesno(APP_NAME, f"{r['name']} lijkt al geïnstalleerd. Toch opnieuw proberen?"):
             return
         self.busy = True
-        self.btn_install.config(state="disabled")
         self._note(f"Versie zoeken voor {r['name']}…")
         names, mc, loaders, unstable = self._installed_names(), self._mc(), self._loaders(), self.app.unstable_var.get()
 
@@ -2265,7 +2433,6 @@ class PluginsTab(ttk.Frame):
         lines += ["", "Doorgaan?"]
         if not messagebox.askyesno(APP_NAME, "\n".join(lines)):
             self.busy = False
-            self.btn_install.config(state="normal")
             self._note("Geannuleerd.")
             return
         self._note("Downloaden…")
@@ -2292,7 +2459,6 @@ class PluginsTab(ttk.Frame):
                     self._confirm_plan(m[1], m[2], m[3])
                 elif m[0] == "done":
                     self.busy = False
-                    self.btn_install.config(state="normal")
                     self.app.log("Geïnstalleerd: " + ", ".join(m[1]), "ok")
                     self.refresh()
                     self._note("Geïnstalleerd: " + ", ".join(m[1]))
@@ -2300,7 +2466,6 @@ class PluginsTab(ttk.Frame):
                 elif m[0] == "error":
                     self.busy = False
                     self.btn_search.config(state="normal")
-                    self.btn_install.config(state="normal")
                     self._note(m[1])
                     self.app.log(m[1], "warn")
         except queue.Empty:

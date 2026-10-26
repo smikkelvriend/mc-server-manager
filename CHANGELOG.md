@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.6
+- **Plugins-tabblad in kaartvorm:** teller-tegels bovenaan (totaal, aan, uit, aandacht), per plugin een kaart met status, versie,
+  omschrijving, afhankelijkheden en eigen aan/uit-knop, plus filter op naam, filter op status en sortering.
+- Zoekresultaten ook als kaarten, met badges (beste match, past bij jouw Minecraft-versie, geïnstalleerd), de reden waarom het
+  past, een eigen installeerknop en sortering op relevantie, downloads, datum, naam of Minecraft-versie.
+
 ## 2.5
 - **Compatibiliteitsfilter** bij Plugins zoeken: met het vinkje "Alleen plugins die zeker werken met mijn Minecraft-versie" blijven
   alleen plugins over die een versie voor jouw Minecraft-versie hebben. Bij Modrinth gebeurt dat al bij het zoeken (er komen dus
