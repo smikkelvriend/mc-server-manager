@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.43"
+APP_VERSION = "2.44"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.44 - De nieuwe interface is nu het hoofdscherm: hij opent bij het starten van het programma (uit te zetten bij Instellingen) en het klassieke scherm blijft op de taakbalk. Nieuw tabblad Updates voor het programma zelf, met wat er nieuw is en de instellingen voor automatisch bijwerken. Knop Klassiek scherm in de zijbalk.
 2.43 - Nieuw: knop "Nieuwe interface" bovenin. Opent een moderner scherm in een eigen venster (Overzicht met processor, temperatuur en spelersskins, Console met logboek doorzoeken, Spelers met whitelist en bans, Plugins en updates samen, Kaart, Backups, Instellingen). Het oude scherm blijft werken. Het nieuwe scherm is alleen bereikbaar vanaf deze computer.
 2.42 - Plugins: nieuwe knop "PLM uitladen" (/plm unload) naast "PLM laden", ook op de telefoon. De namen van de PLM-knoppen en het vinkje zijn korter gemaakt.
 2.41 - Het tabblad Updates is samengevoegd met Plugins: onder Plugins staan nu drie subtabs (Geïnstalleerd, Updates, Zoeken en toevoegen). Het tabblad Plugins knippert met het aantal beschikbare updates.
@@ -220,7 +221,7 @@ DEFAULTS = {
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
-    "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
+    "update_url": "", "desk_main": True, "selfupdate_check": True, "selfupdate_auto": False,
     "reach_host": "", "reach_port": 25565, "reach_check_bedrock": False, "reach_bedrock_port": 19132,
     "reach_auto": False,
     "clean_startup": True, "startup_keep": DEFAULT_KEEP, "clean_console": True, "compact_console": False, "console_autoscroll": True, "noise_filters": DEFAULT_NOISE,
@@ -5534,6 +5535,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <div class="sleepbox"><div class="h">Auto slaapstand<div class="sw" id="swSleep" onclick="sleepAuto()" role="switch" tabindex="0"></div></div>
   <small id="sleepTx">Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.</small>
   <button id="btnSleep" onclick="sleepNow()">Nu in slaapstand</button></div>
+ <button class="ghost sm" onclick="go('/api/classic')">Klassiek scherm</button>
 </aside>
 <main>
  <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
@@ -5556,9 +5558,10 @@ const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.
 const ico={ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
  con:'<path d="M4 17l6-6-6-6M12 19h8"/>',pl:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 5.2a3.5 3.5 0 010 6.6M18 14.800c2 .6 3.200 2.500 3.500 5.200"/>',
  plug:'<path d="M10 4a2 2 0 114 0v2h4a1 1 0 011 1v4h-2a2 2 0 100 4h2v4a1 1 0 01-1 1h-4v-2a2 2 0 10-4 0v2H6a1 1 0 01-1-1v-4h2a2 2 0 100-4H5V7a1 1 0 011-1h4z"/>',
+ upd:'<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>',
  map:'<path d="M9 4L3 6.500v13L9 17l6 2.500 6-2.500v-13L15 7zM9 4v13M15 7v12.500"/>',bk:'<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.700 3.600 3 8 3s8-1.300 8-3V6M4 12v6c0 1.700 3.600 3 8 3s8-1.300 8-3v-6"/>',
  set:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.900 4.900l2.100 2.100M17 17l2.100 2.100M4.900 19.100L7 17M17 7l2.100-2.100"/>'};
-const TABS=[['ov','Overzicht'],['con','Console'],['pl','Spelers'],['plug','Plugins'],['map','Kaart'],['bk','Backups'],['set','Instellingen']];
+const TABS=[['ov','Overzicht'],['con','Console'],['pl','Spelers'],['plug','Plugins'],['upd','Updates'],['map','Kaart'],['bk','Backups'],['set','Instellingen']];
 function build(){$('nav').innerHTML=TABS.map(t=>`<a data-t="${t[0]}" onclick="setTab('${t[0]}')"><svg class="i" viewBox="0 0 24 24">${ico[t[0]==='plug'?'plug':t[0]]}</svg><span class="nm">${t[1]}</span><span class="bd hide" id="bd-${t[0]}"></span></a>`).join('');setTab(TABS.some(t=>t[0]==tab)?tab:'ov')}
 function setTab(t){if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('dtab',t)}catch(e){}
  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));$('ttl').textContent=TABS.find(x=>x[0]==t)[1];$('view').innerHTML='';(V[t]||V.ov)();if(S.stats)draw()}
@@ -5593,7 +5596,7 @@ V.ov=()=>{$('view').innerHTML=`<section class="tiles">
 async function attBackup(){const j=await go('/api/backuper');if(!j||!$('att'))return;cur.bkInfo=j.backups&&j.backups.length?{ago:ago(j.backups[0].mtime),size:fb2(j.backups[0].size)}:(j.jar?{none:1}:null);drawAtt()}
 function att(cls,icon,text,right,btn){return `<div class="att"><span class="ic ${cls}">${icon}</span><span class="tx">${text}</span>${btn||''}${right?`<span class="rt">${right}</span>`:''}</div>`}
 function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
- if(j.selfupd)h+=att('y',WARNI,'Nieuwe programmaversie '+esc(j.selfupd),'',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
+ if(j.selfupd)h+=att('y',WARNI,'Nieuwe programmaversie '+esc(j.selfupd),'',`<button class="sm" onclick="setTab('upd')">Bekijken</button>`);
  if(j.paperupd)h+=att('y',WARNI,'Paper-update beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
  if(j.pupd)h+=att('y',WARNI,j.pupd+' plugin-update'+(j.pupd>1?'s':'')+' beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
  const b=cur.bkInfo;if(b&&b.ago)h+=att('',OKI,'Laatste backup '+b.ago,b.size);else if(b&&b.none)h+=att('y',WARNI,'Nog geen backups gevonden','');
@@ -5778,6 +5781,21 @@ async function behLogs(){if(!await ask('Logs ouder dan 7 dagen en crash-reports 
 
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
+/* ---------- Programma-updates ---------- */
+V.upd=()=>{$('view').innerHTML='<div class="two"><div class="card" id="pu1">Laden…</div><div class="card" id="pu2"></div></div>';cur.t=setInterval(progLoad,4000);cur.stop=()=>clearInterval(cur.t);progLoad()};
+async function progLoad(){const j=await go('/api/program');if(!j||!$('pu1'))return;
+ $('pu1').innerHTML=`<h3>MC Server Manager</h3><div style="font-size:28px;font-weight:600">Versie ${esc(j.version)}</div>`+
+  (j.new?`<div class="att"><span class="ic y">${WARNI}</span><span class="tx">Versie <b>${esc(j.new)}</b> is beschikbaar${j.hot?' (zonder herstart)':' (het programma herstart)'}</span></div>
+   <div class="mut" style="white-space:pre-wrap;font-size:13px">${esc(j.notes)}</div><div class="row" style="margin-top:6px"><button class="pri" onclick="progInst()">Nu installeren</button></div>`:
+   `<div class="att"><span class="ic">${OKI}</span><span class="tx">Je hebt de nieuwste versie${j.last?' (gecontroleerd '+ago(j.last)+')':''}</span></div>`)+
+  `<div class="row" style="margin-top:6px"><button onclick="progCheck()" ${j.busy?'disabled':''}>${j.busy?'Controleren…':'Zoek naar updates'}</button></div>`+
+  (j.frozen?'<div class="mut" style="font-size:12px">Je draait de .exe: automatisch bijwerken werkt alleen met het .py-bestand.</div>':'')+
+  (j.url?'':'<div class="yel" style="font-size:13px;margin-top:6px">Er is nog geen update-link ingesteld (klassiek scherm: Instellingen, Programma-update).</div>');
+ $('pu2').innerHTML=`<h3>Instellingen</h3><label class="lab"><span>Automatisch zoeken naar updates</span><input type="checkbox" ${j.check?'checked':''} onchange="setSet('selfupdate_check',this.checked)"></label>
+  <label class="lab"><span>Updates automatisch installeren</span><input type="checkbox" ${j.auto?'checked':''} onchange="setSet('selfupdate_auto',this.checked)"></label>
+  <div class="mut" style="font-size:12px;word-break:break-all">${j.url?'Bron: '+esc(j.url):''}</div><h3 style="margin-top:14px">Recent veranderd</h3>`+j.hist.map(l=>`<div class="li"><div style="white-space:normal;font-size:13px">${esc(l)}</div></div>`).join('')}
+async function progCheck(){await go('/api/selfupdate',{action:'check'},'Controleren…');setTimeout(progLoad,2500);setTimeout(progLoad,6000)}
+async function progInst(){if(!await ask('Het programma updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'},'Bezig…')}
 /* ---------- Instellingen ---------- */
 async function sleepAuto(){const on=!$('swSleep').classList.contains('on');$('swSleep').classList.toggle('on',on);await go('/api/sleep',{action:'auto',on});setTimeout(poll,300)}
 async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
@@ -5811,7 +5829,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
  $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=st!='online'||sl;
  $('sleepTx').textContent=j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:'Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.';
  const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
- const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0)+(j.selfupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}
+ const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}const bu=$('bd-upd');if(bu){bu.classList.toggle('hide',!j.selfupd);bu.textContent='1'}
  const g=j.graphs||{};
  if($('vTps')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
   $('vTps').textContent=j.stats.tps&&j.stats.tps!='-'?j.stats.tps:'-';
@@ -6097,6 +6115,7 @@ class RemoteServer:
         "graph_minutes": ("int", "Grafiek-tijdvenster (min)", 1, 180), "java_xms": ("str", "Java min. geheugen (bijv. 1G)"),
         "java_xmx": ("str", "Java max. geheugen (bijv. 4G)"), "java_extra": ("str", "Extra Java-opties"),
         "selfupdate_check": ("bool", "Automatisch zoeken naar programma-updates"), "selfupdate_auto": ("bool", "Updates automatisch installeren"),
+        "desk_main": ("bool", "Nieuwe interface als hoofdscherm (bij opstarten)"),
         "clean_console": ("bool", "Schone console"), "console_max_lines": ("int", "Maximaal aantal consoleregels", 500, 50000),
         "temp_enabled": ("bool", "Temperatuur tonen"), "temp_warn": ("int", "Temperatuurwaarschuwing (°C)", 50, 110),
         "notify_crash": ("bool", "Melding bij crash"), "notify_start": ("bool", "Melding als de server klaar is met starten"),
@@ -6790,6 +6809,7 @@ class RemoteServer:
                 ("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen,
                 ("POST", "/api/sleep"): self.api_sleep, ("GET", "/api/lists"): self.api_lists, ("POST", "/api/lists/add"): self.api_lists_add,
                 ("POST", "/api/lists/remove"): self.api_lists_remove, ("POST", "/api/logsearch"): self.api_logsearch,
+                ("GET", "/api/program"): self.api_program, ("POST", "/api/classic"): self.api_classic,
                 ("GET", "/api/props"): self.api_props, ("POST", "/api/props"): self.api_props_set}
 
     # --- nieuwe interface: slaapstand, lijsten, logboek, server.properties ---
@@ -6853,6 +6873,27 @@ class RemoteServer:
         files = search_logs(folder, terms, str(body.get("player", ""))[:40], kind, d_from or None, d_to or None, 500,
                             lambda r: rows.append(r), lambda: False)
         return 200, {"rows": [list(r) for r in rows], "files": files, "limit": len(rows) >= 500, "kinds": [k for k, _ in LOG_KINDS]}
+
+    def api_program(self, q, body):
+        a = self.app
+
+        def get():
+            u = getattr(a, "_upd", None)
+            notes = changelog_since(u["text"], APP_VERSION) if u else ""
+            cur = re.search(r'^CHANGELOG\s*=\s*"""(.*?)"""', open(os.path.abspath(__file__), encoding="utf-8").read(), re.M | re.S)
+            hist = [l.strip() for l in (cur.group(1).strip().splitlines() if cur else [])][:12]
+            return {"version": APP_VERSION, "new": u["version"] if u else None, "hot": bool(getattr(a, "_upd_hot", False)), "notes": notes,
+                    "hist": hist, "url": (a.cfg.get("update_url") or "").strip(), "busy": bool(a._upd_busy),
+                    "check": bool(a.cfg.get("selfupdate_check", True)), "auto": bool(a.cfg.get("selfupdate_auto")),
+                    "frozen": bool(getattr(sys, "frozen", False)), "last": getattr(a, "_upd_last", 0) or 0}
+        return 200, self.call_main(get)
+
+    def api_classic(self, q, body):
+        def go():
+            self.app.deiconify()
+            self.app.lift()
+        self.call_main(go)
+        return 200, {"ok": True, "msg": "Het klassieke scherm staat op de taakbalk"}
 
     PROPS = {"motd": "str", "max-players": "int", "difficulty": "str", "gamemode": "str", "pvp": "bool", "white-list": "bool",
              "online-mode": "bool", "allow-flight": "bool", "view-distance": "int", "simulation-distance": "int", "spawn-protection": "int"}
@@ -8800,6 +8841,8 @@ class App(tk.Tk):
         self.after(4000, self.tab_map.prewarm)
         self.after(20000, self._health_tick)
         self.after(2000, self._sleep_stats_show)
+        if self.cfg.get("desk_main", True):
+            self.after(1500, self._open_desk_main)
         self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
                           "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
@@ -9788,9 +9831,14 @@ class App(tk.Tk):
         """Opent de nieuwe interface in een eigen venster (alleen bereikbaar vanaf deze computer)."""
         if not self.desk.running and not (self.desk.start(8799, "127.0.0.1", True) or self.desk.start(0, "127.0.0.1", True)):
             messagebox.showerror(APP_NAME, "De nieuwe interface kon niet starten: " + self.desk.error)
-            return
+            return False
         self.desk.update()
         open_app_window(f"http://127.0.0.1:{self.desk.port}/desk?t={self.desk.desk_token}")
+        return True
+
+    def _open_desk_main(self):
+        if self.open_desk():
+            self.iconify()     # het klassieke scherm blijft op de taakbalk; via "Klassiek scherm" in de nieuwe interface terug te halen
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""

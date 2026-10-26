@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.44
+- De nieuwe interface is nu het **hoofdscherm**: hij opent bij het starten van het programma en het klassieke scherm blijft op de taakbalk. Uitzetten kan bij Instellingen ("Nieuwe interface als hoofdscherm"). In de zijbalk staat een knop **Klassiek scherm** om het oude venster terug te halen.
+- Nieuw tabblad **Updates** in de nieuwe interface voor het programma zelf: versie, wat er nieuw is, nu installeren, zoeken naar updates en de instellingen voor automatisch bijwerken. Het getal bij Plugins telt alleen nog plugin- en Paper-updates.
+- Deze versie vereist een herstart.
+
 ## 2.43
 - Nieuw: **Nieuwe interface**. De knop ✨ bovenin opent een tweede, moderner scherm (in een eigen venster, zonder adresbalk) met dezelfde functies: Overzicht (TPS, processor, geheugen en temperatuur, belastingsgrafiek, spelers met hun skin, console en aandachtspunten), Console (met commandogeschiedenis, Tab-aanvullen en logboek doorzoeken), Spelers (skins, whitelist, bans, IP-bans en operators), Plugins en updates samen, Kaart, Backups en Instellingen (server.properties, slaapstand, gezondheidscontrole). Het oude scherm blijft gewoon werken.
 - Het nieuwe scherm draait op een adres dat alleen deze computer kan bereiken (met een eigen geheime sleutel per start); er is geen wachtwoord of poort-doorsturen voor nodig. Het gebruikt Edge of Chrome als die op de computer staan.
