@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.7.1"
+APP_VERSION = "2.8"
 
 CHANGELOG = """
+2.8 - Kaart wordt bewaard en staat direct klaar; op de achtergrond wordt hij stil bijgewerkt, ook als het tabblad dicht is.
 2.7.1 - Plugin-lijst opgeruimd: geen bestandsnaam, commando's of grootte meer, kleinere tellers en tabbladen.
 2.7 - Nieuw tabblad Kaart: terrein van je wereld met alle spelers live erop (naam, richting, spoor, coordinaten).
 2.6.1 - Scrollen in de plugin-lijsten werkt nu ook als de muis boven een kaart staat.
@@ -2788,6 +2789,40 @@ def parse_entity_data(value):
 
 
 
+def map_cache_path(folder, dim, rx, rz):
+    d = os.path.join(os.path.dirname(CONFIG_PATH), "map_cache", hashlib.sha1(os.path.abspath(folder).lower().encode("utf-8")).hexdigest()[:10])
+    return d, os.path.join(d, f"{dim}.{rx}.{rz}.rgn")
+
+
+def map_cache_save(folder, dim, rx, rz, mt, rows, bad):
+    try:
+        d, f = map_cache_path(folder, dim, rx, rz)
+        os.makedirs(d, exist_ok=True)
+        payload = zlib.compress("\n".join(" ".join(r) for r in rows).encode("ascii"), 6)
+        with open(f + ".tmp", "wb") as fh:
+            fh.write(f"{mt!r} {bad}\n".encode("ascii") + payload)
+        os.replace(f + ".tmp", f)
+    except Exception:
+        pass
+
+
+def map_cache_load(folder, dim, rx, rz, mt):
+    """Geeft (rows, bad) als er een bewaarde kaart is die bij deze versie van het regiobestand hoort, anders None."""
+    try:
+        f = map_cache_path(folder, dim, rx, rz)[1]
+        with open(f, "rb") as fh:
+            head, _, payload = fh.read().partition(b"\n")
+        smt, sbad = head.decode("ascii").split()
+        if float(smt) != mt:
+            return None
+        rows = [ln.split(" ") for ln in zlib.decompress(payload).decode("ascii").split("\n")]
+        if len(rows) != MAP_PX or any(len(r) != MAP_PX for r in rows):
+            return None
+        return rows, int(sbad)
+    except Exception:
+        return None
+
+
 class MapTab(ttk.Frame):
     """Tabblad Kaart: terrein uit de wereldbestanden met alle spelers live erop."""
     SCALES = (0.0625, 0.125, 0.25, 0.5, 1.0, 2.0)
@@ -2803,7 +2838,7 @@ class MapTab(ttk.Frame):
         self.base, self.imgs, self.mtimes = {}, {}, {}
         self.pos, self.trails = {}, {}
         self.world, self.winfo_ = {}, {}
-        self.scanning, self.visible, self.dirty = False, False, True
+        self.scanning, self.visible, self.dirty, self._quiet = False, False, True, True
         self._scan_t, self._swallow_until, self._ticks, self._answers, self._asked = 0.0, 0.0, 0, 0, 0
         self._drag, self._busy_redraw, self._fit_done = None, False, False
         c = app.cfg
@@ -2816,6 +2851,7 @@ class MapTab(ttk.Frame):
         self.status_var, self.coord_var = tk.StringVar(), tk.StringVar()
         self._build()
         self.after(100, self._pump)
+        self.after(1500, self._bg_loop)  # kaart meteen uit de opslag tonen en stil bijwerken, ook als het tabblad dicht is
 
     # ---------- opbouw ----------
     def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
@@ -2878,7 +2914,7 @@ class MapTab(ttk.Frame):
     def on_show(self):
         self.visible = True
         if not self.world or time.time() - self._scan_t > 90:
-            self.scan()
+            self.scan(silent=True)
         self._tick()
         self.redraw()
 
@@ -2895,7 +2931,7 @@ class MapTab(ttk.Frame):
             secs = 3
         self._ticks += 1
         if self._ticks % max(1, 90 // secs) == 0 and not self.scanning:
-            self.scan()  # af en toe kijken of de server nieuwe wereldbestanden heeft opgeslagen
+            self.scan(silent=True)  # af en toe kijken of de server nieuwe wereldbestanden heeft opgeslagen
         self.after(secs * 1000, self._tick)
 
     def _opts_changed(self):
@@ -2992,7 +3028,15 @@ class MapTab(ttk.Frame):
             self.dirty = True
 
     # ---------- terrein inlezen ----------
-    def scan(self, force=False):
+    def _bg_loop(self):
+        try:
+            if not self.scanning:
+                self.scan(silent=True)
+        except Exception:
+            pass
+        self.after(120000, self._bg_loop)
+
+    def scan(self, force=False, silent=False):
         if self.scanning:
             return
         folder = self.app.folder_var.get().strip()
@@ -3032,17 +3076,24 @@ class MapTab(ttk.Frame):
             self._first_view()
             return
         self.scanning = True
-        self.status_var.set(f"Kaart inlezen… 0 / {len(jobs)}")
+        self._quiet = silent
+        if not silent:
+            self.status_var.set(f"Kaart inlezen… 0 / {len(jobs)}")
 
         def work():
             for i, (dim, rx, rz, path, mt) in enumerate(jobs, 1):
                 try:
+                    cached = None if force else map_cache_load(folder, dim, rx, rz, mt)
+                    if cached:
+                        self.q.put(("region", dim, rx, rz, cached[0], 1, cached[1], mt))
+                        continue
                     rows, ok, bad = render_region(path, dim)
+                    map_cache_save(folder, dim, rx, rz, mt, rows, bad)
                     self.q.put(("region", dim, rx, rz, rows, ok, bad, mt))
+                    time.sleep(0.05)  # rustig aan: de achtergrondtaak mag de server en de rest van het programma niet storen
                 except Exception as e:
                     self.q.put(("regionerr", dim, rx, rz, str(e), mt))
                 self.q.put(("prog", i, len(jobs)))
-                time.sleep(0.01)
             self.q.put(("done",))
 
         threading.Thread(target=work, daemon=True).start()
@@ -3080,7 +3131,7 @@ class MapTab(ttk.Frame):
                         self.dirty = True
                 elif m[0] == "regionerr":
                     self.mtimes[(m[1], m[2], m[3])] = m[5]
-                elif m[0] == "prog":
+                elif m[0] == "prog" and not self._quiet:
                     self.status_var.set(f"Kaart inlezen… {m[1]} / {m[2]}")
                 elif m[0] == "done":
                     self.scanning = False

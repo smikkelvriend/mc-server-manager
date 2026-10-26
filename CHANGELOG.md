@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8
+- **Kaart wordt bewaard** (map `map_cache` naast het programma) en staat bij het openen direct klaar.
+- De kaart wordt elke paar minuten stil op de achtergrond bijgewerkt (alleen regio's die de server opnieuw heeft opgeslagen), ook als het tabblad dicht is, met weinig processorgebruik.
+
 ## 2.7.1
 - Plugin-lijst opgeruimd: geen bestandsnaam, commando's of grootte meer, kleinere tellers en kleinere tabbladen.
 
