@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.36"
+APP_VERSION = "2.37"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.37 - Nieuw: venster Whitelist en bans (whitelist, bans, IP-bans, operators; ook via rechtsklik op een speler), logboek doorzoeken (alle logs inclusief .gz, filter op speler, soort en datum), slaapstand-knop op het Server-tabblad met statistieken en rooster, en gezondheidscontrole (schijf, TPS, geheugen).
 2.36 - Fix: de spelerskop in het spelersmenu knipperde af en toe omdat de lijst bij elke verversing werd leeggemaakt en opnieuw opgebouwd. Rijen blijven nu staan en worden alleen bijgewerkt.
 2.35 - De kaart wordt op de achtergrond voorgeladen (bij het opstarten van het programma en 30 seconden nadat de server online is), zodat hij er meteen staat als je het tabblad Kaart opent.
 2.34 - Slaapstand: eerste stap voor Bedrock met NetherNet. Het programma luistert nu ook op TCP van de Bedrock-poort, logt wat de Bedrock-client daar vraagt en wekt de server bij een join-verzoek. Experimenteel: het formaat is nog niet bevestigd.
@@ -207,6 +208,9 @@ DEFAULTS = {
     "notify_update": True, "notify_ignore": "",
     "chunky_autopause": True, "chunky_autoresume": True,
     "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False, "sleep_enabled": False, "sleep_minutes": 10,
+    "sleep_sched": False, "sleep_from": "22:00", "sleep_to": "08:00", "sleep_days": "1234567", "sleep_stats": {},
+    "health_disk": True, "health_disk_gb": 5, "health_tps": True, "health_tps_min": 15, "health_tps_mins": 5,
+    "health_ram": True, "health_ram_pct": 90,
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
@@ -2408,6 +2412,22 @@ def _mc_pkt(pid, payload=b""):
 
 
 RAKNET_MAGIC = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
+
+
+def sleep_allowed(cfg, now=None):
+    """Mag de server nu in slaapstand? Zonder rooster altijd; met rooster alleen op de gekozen dagen en uren."""
+    if not cfg.get("sleep_sched"):
+        return True
+    t = time.localtime(now or time.time())
+    if str(t.tm_wday + 1) not in str(cfg.get("sleep_days", "1234567")):
+        return False
+    try:
+        a = [int(x) for x in str(cfg.get("sleep_from", "22:00")).split(":")[:2]]
+        b = [int(x) for x in str(cfg.get("sleep_to", "08:00")).split(":")[:2]]
+    except ValueError:
+        return True
+    cur, lo, hi = t.tm_hour * 60 + t.tm_min, a[0] * 60 + a[1], b[0] * 60 + b[1]
+    return (lo <= cur < hi) if lo <= hi else (cur >= lo or cur < hi)
 
 
 class WakeListener:
@@ -4825,6 +4845,422 @@ class Heads:
                         tree.item(iid, image=im)
             except tk.TclError:
                 pass
+
+
+# ---------- Whitelist, bans en operators ----------
+def offline_uuid(name):
+    h = bytearray(hashlib.md5(("OfflinePlayer:" + name).encode("utf-8")).digest())
+    h[6] = (h[6] & 0x0F) | 0x30
+    h[8] = (h[8] & 0x3F) | 0x80
+    x = h.hex()
+    return f"{x[:8]}-{x[8:12]}-{x[12:16]}-{x[16:20]}-{x[20:]}"
+
+
+def mojang_uuid(name):
+    try:
+        data = http_json(f"https://api.mojang.com/users/profiles/minecraft/{urllib.parse.quote(name)}", timeout=6, retries=1)
+        raw = (data or {}).get("id") or ""
+        if len(raw) == 32:
+            return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}", data.get("name") or name
+    except Exception:
+        pass
+    return None, name
+
+
+class ListsDialog(tk.Toplevel):
+    """Whitelist, bans (spelers en IP-adressen) en operators bekijken en aanpassen, zonder commando's te typen."""
+    KINDS = (
+        ("whitelist", "Whitelist", "whitelist.json", (("name", "Speler", 170), ("uuid", "UUID", 280))),
+        ("bans", "Bans", "banned-players.json", (("name", "Speler", 140), ("reason", "Reden", 240), ("created", "Sinds", 140), ("source", "Door", 90))),
+        ("ips", "IP-bans", "banned-ips.json", (("name", "IP-adres", 140), ("reason", "Reden", 240), ("created", "Sinds", 140), ("source", "Door", 90))),
+        ("ops", "Operators", "ops.json", (("name", "Speler", 170), ("level", "Niveau", 70), ("uuid", "UUID", 280))),
+    )
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("Whitelist en bans")
+        self.transient(app)
+        self.geometry("780x480")
+        self.trees = {}
+        top = ttk.Frame(self, padding=(10, 10, 10, 0))
+        top.pack(fill="x")
+        self.info = ttk.Label(top, text="")
+        self.info.pack(side="left")
+        make_btn(top, "↻  Vernieuwen", self.reload).pack(side="right")
+        self.wl_btn = make_btn(top, "", self.toggle_whitelist)
+        self.wl_btn.pack(side="right", padx=8)
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=10, pady=8)
+        for key, title, _fn, cols in self.KINDS:
+            fr = ttk.Frame(nb, padding=6)
+            nb.add(fr, text=" " + title + " ")
+            tr = ttk.Treeview(fr, columns=[c[0] for c in cols], show="headings", selectmode="extended")
+            for cid, text, w in cols:
+                tr.heading(cid, text=text)
+                tr.column(cid, width=w, anchor="w")
+            sb = ttk.Scrollbar(fr, orient="vertical", command=tr.yview)
+            tr.configure(yscrollcommand=sb.set)
+            bar = ttk.Frame(fr)
+            bar.pack(side="bottom", fill="x", pady=(6, 0))
+            make_btn(bar, "＋  Toevoegen…", lambda k=key: self.add(k), "#059669", "white").pack(side="left")
+            make_btn(bar, "Verwijderen", lambda k=key: self.remove(k), "#dc2626", "white").pack(side="left", padx=6)
+            tr.pack(side="left", fill="both", expand=True)
+            sb.pack(side="left", fill="y")
+            self.trees[key] = tr
+        self.reload()
+
+    # ---- bestanden ----
+    def _folder(self):
+        return self.app.folder_var.get().strip()
+
+    def _path(self, key):
+        fn = next(k[2] for k in self.KINDS if k[0] == key)
+        return os.path.join(self._folder(), fn)
+
+    def _read(self, key):
+        try:
+            with open(self._path(key), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, list) else []
+        except (OSError, ValueError):
+            return []
+
+    def _write(self, key, data):
+        with open(self._path(key), "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def reload(self):
+        online = self.app.srv_state == "online"
+        self.info.config(text=("Server draait: wijzigingen gaan met server-commando's." if online
+                               else "Server staat uit: wijzigingen gaan rechtstreeks in de bestanden."))
+        props = read_properties(self._folder())
+        wl_on = props.get("white-list", "false").lower() == "true"
+        self.wl_btn.config(text="Whitelist staat aan: uitzetten" if wl_on else "Whitelist staat uit: aanzetten")
+        self._wl_on = wl_on
+        for key, _t, _fn, cols in self.KINDS:
+            tr = self.trees[key]
+            tr.delete(*tr.get_children())
+            for e in self._read(key):
+                if key == "ips":
+                    vals = (e.get("ip", ""), e.get("reason", ""), e.get("created", ""), e.get("source", ""))
+                    iid = e.get("ip", "")
+                elif key == "bans":
+                    vals = (e.get("name", ""), e.get("reason", ""), e.get("created", ""), e.get("source", ""))
+                    iid = e.get("name", "")
+                elif key == "ops":
+                    vals = (e.get("name", ""), e.get("level", ""), e.get("uuid", ""))
+                    iid = e.get("name", "")
+                else:
+                    vals = (e.get("name", ""), e.get("uuid", ""))
+                    iid = e.get("name", "")
+                try:
+                    tr.insert("", "end", iid=iid or None, values=vals)
+                except tk.TclError:
+                    pass
+
+    # ---- acties ----
+    def _online(self):
+        return self.app.srv_state == "online"
+
+    def _entry_for(self, name):
+        """(uuid, naam) voor een speler, wanneer de server uit staat."""
+        props = read_properties(self._folder())
+        if name.startswith("."):
+            raise ValueError("Bedrock-spelers kun je alleen toevoegen of verwijderen als de server draait.")
+        if props.get("online-mode", "true").lower() == "false":
+            return offline_uuid(name), name
+        self.config(cursor="watch")
+        self.update_idletasks()
+        try:
+            uid, real = mojang_uuid(name)
+        finally:
+            self.config(cursor="")
+        if not uid:
+            raise ValueError(f"'{name}' niet gevonden bij Mojang (of geen internet). Controleer de naam.")
+        return uid, real
+
+    def add(self, key):
+        what = "IP-adres" if key == "ips" else "spelernaam"
+        name = simpledialog.askstring(APP_NAME, f"Voer de {what} in:", parent=self)
+        name = (name or "").strip()
+        if not name:
+            return
+        reason = ""
+        if key in ("bans", "ips"):
+            reason = simpledialog.askstring(APP_NAME, "Reden (mag leeg blijven):", parent=self) or ""
+        if self._online():
+            cmd = {"whitelist": f"whitelist add {name}", "bans": f"ban {name} {reason}".strip(),
+                   "ips": f"ban-ip {name} {reason}".strip(), "ops": f"op {name}"}[key]
+            self.app.srv_send(cmd)
+            self.after(1500, self.reload)
+            return
+        try:
+            data = self._read(key)
+            now = time.strftime("%Y-%m-%d %H:%M:%S %z")
+            if key == "ips":
+                if any(e.get("ip") == name for e in data):
+                    return
+                data.append({"ip": name, "created": now, "source": "MC Server Manager", "expires": "forever", "reason": reason or "Banned by an operator."})
+            else:
+                uid, real = self._entry_for(name)
+                if any(e.get("uuid") == uid for e in data):
+                    messagebox.showinfo(APP_NAME, f"{real} staat al in deze lijst.", parent=self)
+                    return
+                if key == "whitelist":
+                    data.append({"uuid": uid, "name": real})
+                elif key == "ops":
+                    data.append({"uuid": uid, "name": real, "level": 4, "bypassesPlayerLimit": False})
+                else:
+                    data.append({"uuid": uid, "name": real, "created": now, "source": "MC Server Manager",
+                                 "expires": "forever", "reason": reason or "Banned by an operator."})
+            self._write(key, data)
+        except (ValueError, OSError) as e:
+            messagebox.showwarning(APP_NAME, str(e), parent=self)
+            return
+        self.reload()
+
+    def remove(self, key):
+        sel = self.trees[key].selection()
+        if not sel:
+            return
+        names = [self.trees[key].item(i, "values")[0] for i in sel]
+        if not messagebox.askyesno(APP_NAME, "Verwijderen uit de lijst:\n\n" + "\n".join(names), parent=self):
+            return
+        if self._online():
+            for n in names:
+                self.app.srv_send({"whitelist": f"whitelist remove {n}", "bans": f"pardon {n}",
+                                   "ips": f"pardon-ip {n}", "ops": f"deop {n}"}[key])
+            self.after(1500, self.reload)
+            return
+        try:
+            data = [e for e in self._read(key) if (e.get("ip") if key == "ips" else e.get("name")) not in names]
+            self._write(key, data)
+        except OSError as e:
+            messagebox.showwarning(APP_NAME, str(e), parent=self)
+        self.reload()
+
+    def toggle_whitelist(self):
+        new = not self._wl_on
+        if self._online():
+            self.app.srv_send("whitelist on" if new else "whitelist off")
+            self.after(1500, self.reload)
+            return
+        path = os.path.join(self._folder(), "server.properties")
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                txt = f.read()
+            val = "true" if new else "false"
+            if re.search(r"(?m)^white-list=", txt):
+                txt = re.sub(r"(?m)^white-list=.*$", "white-list=" + val, txt)
+            else:
+                txt += ("" if txt.endswith("\n") else "\n") + "white-list=" + val + "\n"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(txt)
+        except OSError as e:
+            messagebox.showwarning(APP_NAME, str(e), parent=self)
+        self.reload()
+
+
+# ---------- Logboek doorzoeken ----------
+LOG_KINDS = (
+    ("Alles", None),
+    ("Joinen", re.compile(r"joined the game|logged in with entity", re.I)),
+    ("Verlaten", re.compile(r"left the game|lost connection", re.I)),
+    ("Chat", re.compile(r"\]: (?:\[Not Secure\] )?<[^>]+> ")),
+    ("Commando's", re.compile(r"issued server command|\]: \S+ issued", re.I)),
+    ("Doodgaan", re.compile(r"was (?:slain|shot|killed|blown|burned|pricked|squashed|fireballed|pummeled|impaled|struck|doomed|hit|stung|skewered|obliterated|squished|poked|roasted)|"
+                            r"\b(?:drowned|starved|suffocated|withered|died|froze|fell from|fell off|fell out|hit the ground|went up in flames|burned to death|"
+                            r"tried to swim in lava|discovered the floor|experienced kinetic energy|blew up|was killed)\b", re.I)),
+    ("Waarschuwingen en fouten", re.compile(r"/(?:WARN|ERROR|FATAL)\]")),
+)
+LOG_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+LOG_TIME_RE = re.compile(r"^\[(\d\d:\d\d:\d\d)")
+
+
+def list_log_files(folder):
+    """[(datum, pad)] van latest.log en alle (gecomprimeerde) oude logs, van oud naar nieuw."""
+    d = os.path.join(folder, "logs")
+    out = []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    for fn in names:
+        p = os.path.join(d, fn)
+        if not os.path.isfile(p) or not (fn.endswith(".log") or fn.endswith(".log.gz")):
+            continue
+        m = LOG_DATE_RE.match(fn)
+        date = m.group(1) if m else time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(p)))
+        out.append((date, fn, p))
+    out.sort()
+    return out
+
+
+def search_logs(folder, terms, player, kind_re, d_from, d_to, limit, emit, cancelled):
+    """Zoekt in alle logbestanden. emit((datum, tijd, regel)) per treffer; geeft het aantal doorzochte bestanden terug."""
+    terms = [t.lower() for t in terms]
+    player = (player or "").lower()
+    n = 0
+    files = 0
+    for date, fn, p in list_log_files(folder):
+        if (d_from and date < d_from) or (d_to and date > d_to):
+            continue
+        if cancelled():
+            break
+        files += 1
+        try:
+            f = gzip.open(p, "rt", encoding="utf-8", errors="replace") if fn.endswith(".gz") else open(p, encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with f:
+            try:
+                for line in f:
+                    low = line.lower()
+                    if terms and not all(t in low for t in terms):
+                        continue
+                    if player and player not in low:
+                        continue
+                    if kind_re is not None and not kind_re.search(line):
+                        continue
+                    tm = LOG_TIME_RE.match(line)
+                    emit((date, tm.group(1) if tm else "", line.rstrip("\r\n")))
+                    n += 1
+                    if n >= limit or cancelled():
+                        return files
+            except (OSError, EOFError, zlib.error):
+                continue
+    return files
+
+
+class LogSearchDialog(tk.Toplevel):
+    LIMIT = 5000
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("Logboek doorzoeken")
+        self.transient(app)
+        self.geometry("900x560")
+        self.rq = queue.Queue()
+        self.cancel = False
+        self.busy = False
+        self.v_term, self.v_player = tk.StringVar(), tk.StringVar()
+        self.v_kind = tk.StringVar(value=LOG_KINDS[0][0])
+        self.v_from, self.v_to = tk.StringVar(), tk.StringVar()
+        f = ttk.Frame(self, padding=10)
+        f.pack(fill="x")
+        ttk.Label(f, text="Zoekwoord(en):").grid(row=0, column=0, sticky="w")
+        e = ttk.Entry(f, textvariable=self.v_term, width=34)
+        e.grid(row=0, column=1, sticky="w", padx=6)
+        ttk.Label(f, text="Speler:").grid(row=0, column=2, sticky="w", padx=(12, 0))
+        ttk.Entry(f, textvariable=self.v_player, width=18).grid(row=0, column=3, sticky="w", padx=6)
+        ttk.Label(f, text="Soort:").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Combobox(f, textvariable=self.v_kind, state="readonly", width=24, values=[k[0] for k in LOG_KINDS]).grid(
+            row=1, column=1, sticky="w", padx=6, pady=(6, 0))
+        ttk.Label(f, text="Van:").grid(row=1, column=2, sticky="w", padx=(12, 0), pady=(6, 0))
+        pr = ttk.Frame(f)
+        pr.grid(row=1, column=3, sticky="w", padx=6, pady=(6, 0))
+        ttk.Entry(pr, textvariable=self.v_from, width=11).pack(side="left")
+        ttk.Label(pr, text="  tot  ").pack(side="left")
+        ttk.Entry(pr, textvariable=self.v_to, width=11).pack(side="left")
+        ttk.Label(f, text="Datums als JJJJ-MM-DD (leeg = alles). Meerdere zoekwoorden: de regel moet ze allemaal bevatten.",
+                  foreground="#6b7280").grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        self.btn = make_btn(f, "🔎  Zoeken", self.go, "#2563eb", "white")
+        self.btn.grid(row=0, column=4, rowspan=2, padx=(14, 0), sticky="ns")
+        e.bind("<Return>", lambda ev: self.go())
+        self.status = tk.StringVar(value="Doorzoekt latest.log en alle oude logs (ook de .gz-bestanden) in de map logs.")
+        ttk.Label(self, textvariable=self.status).pack(fill="x", padx=10)
+        mid = ttk.Frame(self)
+        mid.pack(fill="both", expand=True, padx=10, pady=6)
+        self.tree = ttk.Treeview(mid, columns=("when", "line"), show="headings", selectmode="extended")
+        self.tree.heading("when", text="Datum en tijd")
+        self.tree.heading("line", text="Regel")
+        self.tree.column("when", width=140, anchor="w", stretch=False)
+        self.tree.column("line", width=700, anchor="w")
+        sb = ttk.Scrollbar(mid, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        self.full = tk.StringVar()
+        ttk.Entry(self, textvariable=self.full, state="readonly").pack(fill="x", padx=10, pady=(0, 4))
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", padx=10, pady=(0, 10))
+        make_btn(bar, "Kopieer selectie", self.copy).pack(side="left")
+        self.tree.bind("<<TreeviewSelect>>", self._sel)
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        e.focus_set()
+
+    def _close(self):
+        self.cancel = True
+        self.destroy()
+
+    def _sel(self, _e=None):
+        sel = self.tree.selection()
+        if sel:
+            self.full.set(self.tree.item(sel[0], "values")[1])
+
+    def copy(self):
+        lines = [self.tree.item(i, "values")[1] for i in (self.tree.selection() or self.tree.get_children())]
+        self.clipboard_clear()
+        self.clipboard_append("\n".join(lines))
+
+    def go(self):
+        if self.busy:
+            self.cancel = True
+            return
+        for v in (self.v_from, self.v_to):
+            if v.get().strip() and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v.get().strip()):
+                messagebox.showwarning(APP_NAME, "Vul datums in als JJJJ-MM-DD, bijvoorbeeld 2026-10-26.", parent=self)
+                return
+        folder = self.app.folder_var.get().strip()
+        if not list_log_files(folder):
+            self.status.set("Geen logbestanden gevonden in de map logs van de server.")
+            return
+        self.tree.delete(*self.tree.get_children())
+        self.full.set("")
+        terms = self.v_term.get().split()
+        player = self.v_player.get().strip()
+        kind_re = dict(LOG_KINDS)[self.v_kind.get()]
+        d_from, d_to = self.v_from.get().strip(), self.v_to.get().strip()
+        self.cancel, self.busy = False, True
+        self.btn.config(text="■  Stoppen")
+        self.status.set("Zoeken…")
+        self.count = 0
+
+        def work():
+            files = search_logs(folder, terms, player, kind_re, d_from, d_to, self.LIMIT,
+                                lambda r: self.rq.put(("hit", r)), lambda: self.cancel)
+            self.rq.put(("done", files))
+        threading.Thread(target=work, daemon=True).start()
+        self.after(80, self._pump)
+
+    def _pump(self):
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        t_end = time.time() + 0.03
+        while time.time() < t_end:
+            try:
+                m = self.rq.get_nowait()
+            except queue.Empty:
+                break
+            if m[0] == "hit":
+                d, t, line = m[1]
+                self.tree.insert("", "end", values=((d + " " + t).strip(), line))
+                self.count += 1
+            else:
+                self.busy = False
+                self.btn.config(text="🔎  Zoeken")
+                extra = f" (alleen de eerste {self.LIMIT}; maak je zoekopdracht specifieker)" if self.count >= self.LIMIT else ""
+                self.status.set(f"{self.count} regel(s) gevonden in {m[1]} bestand(en).{extra}" if self.count
+                                else f"Niets gevonden in {m[1]} bestand(en).")
+                return
+        if self.busy:
+            self.status.set(f"Zoeken… {self.count} gevonden")
+            self.after(60, self._pump)
 
 
 # Hulpplugin voor Tab-aanvulling (bron: hulpplugin/MCMTab.java in de repository)
@@ -7710,6 +8146,8 @@ class App(tk.Tk):
         self.after(60000, self._graphs_tick)
         self.after(15000, self._sleep_tick)
         self.after(4000, self.tab_map.prewarm)
+        self.after(20000, self._health_tick)
+        self.after(2000, self._sleep_stats_show)
         self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
                           "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
@@ -7724,6 +8162,11 @@ class App(tk.Tk):
     def apply_settings(self):
         global NET_TIMEOUT
         c = self.cfg
+        try:
+            self.sleep_var.set(bool(c.get("sleep_enabled")))
+            self._sleep_stats_show()
+        except (AttributeError, tk.TclError):
+            pass
         try:
             NET_TIMEOUT = max(5, int(c.get("net_timeout", 30)))
         except (TypeError, ValueError):
@@ -7777,7 +8220,7 @@ class App(tk.Tk):
         self.sv = {}
         for i, (key, label) in enumerate((("uptime", "Uptime"), ("pid", "Proces (PID)"), ("cpu", "CPU"),
                                           ("ram", "Geheugen"), ("tps", "TPS (1 min)"), ("players", "Spelers"),
-                                          ("temp", "Laptop-temp."))):
+                                          ("temp", "Laptop-temp."), ("sleep", "Slaapstand"))):
             self.sv[key] = tk.StringVar(value="-")
             ttk.Label(st, text=label + ":").grid(row=i, column=0, sticky="w", pady=1)
             self.sv_lbl[key] = ttk.Label(st, textvariable=self.sv[key], font=("Segoe UI", 10, "bold"))
@@ -7785,12 +8228,19 @@ class App(tk.Tk):
         self.psutil_frame = None
         if psutil is None:
             hf = ttk.Frame(st)
-            hf.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            hf.grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
             self.psutil_frame = hf
             self.psutil_lbl = ttk.Label(hf, text="CPU/geheugen heeft 'psutil' nodig", foreground="#b45309")
             self.psutil_lbl.pack(anchor="w")
             self.btn_psutil = ttk.Button(hf, text="psutil installeren", command=self.install_psutil)
             self.btn_psutil.pack(anchor="w", pady=(2, 0))
+
+        ttk.Separator(st).grid(row=9, column=0, columnspan=2, sticky="ew", pady=6)
+        self.sleep_var = tk.BooleanVar(value=bool(self.cfg.get("sleep_enabled")))
+        ttk.Checkbutton(st, text="😴  Slaapstand aan", variable=self.sleep_var, command=self._sleep_toggle).grid(
+            row=10, column=0, columnspan=2, sticky="w")
+        make_btn(st, "👥  Whitelist en bans", self.open_lists).grid(row=11, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        make_btn(st, "🔎  Logboek doorzoeken", self.open_logsearch).grid(row=12, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
         sp = ttk.Frame(mid)
         sp.grid(row=0, column=1, sticky="nsew", padx=8)
@@ -7832,6 +8282,9 @@ class App(tk.Tk):
         self.pmenu = tk.Menu(self, tearoff=0)
         self.pmenu.add_command(label="Bericht sturen…", command=self.player_tell)
         self.pmenu.add_command(label="Kicken…", command=self.player_kick)
+        self.pmenu.add_command(label="Bannen…", command=self.player_ban)
+        self.pmenu.add_command(label="Op de whitelist zetten", command=lambda: self._player_cmd("whitelist add {}"))
+        self.pmenu.add_command(label="Operator maken", command=lambda: self._player_cmd("op {}"))
         self.ptree.bind("<Button-3>", self._player_menu)
         self.heads.watch_tree(self.ptree, lambda iid: iid, lambda iid: (self.ptree.item(iid, "values") or ("", ""))[1] if len(self.ptree.item(iid, "values") or ()) > 1 else "")
 
@@ -8020,10 +8473,11 @@ class App(tk.Tk):
     # ---- Slaapstand: server stoppen als er niemand is, wakker maken zodra iemand probeert te joinen ----
     def _sleep_tick(self):
         try:
+            self._sleep_stats_show()
             if self.cfg.get("sleep_enabled") and self.srv_state == "online" and not getattr(self, "_sleeping", False):
                 busy = bool(self.players) or self.tab_map.gen["state"] in ("running", "paused")
                 now = time.time()
-                if busy or not getattr(self, "_idle_since", None):
+                if busy or not getattr(self, "_idle_since", None) or not sleep_allowed(self.cfg, now):
                     self._idle_since = now
                 else:
                     mins = max(1, int(self.cfg.get("sleep_minutes", 10) or 10))
@@ -8032,9 +8486,93 @@ class App(tk.Tk):
         finally:
             self.after(15000, self._sleep_tick)
 
+    def _sleep_stats(self):
+        st = self.cfg.get("sleep_stats")
+        if not isinstance(st, dict):
+            st = self.cfg["sleep_stats"] = {}
+        return st
+
+    def _sleep_stats_show(self):
+        st = self._sleep_stats()
+        secs = st.get("secs", 0) + (time.time() - self._sleep_t0 if getattr(self, "_sleeping", False) and getattr(self, "_sleep_t0", None) else 0)
+        if not st.get("count"):
+            txt = "nog niet geslapen" if self.cfg.get("sleep_enabled") else "uit"
+        else:
+            txt = f"{st['count']}x, {fmt_dur_short(secs)}"
+            if st.get("wakes"):
+                txt += f", {st['wakes']}x gewekt"
+        if getattr(self, "_sleeping", False):
+            txt = "😴 slaapt: " + txt
+        self.sv["sleep"].set(txt)
+
+    def _sleep_toggle(self):
+        self.cfg["sleep_enabled"] = bool(self.sleep_var.get())
+        self._idle_since = time.time()
+        self._save_cfg()
+        self._sleep_stats_show()
+
+    # ---- gezondheidscontrole ----
+    def _health_warn(self, kind, title, text):
+        now = time.time()
+        last = getattr(self, "_health_last", None)
+        if last is None:
+            last = self._health_last = {}
+        if now - last.get(kind, 0) < 1800:
+            return
+        last[kind] = now
+        self.log("⚠ " + text, "warn")
+        toast(title, text)
+
+    def _health_tps_check(self, tps):
+        c = self.cfg
+        thr = float(c.get("health_tps_min", 15))
+        if not c.get("health_tps", True) or tps >= thr:
+            self._tps_low_since = None
+            return
+        now = time.time()
+        if not getattr(self, "_tps_low_since", None):
+            self._tps_low_since = now
+        mins = max(1, int(c.get("health_tps_mins", 5)))
+        if now - self._tps_low_since >= mins * 60:
+            self._health_warn("tps", "Server loopt achter", f"De TPS zit al {int((now - self._tps_low_since) / 60)} minuten onder {thr:g} (nu {tps:.1f}). "
+                              "Tips: verlaag view-distance of simulation-distance, pauzeer Chunky, of controleer zware plugins met /spark profiler.")
+
+    def _health_ram_check(self, ram):
+        c = self.cfg
+        if not c.get("health_ram", True) or not ram or not self.srv_xmx:
+            self._ram_hi_since = None
+            return
+        pct = ram / float(self.srv_xmx) * 100
+        if pct < int(c.get("health_ram_pct", 90)):
+            self._ram_hi_since = None
+            return
+        now = time.time()
+        if not getattr(self, "_ram_hi_since", None):
+            self._ram_hi_since = now
+        if now - self._ram_hi_since >= 180:
+            self._health_warn("ram", "Geheugen bijna op", f"De server gebruikt {ram:.0f} van {self.srv_xmx} MB ({pct:.0f}%) en zit al 3 minuten zo hoog. "
+                              "Verhoog 'Max. RAM' bovenin het tabblad Server (herstart nodig) als dit blijft gebeuren.")
+
+    def _health_tick(self):
+        try:
+            folder = self.folder_var.get().strip()
+            if self.cfg.get("health_disk", True) and os.path.isdir(folder):
+                free = shutil.disk_usage(folder).free / 1e9
+                lim = float(self.cfg.get("health_disk_gb", 5))
+                if free < lim:
+                    self._health_warn("disk", "Schijf bijna vol", f"Er is nog maar {free:.1f} GB vrij op de schijf van de server (grens {lim:g} GB). "
+                                      "Ruim oude backups of logs op (tabblad Backups), anders kan de wereld niet meer opgeslagen worden.")
+        except Exception:
+            pass
+        self.after(60000, self._health_tick)
+
     def _go_sleep(self, mins):
         self.log(f"Slaapstand: al {mins} minuten niemand online. De server wordt veilig gestopt en start vanzelf weer zodra iemand probeert te joinen.", "info")
         self._sleeping = True
+        self._sleep_t0 = time.time()
+        st = self._sleep_stats()
+        st["count"] = st.get("count", 0) + 1
+        self._save_cfg()
         self.srv_stop(after=self._sleep_enter)
 
     def _wake_ports(self):
@@ -8077,11 +8615,20 @@ class App(tk.Tk):
             lis.stop()
             self._wake_lis = None
         if not keep:
+            if getattr(self, "_sleeping", False) and getattr(self, "_sleep_t0", None):
+                st = self._sleep_stats()
+                st["secs"] = st.get("secs", 0) + max(0, time.time() - self._sleep_t0)
+                self._sleep_t0 = None
+                self._save_cfg()
             self._sleeping = False
 
     def _wake(self, who):
         if not getattr(self, "_sleeping", False) or self.srv_running():
             return
+        st = self._sleep_stats()
+        st["wakes"] = st.get("wakes", 0) + 1
+        st["last_who"], st["last_at"] = who, time.strftime("%d-%m %H:%M")
+        self.tab_beheer.notify("notify_join", "Slaapstand voorbij", f"{who} wekt de server.", who)
         self.log(f"Slaapstand: {who} probeert te joinen. De server wordt gestart…", "ok")
         self._wake_stop()
         self._set_state("stopped")
@@ -8233,6 +8780,7 @@ class App(tk.Tk):
 
     def _srv_exited(self, code):
         self.srv_proc = None
+        self._tps_low_since = self._ram_hi_since = None
         self._cleanup_tmp()
         self._set_state("stopped")
         self.players.clear()
@@ -8720,6 +9268,7 @@ class App(tk.Tk):
             return
         self.sv["tps"].set(f"{tps:.1f}")
         self.spark_tps.add(tps)
+        self._health_tps_check(tps)
 
     def _auto_poll(self):
         self._last_poll = time.time()
@@ -8766,6 +9315,45 @@ class App(tk.Tk):
             reason = simpledialog.askstring(APP_NAME, f"Reden voor het kicken van {sel[0]}:", parent=self)
             if reason is not None:
                 self.srv_send(f"kick {sel[0]} {reason}".strip())
+
+    def player_ban(self):
+        sel = self.ptree.selection()
+        if sel:
+            reason = simpledialog.askstring(APP_NAME, f"Reden voor het bannen van {sel[0]}:", parent=self)
+            if reason is not None:
+                self.srv_send(f"ban {sel[0]} {reason}".strip())
+
+    def _player_cmd(self, tpl):
+        sel = self.ptree.selection()
+        if sel:
+            self.srv_send(tpl.format(sel[0]))
+
+    def open_lists(self):
+        if not self._need_folder():
+            return
+        d = getattr(self, "_lists_dlg", None)
+        if d is not None:
+            try:
+                if d.winfo_exists():
+                    d.lift()
+                    d.reload()
+                    return
+            except tk.TclError:
+                pass
+        self._lists_dlg = ListsDialog(self)
+
+    def open_logsearch(self):
+        if not self._need_folder():
+            return
+        d = getattr(self, "_logs_dlg", None)
+        if d is not None:
+            try:
+                if d.winfo_exists():
+                    d.lift()
+                    return
+            except tk.TclError:
+                pass
+        self._logs_dlg = LogSearchDialog(self)
 
     def player_tell(self):
         sel = self.ptree.selection()
@@ -8823,6 +9411,7 @@ class App(tk.Tk):
                 self.sv["ram"].set(f"{ram:.0f} MB" + (f" / {self.srv_xmx} MB" if self.srv_xmx else ""))
             self.spark_cpu.add(cpu)
             self.spark_ram.add(ram)
+            self._health_ram_check(ram)
         else:
             self.sv["cpu"].set("psutil nodig")
             self.sv["ram"].set("psutil nodig")
@@ -10029,7 +10618,7 @@ class SettingsDialog(tk.Toplevel):
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
                      "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
                      "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only",
-                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done"):
+                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))
@@ -10047,6 +10636,7 @@ class SettingsDialog(tk.Toplevel):
         self._tab_beheer(nb)
         self._tab_updates(nb)
         self._tab_backups(nb)
+        self._tab_health(nb)
         self._tab_grafiek(nb)
         self._tab_console(nb)
         self._tab_update(nb)
@@ -10195,12 +10785,41 @@ class SettingsDialog(tk.Toplevel):
         self._hint(f, "Tijdens de slaapstand luistert dit programma op de serverpoort; in de serverlijst staat dan 'Server slaapt'. "
                       "De speler die probeert te joinen krijgt de melding dat de server start en kan het na ongeveer een minuut opnieuw proberen. "
                       "Niet tijdens het genereren van de kaart.", 15)
+        self._check(f, "Slaapstand alleen op bepaalde tijden toestaan", self.v["sleep_sched"], 16)
+        rf = ttk.Frame(f)
+        rf.grid(row=17, column=0, columnspan=3, sticky="w", pady=2)
+        ttk.Label(rf, text="Van").pack(side="left")
+        ttk.Entry(rf, textvariable=self.v["sleep_from"], width=6).pack(side="left", padx=4)
+        ttk.Label(rf, text="tot").pack(side="left")
+        ttk.Entry(rf, textvariable=self.v["sleep_to"], width=6).pack(side="left", padx=4)
+        ttk.Label(rf, text="uur   op:").pack(side="left", padx=(6, 4))
+        days = str(self.app.cfg.get("sleep_days", "1234567"))
+        self.sleep_day_vars = {}
+        for i, nm in enumerate(("ma", "di", "wo", "do", "vr", "za", "zo"), 1):
+            self.sleep_day_vars[str(i)] = tk.BooleanVar(value=str(i) in days)
+            ttk.Checkbutton(rf, text=nm, variable=self.sleep_day_vars[str(i)]).pack(side="left")
+        self._hint(f, "Buiten deze tijden blijft de server altijd aan. Een tijdvak over middernacht (22:00 tot 08:00) mag.", 18)
 
     def _pick_java(self):
         f = filedialog.askopenfilename(parent=self, title="Kies java.exe",
                                        filetypes=[("Java", "java.exe javaw.exe"), ("Alle bestanden", "*.*")])
         if f:
             self.v["java_path"].set(os.path.normpath(f))
+
+    def _tab_health(self, nb):
+        f = self._frame(nb, "Gezondheid")
+        ttk.Label(f, text="Het programma waarschuwt (logboek en Windows-melding) als er iets mis dreigt te gaan.",
+                  foreground="#6b7280").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        self._check(f, "Waarschuw als de schijf bijna vol is", self.v["health_disk"], 1)
+        self._spin(f, "Waarschuwen onder:", "health_disk_gb", 2, 1, 5000, "GB vrije ruimte")
+        self._sep(f, 3)
+        self._check(f, "Waarschuw als de server te traag loopt (lage TPS)", self.v["health_tps"], 4)
+        self._spin(f, "TPS onder:", "health_tps_min", 5, 1, 19, "(20 is normaal)")
+        self._spin(f, "Gedurende minstens:", "health_tps_mins", 6, 1, 120, "minuten")
+        self._sep(f, 7)
+        self._check(f, "Waarschuw als het geheugen bijna op is", self.v["health_ram"], 8)
+        self._spin(f, "Geheugen boven:", "health_ram_pct", 9, 50, 100, "% van Max. RAM, gedurende 3 minuten")
+        self._hint(f, "Dezelfde waarschuwing komt hooguit één keer per half uur.", 10)
 
     def _tab_grafiek(self, nb):
         f = self._frame(nb, "Grafieken")
@@ -10348,6 +10967,14 @@ class SettingsDialog(tk.Toplevel):
         c["plugin_backups_max"] = min(max(int(c["plugin_backups_max"]), 1), 999)
         c["net_timeout"] = min(max(int(c["net_timeout"]), 5), 180)
         c["sleep_minutes"] = min(max(int(c["sleep_minutes"]), 1), 600)
+        for k, dflt in (("sleep_from", "22:00"), ("sleep_to", "08:00")):
+            m = re.fullmatch(r"\s*(\d{1,2})[:.](\d{2})\s*", str(c[k]))
+            c[k] = f"{int(m.group(1)):02d}:{m.group(2)}" if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else dflt
+        c["sleep_days"] = "".join(d for d, v in getattr(self, "sleep_day_vars", {}).items() if v.get()) or "1234567"
+        c["health_disk_gb"] = min(max(int(c["health_disk_gb"]), 1), 5000)
+        c["health_tps_min"] = min(max(int(c["health_tps_min"]), 1), 19)
+        c["health_tps_mins"] = min(max(int(c["health_tps_mins"]), 1), 120)
+        c["health_ram_pct"] = min(max(int(c["health_ram_pct"]), 50), 100)
         c["mc_override"] = c["mc_override"].strip()
         c["ignore_list"] = c["ignore_list"].strip()
         c["backup_dir"] = c["backup_dir"].strip()

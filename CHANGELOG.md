@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.37
+- Nieuw: **Whitelist en bans**. Knop op het tabblad Server (en rechtsklik op een speler: Bannen, Op de whitelist zetten, Operator maken). Eén venster voor whitelist, bans, IP-bans en operators met toevoegen en verwijderen; whitelist aan/uit. Draait de server, dan gaat het met server-commando's; staat hij uit, dan rechtstreeks in de bestanden (UUID via Mojang, of de offline-UUID bij `online-mode=false`). Bedrock-spelers kunnen alleen bij een draaiende server.
+- Nieuw: **Logboek doorzoeken**. Zoekt in latest.log en alle oude logs (ook .gz), met filters voor speler, soort (joinen, verlaten, chat, commando's, doodgaan, waarschuwingen en fouten) en datumbereik. Maximaal 5000 resultaten.
+- Slaapstand uitgebreid: aan/uit-vinkje op het tabblad Server, statistieken (aantal keer geslapen, totale slaaptijd, aantal keer gewekt), een rooster (alleen op bepaalde uren en dagen) en een melding bij wakker worden.
+- Nieuw: **Gezondheidscontrole** (Instellingen > Gezondheid). Waarschuwt in het logboek en met een Windows-melding bij een bijna volle schijf, te lage TPS of bijna vol geheugen, hooguit één keer per half uur per soort.
+- Deze versie vereist een herstart.
+
 ## 2.36
 - Fix: in het spelersmenu knipperde af en toe de spelerskop. De lijst werd bij elke verversing leeggemaakt en opnieuw opgebouwd, waardoor de kop even weg was. Bestaande rijen blijven nu staan en worden alleen bijgewerkt; nieuwe spelers krijgen hun kop meteen.
 - Deze versie vereist een herstart.
