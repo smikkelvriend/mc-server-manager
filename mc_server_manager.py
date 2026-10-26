@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.14.1"
+APP_VERSION = "2.15"
 
 CHANGELOG = """
+2.15 - Donker thema (Instellingen -> Gedrag).
 2.14.1 - Kaart werkt ook als de server uit staat: gebruikt de opgeslagen tegels van squaremap.
 2.14 - Nieuw tabblad Beheer: spelersstatistieken, Windows-meldingen, server-tuning en wereldgrootte met opruimen.
 2.13 - Kaart: sleep een gebied (zoals Knipprogramma), het programma laat Chunky het genereren met voortgangsbalk en werkt daarna de kaart bij.
@@ -162,7 +163,7 @@ DEFAULTS = {
     # server
     "mc_override": "", "start_script": "", "net_timeout": 30,
     # gedrag
-    "confirm": True, "sound": True, "topmost": False, "compact": False, "log_to_file": False,
+    "confirm": True, "sound": True, "topmost": False, "compact": False, "dark_mode": False, "log_to_file": False,
     # serverbeheer
     "launch_mode": "auto", "java_path": "java", "java_xms": "1G", "java_xmx": "4G", "java_extra": "",
     "stop_timeout": 60, "poll_secs": 30, "auto_restart": False, "console_max_lines": 5000, "console_font": 10,
@@ -2024,6 +2025,124 @@ def fmt_count(n):
 def plugman_name(items):
     """Naam van de PlugMan(X)-plugin als die aanstaat (nodig voor /plm load)."""
     return next((i["name"] for i in items if i["enabled"] and norm_name(i["name"]).startswith("plugman")), None)
+
+
+# --------------------------------------------------------------------------
+# Donker thema
+# --------------------------------------------------------------------------
+DARK = dict(bg="#181c24", card="#222833", field="#2a3140", border="#374151", fg="#e5e7eb", muted="#9ca3af", acc="#2563eb")
+DARK_ON = False
+_DK_BG = {"white": DARK["card"], "#ffffff": DARK["card"], "#f0f0f0": DARK["bg"], "systembuttonface": DARK["bg"],
+          "#e5e7eb": DARK["border"], "#f3f4f6": DARK["field"], "#eef2ff": "#1e2a4a", "#dcfce7": "#14532d",
+          "#fff3e0": "#3b2a12", "#e3f2fd": "#12263f", "#fef3c7": "#3b2f0f", "#fee2e2": "#451a1a", "#ececec": DARK["bg"]}
+_DK_FG = {"#111827": "#f3f4f6", "#374151": "#d1d5db", "#4b5563": "#cbd5e1", "#6b7280": "#9ca3af", "#555555": "#cbd5e1",
+          "#3730a3": "#a5b4fc", "#92400e": "#fbbf24", "#2563eb": "#60a5fa", "#1b5e20": "#4ade80", "#b71c1c": "#f87171",
+          "#b91c1c": "#f87171", "#e65100": "#fb923c", "#0d47a1": "#60a5fa", "#757575": "#9ca3af", "#166534": "#4ade80",
+          "#059669": "#34d399", "#d97706": "#fbbf24", "#b45309": "#fbbf24", "black": "#f3f4f6", "#000000": "#f3f4f6",
+          "systemwindowtext": "#f3f4f6", "systembuttontext": "#f3f4f6"}
+_DK_BGKEYS = {"background", "bg", "highlightbackground", "activebackground", "selectcolor", "troughcolor", "highlightcolor",
+              "fieldbackground", "selectbackground"}
+_DK_FGKEYS = {"foreground", "fg", "activeforeground", "disabledforeground", "insertbackground", "selectforeground"}
+
+
+def _dk_map(d):
+    for k in list(d):
+        lk = str(k).lstrip("-").lower()
+        v = d[k]
+        if not isinstance(v, str):
+            continue
+        low = v.lower()
+        if lk in _DK_BGKEYS and low in _DK_BG:
+            d[k] = _DK_BG[low]
+        elif lk in _DK_FGKEYS and low in _DK_FG:
+            d[k] = _DK_FG[low]
+    return d
+
+
+def install_dark(root):
+    """Zet het donkere thema aan: kleuren die in de code staan worden vertaald; moet vóór het bouwen van de vensters."""
+    global DARK_ON
+    if DARK_ON:
+        return
+    DARK_ON = True
+    orig = tk.Misc._options
+
+    def options(self, cnf, kw=None):
+        d = dict(tk._cnfmerge((cnf, kw)) if kw else tk._cnfmerge(cnf))
+        return orig(self, _dk_map(d))
+
+    tk.Misc._options = options
+    otag = ttk.Treeview.tag_configure
+
+    def tag_configure(self, tagname, option=None, **kw):
+        if kw:
+            kw = _dk_map(dict(kw))
+        return otag(self, tagname, option, **kw)
+
+    ttk.Treeview.tag_configure = tag_configure
+    D = DARK
+    root.configure(bg=D["bg"])
+    for pat, val in (("*Background", D["bg"]), ("*Foreground", D["fg"]), ("*Entry.Background", D["field"]),
+                     ("*Spinbox.Background", D["field"]), ("*Listbox.Background", D["field"]), ("*Text.Background", D["field"]),
+                     ("*activeBackground", D["border"]), ("*activeForeground", D["fg"]), ("*selectColor", D["field"]),
+                     ("*Menu.Background", D["card"]), ("*Menu.Foreground", D["fg"]), ("*insertBackground", D["fg"]),
+                     ("*highlightBackground", D["bg"]), ("*disabledForeground", D["muted"])):
+        root.option_add(pat, val)
+
+
+def dark_style(style):
+    D = DARK
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+    style.configure(".", background=D["bg"], foreground=D["fg"], fieldbackground=D["field"], bordercolor=D["border"],
+                    lightcolor=D["bg"], darkcolor=D["bg"], troughcolor=D["field"], selectbackground=D["acc"],
+                    selectforeground="white", insertcolor=D["fg"], focuscolor=D["bg"])
+    style.configure("TFrame", background=D["bg"])
+    style.configure("TLabel", background=D["bg"], foreground=D["fg"])
+    style.configure("TLabelframe", background=D["bg"], bordercolor=D["border"])
+    style.configure("TLabelframe.Label", background=D["bg"], foreground=D["fg"])
+    style.configure("TButton", background=D["border"], foreground=D["fg"], bordercolor=D["border"], padding=4)
+    style.map("TButton", background=[("active", "#4b5563"), ("disabled", D["card"])], foreground=[("disabled", D["muted"])])
+    style.configure("TCheckbutton", background=D["bg"], foreground=D["fg"], indicatorbackground=D["field"], indicatorforeground=D["fg"])
+    style.map("TCheckbutton", background=[("active", D["bg"])], indicatorbackground=[("selected", D["acc"]), ("active", D["border"])])
+    style.configure("TRadiobutton", background=D["bg"], foreground=D["fg"], indicatorbackground=D["field"])
+    style.map("TRadiobutton", background=[("active", D["bg"])], indicatorbackground=[("selected", D["acc"])])
+    for w in ("TEntry", "TSpinbox", "TCombobox"):
+        style.configure(w, fieldbackground=D["field"], foreground=D["fg"], background=D["border"], insertcolor=D["fg"],
+                        arrowcolor=D["fg"], bordercolor=D["border"])
+    style.map("TCombobox", fieldbackground=[("readonly", D["field"])], foreground=[("readonly", D["fg"])],
+              selectbackground=[("readonly", D["field"])], selectforeground=[("readonly", D["fg"])])
+    style.configure("TNotebook", background=D["bg"], bordercolor=D["border"])
+    style.configure("TNotebook.Tab", background=D["card"], foreground=D["muted"], padding=(10, 3), bordercolor=D["border"])
+    style.map("TNotebook.Tab", background=[("selected", D["bg"]), ("active", D["border"])],
+              foreground=[("selected", "white"), ("active", D["fg"])])
+    style.configure("Treeview", background=D["card"], fieldbackground=D["card"], foreground=D["fg"], bordercolor=D["border"])
+    style.map("Treeview", background=[("selected", D["acc"])], foreground=[("selected", "white")])
+    style.configure("Treeview.Heading", background=D["border"], foreground=D["fg"], bordercolor=D["bg"])
+    style.map("Treeview.Heading", background=[("active", "#4b5563")])
+    style.configure("TScrollbar", background=D["border"], troughcolor=D["bg"], arrowcolor=D["fg"], bordercolor=D["bg"])
+    style.map("TScrollbar", background=[("active", "#4b5563")])
+    style.configure("TProgressbar", background=D["acc"], troughcolor=D["field"], bordercolor=D["border"])
+    style.configure("TSeparator", background=D["border"])
+    style.configure("TMenubutton", background=D["border"], foreground=D["fg"])
+    style.configure("Big.TButton", font=("Segoe UI", 10, "bold"), padding=6)
+
+
+def dark_titlebar(win):
+    """Donkere titelbalk (Windows 10/11)."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        win.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+        val = ctypes.c_int(1)
+        for attr in (20, 19):
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(val), ctypes.sizeof(val))
+    except Exception:
+        pass
 
 
 class PluginsTab(ttk.Frame):
@@ -4212,6 +4331,8 @@ class App(tk.Tk):
         self.minsize(980, 700)
         self.q = queue.Queue()
         self.cfg = {**DEFAULTS, **load_config()}
+        if self.cfg.get("dark_mode"):
+            install_dark(self)
         if self.cfg.get("startup_keep") == OLD_KEEP_V2:  # oude standaardlijst -> nieuwe standaardlijst
             self.cfg["startup_keep"] = DEFAULT_KEEP
         self.rows = {}
@@ -4269,6 +4390,8 @@ class App(tk.Tk):
         self.after(3000, self._temp_tick)
         self.after(5000, self._selfupd_startup)
         self.bind("<FocusIn>", self._selfupd_focus)
+        if DARK_ON:
+            self.after(50, lambda: dark_titlebar(self))
         self.after(200, self._startup)
 
     # ---------------- UI opbouw ----------------
@@ -4278,6 +4401,8 @@ class App(tk.Tk):
             style.theme_use("vista" if "vista" in style.theme_names() else "clam")
         except tk.TclError:
             pass
+        if DARK_ON:
+            dark_style(style)
         style.configure("Treeview", rowheight=26, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
         style.configure("TNotebook.Tab", padding=(10, 3), font=("Segoe UI", 9))
@@ -6814,8 +6939,9 @@ class SettingsDialog(tk.Toplevel):
         self._check(f, "Speel een geluidje af als een taak klaar is", self.v["sound"], 1)
         self._check(f, "Venster altijd bovenop andere vensters", self.v["topmost"], 2)
         self._check(f, "Compacte lijst (kleinere rijen, meer plugins in beeld)", self.v["compact"], 3)
-        self._check(f, "Log bewaren in bestand (mc_server_manager.log naast het programma)", self.v["log_to_file"], 4)
-        self._hint(f, "Tip: met F5 start je een controle op alles.", 5)
+        self._check(f, "Donker thema (het programma herstart na het opslaan)", self.v["dark_mode"], 4)
+        self._check(f, "Log bewaren in bestand (mc_server_manager.log naast het programma)", self.v["log_to_file"], 5)
+        self._hint(f, "Tip: met F5 start je een controle op alles.", 6)
 
     # ---- acties ----
     def _pick_backup_dir(self):
@@ -6870,6 +6996,7 @@ class SettingsDialog(tk.Toplevel):
                 return
         app, c = self.app, self.app.cfg
         old_mc = c.get("mc_override", "")
+        old_dark = bool(c.get("dark_mode"))
         for k, var in self.v.items():
             try:
                 c[k] = var.get()
@@ -6898,6 +7025,9 @@ class SettingsDialog(tk.Toplevel):
         if c["mc_override"] != old_mc and os.path.isdir(app.folder_var.get().strip()):
             app.load_folder()
         self.destroy()
+        if bool(c.get("dark_mode")) != old_dark:
+            if messagebox.askyesno(APP_NAME, "Het thema verandert na een herstart van het programma.\n\nNu herstarten?"):
+                app._restart_self()
 
 
 def hide_own_console():

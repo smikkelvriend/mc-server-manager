@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.15
+- **Donker thema:** aan te zetten bij Instellingen, Gedrag (het programma herstart daarna). Geldt voor alle tabbladen, lijsten, knoppen en de titelbalk.
+
 ## 2.14.1
 - **Kaart offline:** staat de server uit (of is squaremap niet bereikbaar), dan toont de kaart de door squaremap opgeslagen tegels uit `plugins/squaremap/web`. Zodra de server draait, schakelt hij vanzelf terug naar live (met spelers).
 
