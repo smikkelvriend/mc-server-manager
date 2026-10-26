@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.23"
+APP_VERSION = "2.24"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.24 - Soepel zoomen werkt nu ook op de diepste zoomniveaus (voorbij wat squaremap rendert), zonder sprong aan het eind.
 2.23 - Tab in de console geeft nu dezelfde aanvullingen als de echte console (via het kleine hulpplugin MCMTab, wordt automatisch geplaatst; herstart de server één keer). Kaart zoomt veel vlotter (een frame in één keer), meldt eerlijk wanneer squaremap niet bereikbaar is en probeert dan opnieuw. Resterende helpregels ("Aliases: …") verdwijnen uit de console.
 2.22 - Soepel zoomen met echte tussenbeelden (via Pillow, wordt eenmalig met een knop geïnstalleerd; zonder Pillow blijft het stapsgewijs). Help-regels van de server komen niet meer in de console terecht tijdens het leren van commando's.
 2.21 - Zoomen op de kaart gebruikt veel meer tussenstappen (ca. 16). Tab-aanvulling: leert via /help <plugin>, geeft bij plugin-commando's geen spelersnamen meer en vergeet commando's die de server afkeurt.
@@ -3488,7 +3489,7 @@ class MapTab(ttk.Frame):
         self.zl = nz
         nat = self._max_native(self.cur)
         # soepel alleen tussen de echte tegelniveaus (en alleen met Pillow); de extra vergrotingen daarbuiten springen gewoon
-        self.zfrac = 0.0 if (Image_ is None or max(ze, nz) > nat) else max(-1.0, min(1.0, ze - nz))
+        self.zfrac = 0.0 if Image_ is None else max(-1.0, min(1.0, ze - nz))
         self._za = (time.time(), self.zfrac)
         self._anchor = (mx, my, wx, wz)
         self._nat = None
@@ -3568,7 +3569,7 @@ class MapTab(ttk.Frame):
         extra = round(ex) if abs(ex - round(ex)) < 1e-6 else ex
         P = self._wp                                     # tegelgrootte op het scherm in pixels
         ox, oy = round(W / 2 - self.cx * s), round(H / 2 - self.cz * s)
-        done = bool(self.zfrac and Image_ is not None and self._comp(W, H, native, span))
+        done = bool((self.zfrac or extra > 0) and Image_ is not None and self._comp(W, H, native, span))
         t_end = time.time() + (0.03 if not self.zfrac else 0.15)
         for key in ([] if done else sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz))):
             if key in self.imgs:

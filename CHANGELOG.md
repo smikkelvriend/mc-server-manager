@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.24
+- Soepel zoomen werkt nu ook op de diepste zoomniveaus (waar squaremap geen scherpere tegels meer heeft), en het einde van de animatie springt niet meer. Met Pillow worden die niveaus vloeiend vergroot in plaats van blokkerig.
+- Deze versie vereist een herstart.
+
 ## 2.23
 - **Tab-aanvulling zoals in de echte console**: het programma plaatst bij het starten van de server (eenmalig) het kleine hulpplugin `MCMTab` in `plugins/`. Dat vraagt de server zelf om aanvullingen (ook subcommando's en argumenten van plugins). Na één herstart van de server werkt het; zonder plugin blijft de oude, geleerde aanvulling werken. De broncode staat in `hulpplugin/`.
 - Soepel zoomen is veel vlotter: elk beeld wordt in één keer opgebouwd en tegels worden alvast in een achtergrondthread uitgepakt.
