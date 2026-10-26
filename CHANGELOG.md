@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.10
+- **Tabblad Kaart (nieuw, nu met squaremap):** toont of je kaartwebsite online is, opent hem met één klik in je browser (adres instelbaar, met adres voor andere apparaten) en bedient het renderen: hele wereld, alleen rond de spawn met instelbare straal, pauzeren/hervatten, stoppen en instellingen herladen.
+
 ## 2.9
 - **Het tabblad Kaart is verwijderd.** De wereldkaart werkte niet betrouwbaar genoeg op jouw wereld. De versies 2.7 t/m 2.8.11 hieronder beschrijven de kaart; die code zit er niet meer in. De rest (plugins, temperatuur, snellere updatemeldingen, consolevenster verbergen) blijft.
 

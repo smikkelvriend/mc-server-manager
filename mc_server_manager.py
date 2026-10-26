@@ -44,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.9"
+APP_VERSION = "2.10"
 
 CHANGELOG = """
+2.10 - Nieuw tabblad Kaart: opent je squaremap-kaart en bedient het renderen (hele wereld, rond de spawn, pauzeren, stoppen).
 2.9 - Het tabblad Kaart is weer verwijderd (werkte niet goed genoeg). Al het andere blijft zoals het was.
 2.8.11 - Kaart leest regiobestanden uit alle wereldmappen die het vindt (oude en nieuwe indeling samen).
 2.8.10 - De herstartvraag na een update toont nu wat er nieuw is.
@@ -149,6 +150,7 @@ DEFAULTS = {
     "stop_timeout": 60, "poll_secs": 30, "auto_restart": False, "console_max_lines": 5000, "console_font": 10,
     "graph_minutes": 5, "graph_zoom": True, "stats_secs": 2,
     "show_player_activity": True,
+    "squaremap_url": "http://localhost:8080",
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
     "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
@@ -2515,6 +2517,171 @@ class PluginsTab(ttk.Frame):
         self.after(120, self._poll)
 
 
+class MapTab(ttk.Frame):
+    """Tabblad Kaart: opent de squaremap-kaart van je server en bedient het renderen."""
+    BG = "#f3f4f6"
+
+    def __init__(self, parent, app):
+        super().__init__(parent, padding=14)
+        self.app = app
+        self.url_var = tk.StringVar(value=app.cfg.get("squaremap_url", "http://localhost:8080"))
+        self.world_var = tk.StringVar()
+        self.radius_var = tk.StringVar(value="2000")
+        self.state_var = tk.StringVar(value="Controleren…")
+        self.visible, self._busy = False, False
+        self._build()
+
+    def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827", big=False):
+        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg,
+                         relief="flat", bd=0, padx=18 if big else 10, pady=9 if big else 4, cursor="hand2",
+                         font=("Segoe UI", 12 if big else 9, "bold"))
+
+    def _card(self, title):
+        box = tk.Frame(self, bg="white", highlightbackground="#e5e7eb", highlightthickness=1)
+        box.pack(fill="x", pady=(0, 12))
+        tk.Label(box, text=title, bg="white", fg="#111827", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=14, pady=(10, 4))
+        inner = tk.Frame(box, bg="white")
+        inner.pack(fill="x", padx=14, pady=(0, 12))
+        return inner
+
+    def _build(self):
+        c = self._card("🗺  Wereldkaart (squaremap)")
+        row = tk.Frame(c, bg="white")
+        row.pack(fill="x")
+        self.dot = tk.Label(row, text="●", bg="white", fg="#9ca3af", font=("Segoe UI", 14))
+        self.dot.pack(side="left")
+        tk.Label(row, textvariable=self.state_var, bg="white", fg="#374151", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(6, 0))
+        row2 = tk.Frame(c, bg="white")
+        row2.pack(fill="x", pady=(10, 0))
+        self._btn(row2, "🌍  Kaart openen in je browser", self.open_map, "#2563eb", "white", big=True).pack(side="left")
+        tk.Label(row2, text="Adres:", bg="white", fg="#6b7280", font=("Segoe UI", 9)).pack(side="left", padx=(16, 4))
+        e = ttk.Entry(row2, textvariable=self.url_var, width=30)
+        e.pack(side="left")
+        e.bind("<FocusOut>", lambda ev: self._save_url())
+        e.bind("<Return>", lambda ev: (self._save_url(), self.check()))
+        self.lan_lbl = tk.Label(c, text="", bg="white", fg="#6b7280", font=("Segoe UI", 9), anchor="w", justify="left")
+        self.lan_lbl.pack(fill="x", pady=(8, 0))
+
+        r = self._card("⚙  Kaart laten renderen")
+        tk.Label(r, text="Squaremap tekent de kaart zelf bij tijdens het spelen. Met deze knoppen laat je hem ook alvast de rest van de wereld tekenen. "
+                         "Dat kost processorkracht en bij een grote wereld duurt het lang. Je kunt het altijd stoppen.",
+                 bg="white", fg="#6b7280", font=("Segoe UI", 9), wraplength=900, justify="left", anchor="w").pack(fill="x")
+        row = tk.Frame(r, bg="white")
+        row.pack(fill="x", pady=(10, 0))
+        tk.Label(row, text="Wereld:", bg="white", font=("Segoe UI", 9)).pack(side="left")
+        self.world_cb = ttk.Combobox(row, textvariable=self.world_var, width=22)
+        self.world_cb.pack(side="left", padx=(6, 16))
+        tk.Label(row, text="Straal (blokken):", bg="white", font=("Segoe UI", 9)).pack(side="left")
+        ttk.Entry(row, textvariable=self.radius_var, width=7).pack(side="left", padx=(6, 0))
+        row = tk.Frame(r, bg="white")
+        row.pack(fill="x", pady=(10, 0))
+        for text, cmd, bg, fg in (("▶  Hele wereld renderen", lambda: self.cmd("fullrender {w}"), "#16a34a", "white"),
+                                  ("◎  Alleen rond de spawn", lambda: self.cmd("radiusrender {w} {r}"), "#e5e7eb", "#111827"),
+                                  ("⏸  Pauzeer / hervat", lambda: self.cmd("pauserender {w}"), "#e5e7eb", "#111827"),
+                                  ("■  Stoppen", lambda: self.cmd("cancelrender {w}"), "#dc2626", "white"),
+                                  ("↻  Instellingen herladen", lambda: self.cmd("reload"), "#e5e7eb", "#111827")):
+            self._btn(row, text, cmd, bg, fg).pack(side="left", padx=(0, 6))
+        self.msg = tk.Label(r, text="", bg="white", fg="#6b7280", font=("Segoe UI", 9), anchor="w", justify="left", wraplength=900)
+        self.msg.pack(fill="x", pady=(8, 0))
+        tk.Label(self, text="De uitkomst van elk commando zie je in de console op het tabblad Server.", bg=self.BG, fg="#9ca3af",
+                 font=("Segoe UI", 9)).pack(anchor="w")
+
+    # ---------- acties ----------
+    def _save_url(self):
+        u = self.url_var.get().strip() or "http://localhost:8080"
+        if not re.match(r"^https?://", u):
+            u = "http://" + u
+        self.url_var.set(u)
+        self.app.cfg["squaremap_url"] = u
+        save_config(self.app.cfg)
+
+    def open_map(self):
+        self._save_url()
+        webbrowser.open(self.url_var.get())
+
+    def _world_names(self):
+        try:
+            lvl = read_properties(self.app.folder_var.get().strip()).get("level-name", "world") or "world"
+        except Exception:
+            lvl = "world"
+        return [lvl, lvl + "_nether", lvl + "_the_end"]
+
+    def cmd(self, template):
+        app = self.app
+        if not app.srv_running() or app.srv_state != "online":
+            self.msg.config(text="De server draait niet. Start hem eerst, dan kan squaremap renderen.", fg="#b45309")
+            return
+        w = self.world_var.get().strip()
+        if "{w}" in template and not w:
+            self.msg.config(text="Kies eerst een wereld.", fg="#b45309")
+            return
+        try:
+            radius = int(self.radius_var.get())
+        except ValueError:
+            radius = 0
+        if "{r}" in template and radius <= 0:
+            self.msg.config(text="Vul een straal in als getal, bijvoorbeeld 2000.", fg="#b45309")
+            return
+        c = "map " + template.format(w=w, r=radius)
+        if app.srv_send(c):
+            self.msg.config(text=f"Verstuurd: {c}", fg="#16a34a")
+        else:
+            self.msg.config(text="Versturen mislukt.", fg="#dc2626")
+
+    # ---------- status ----------
+    def on_show(self):
+        self.visible = True
+        names = self._world_names()
+        self.world_cb.config(values=names)
+        if not self.world_var.get():
+            self.world_var.set(names[0])
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except OSError:
+            ip = ""
+        port = re.search(r":(\d+)", self.url_var.get())
+        if ip:
+            self.lan_lbl.config(text=f"Op een andere apparaat in je netwerk: http://{ip}:{port.group(1) if port else '8080'}")
+        self.check()
+
+    def on_hide(self):
+        self.visible = False
+
+    def check(self):
+        if self._busy:
+            return
+        self._busy = True
+        url = self.url_var.get().strip() or "http://localhost:8080"
+
+        def work():
+            try:
+                with urllib.request.urlopen(url, timeout=2) as r:
+                    ok = 200 <= r.status < 400
+            except Exception:
+                ok = False
+            self._result = ok
+
+        self._result = None
+        threading.Thread(target=work, daemon=True).start()
+        self.after(200, self._wait_result)
+
+    def _wait_result(self):
+        if self._result is None:
+            self.after(200, self._wait_result)
+        else:
+            self._set_state(self._result)
+
+    def _set_state(self, ok):
+        self._busy = False
+        self.dot.config(fg="#16a34a" if ok else "#dc2626")
+        self.state_var.set("Kaart is online" if ok else "Kaart niet bereikbaar (server uit of squaremap niet actief)")
+        if self.visible:
+            self.after(5000, self.check)
+
+
 class App(tk.Tk):
     COLS = (("plugin", "Plugin", 190), ("file", "Bestand", 220), ("current", "Huidige versie", 130),
             ("latest", "Nieuwste versie", 130), ("source", "Bron", 80), ("status", "Status", 290))
@@ -2627,8 +2794,10 @@ class App(tk.Tk):
         self.tab_srv = ttk.Frame(self.nb, padding=10)
         self.tab_net = ttk.Frame(self.nb, padding=10)
         self.tab_plug = PluginsTab(self.nb, self)
+        self.tab_map = MapTab(self.nb, self)
         self.nb.add(self.tab_srv, text="🖥  Server")
         self.nb.add(self.tab_plug, text="🧩  Plugins")
+        self.nb.add(self.tab_map, text="🗺  Kaart")
         self.nb.add(body, text="🔧  Updates")
         self.nb.add(self.tab_net, text="🌐  Bereikbaarheid")
         self._build_server_tab(self.tab_srv)
@@ -3483,6 +3652,10 @@ class App(tk.Tk):
             cur = self.nb.select()
             if cur == str(self.tab_plug):
                 self.tab_plug.on_show()
+            if cur == str(self.tab_map):
+                self.tab_map.on_show()
+            else:
+                self.tab_map.on_hide()
         except tk.TclError:
             pass
 
@@ -4770,7 +4943,7 @@ class SettingsDialog(tk.Toplevel):
         for k, default in DEFAULTS.items():
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
-                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat"):
+                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))
