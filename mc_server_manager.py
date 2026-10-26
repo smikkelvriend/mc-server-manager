@@ -52,12 +52,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.19"
+APP_VERSION = "2.20"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.20 - Kaart zoomt soepel (animatie tussen de niveaus) in het programma en op de telefoon, ook met twee vingers.
 2.19 - Nieuw tabblad Backups (Backuper beheren), spelerskoppen (Java en Bedrock) in lijsten, kaart en telefoon, en Tab-aanvulling kent nu ook plugin-commando's.
 2.18.1 - Plugins die up-to-date zijn tonen overal gewoon "Up-to-date".
 2.18 - Telefoon-app heeft nu alle functies: server, plugins (zoeken/installeren), updates, kaart met gebied genereren, beheer, bereikbaarheid en instellingen.
@@ -3004,6 +3005,7 @@ class MapTab(ttk.Frame):
         self.worlds, self.wset = [], {}
         self.cur = None                       # naam van de wereld die getoond wordt
         self.zl, self.cx, self.cz = 3, 0.0, 0.0   # zoomniveau, midden van het beeld (in blokken)
+        self.zfrac, self._anim_job, self._anchor, self._wp = 0.0, None, None, 512   # soepel zoomen: tussenstap tussen twee niveaus
         self.zimgs = {}                       # extra uitgezoomde (vergrote) versies voor het diepste zoomniveau
         self.imgs = {}                        # (wereld, z, x, y) -> PhotoImage of None (lege tegel)
         self.sig = {}                         # (wereld, z, x, y) -> hash van de bytes, om verversen goedkoop te houden
@@ -3339,6 +3341,7 @@ class MapTab(ttk.Frame):
         s = self.wset.get(name) or {}
         z = s.get("zoom", {})
         self.zl = int(z.get("def", min(2, int(z.get("max", 3)))))
+        self.zfrac = 0.0
         sp = s.get("spawn") or {}
         self.cx, self.cz = float(sp.get("x", 0)), float(sp.get("z", 0))
         self._clear_tiles()
@@ -3369,6 +3372,7 @@ class MapTab(ttk.Frame):
         while zl > 0 and span * 2 ** (zl - mx) > min(W, H):
             zl -= 1
         self.zl = zl
+        self.zfrac = 0.0
         self._dirty = True
 
     def _goto_selected(self):
@@ -3379,24 +3383,55 @@ class MapTab(ttk.Frame):
                 self._set_world(p["world"])
             self.cx, self.cz = float(p["x"]), float(p["z"])
             self.zl = max(self.zl, self._max_native(self.cur) - 1)
+            self.zfrac = 0.0
             self._dirty = True
 
     def _scale(self):
-        return 2.0 ** (self.zl - self._max_native(self.cur))  # pixels per blok
+        return self._geometry()[2]  # pixels per blok (afgerond op hele tegelpixels, ook tijdens het soepele zoomen)
+
+    # tijdens het zoomen: tegel van het volgende niveau verkleind met een kleine breuk (zoom p, subsample q) -> breedte in pixels
+    SHRINK = {-0.25: (5, 6, 430), -0.5: (7, 10, 364), -0.75: (3, 5, 309)}
 
     def _zoom(self, d, mx=None, my=None):
         nz = max(0, min(self._max_zoom(), self.zl + d))
         if nz == self.zl:
             return
-        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        W, H = max(self.cv.winfo_width(), 1), max(self.cv.winfo_height(), 1)
+        if mx is None:
+            mx, my = W / 2, H / 2
         old = self._scale()
-        if mx is not None:
-            wx, wz = self.cx + (mx - W / 2) / old, self.cz + (my - H / 2) / old
+        wx, wz = self.cx + (mx - W / 2) / old, self.cz + (my - H / 2) / old
+        ze = self.zl + self.zfrac
         self.zl = nz
-        if mx is not None:
-            new = self._scale()
-            self.cx, self.cz = wx - (mx - W / 2) / new, wz - (my - H / 2) / new
+        nat = self._max_native(self.cur)
+        # soepel alleen tussen de echte tegelniveaus; de extra vergrotingen daarbuiten springen gewoon
+        self.zfrac = 0.0 if max(ze, nz) > nat else max(-1.0, min(1.0, round((ze - nz) * 4) / 4))
+        self._anchor = (mx, my, wx, wz)
+        self._fix_center()
         self._draw()
+        if self.zfrac and self._anim_job is None:
+            self._anim_job = self.after(40, self._anim_tick)
+
+    def _fix_center(self):
+        if not self._anchor:
+            return
+        mx, my, wx, wz = self._anchor
+        W, H = max(self.cv.winfo_width(), 1), max(self.cv.winfo_height(), 1)
+        sc = self._scale()
+        self.cx, self.cz = wx - (mx - W / 2) / sc, wz - (my - H / 2) / sc
+
+    def _anim_tick(self):
+        self._anim_job = None
+        if not self.zfrac:
+            return
+        self.zfrac = min(0.0, self.zfrac + 0.25) if self.zfrac < 0 else max(0.0, self.zfrac - 0.25)
+        self._fix_center()
+        self._draw()
+        if self.zfrac:
+            self._anim_job = self.after(40, self._anim_tick)
+        else:
+            self._anchor = None
+            self._dirty = True
 
     def _wheel(self, ev):
         self._zoom(1 if (getattr(ev, "num", 0) == 4 or getattr(ev, "delta", 0) > 0) else -1, ev.x, ev.y)
@@ -3404,10 +3439,14 @@ class MapTab(ttk.Frame):
     # ---------- tekenen ----------
     def _geometry(self):
         mx = self._max_native(self.cur)
-        native = min(self.zl, mx)
-        extra = self.zl - native
+        ze = self.zl + self.zfrac
+        native = min(math.ceil(ze - 1e-9), mx)
+        ex = ze - native
         span = self.TILE * 2 ** (mx - native)     # blokken per tegel
-        return native, span, 2.0 ** (self.zl - mx)
+        wp = self.SHRINK[round(ex * 4) / 4][2] if (ex < 0 and abs(ex - round(ex)) > 1e-6 and round(ex * 4) / 4 in self.SHRINK) \
+            else round(self.TILE * 2 ** round(ex)) if abs(ex - round(ex)) <= 1e-6 else round(self.TILE * 2 ** ex)
+        self._wp = wp
+        return native, span, wp / span
 
     def _view_keys(self, margin=0.5):
         if not self.cur or self.cv.winfo_width() < 20:
@@ -3434,8 +3473,9 @@ class MapTab(ttk.Frame):
                                  "Geen kaart gevonden.\nStart de server met squaremap en laat hem eerst renderen;\ndaarna staat de kaart ook offline klaar."))
             return
         native, span, s = self._geometry()
-        extra = self.zl - native
-        P = self.TILE * 2 ** extra                       # tegelgrootte op het scherm in pixels
+        ex = self.zl + self.zfrac - native
+        extra = round(ex) if abs(ex - round(ex)) < 1e-6 else ex
+        P = self._wp                                     # tegelgrootte op het scherm in pixels
         ox, oy = round(W / 2 - self.cx * s), round(H / 2 - self.cz * s)
         t_end = time.time() + 0.03
         for key in sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz)):
@@ -3443,6 +3483,8 @@ class MapTab(ttk.Frame):
                 img = self.imgs[key]
                 if img is not None and extra > 0:
                     img = self._zoomed(key, extra, t_end)
+                elif img is not None and extra < 0:
+                    img = self._shrunk(key, extra, t_end)
                 if img is not None:
                     # vaste hele pixels per tegel: anders kunnen naast elkaar liggende tegels door afronden 1 pixel uit elkaar vallen
                     cv.create_image(ox + key[2] * P, oy + key[3] * P, anchor="nw", image=img, tags="t")
@@ -3456,6 +3498,23 @@ class MapTab(ttk.Frame):
             sx, sy = self._w2c(sp.get("x", 0), sp.get("z", 0))
             cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 15, "bold"), tags="t")
         self._draw_overlay()
+
+    def _shrunk(self, key, ex, t_end):
+        """Verkleinde tegel voor de tussenstappen tijdens het zoomen (snelle, ruwe verkleining; alleen onderweg zichtbaar)."""
+        zk = (key, round(ex * 4) / 4)
+        img = self.zimgs.get(zk)
+        if img is None:
+            if time.time() > t_end:
+                self._dirty = True
+                return None
+            p, q, _w = self.SHRINK.get(zk[1], (1, 1, 512))
+            img = self.imgs[key].subsample(q, q).zoom(p, p)
+            if len(self.zimgs) > 90:
+                keep = {(k, zk[1]) for k in self._view_keys(0.0)}
+                for old in [z for z in self.zimgs if z not in keep][:60]:
+                    del self.zimgs[old]
+            self.zimgs[zk] = img
+        return img
 
     def _zoomed(self, key, extra, t_end):
         """Vergrote tegel (2x, 4x) voor de diepste zoomniveaus; maximaal een paar tegelijk, in kleine happen."""
@@ -3545,7 +3604,9 @@ class MapTab(ttk.Frame):
             self._selstart = self._c2w(ev.x, ev.y)
             self._seltmp = None
         else:
+            self.zfrac, self._anchor = 0.0, None   # sleep stopt een lopende zoom-animatie
             self._drag = (ev.x, ev.y)
+            self._dirty = True
 
     def _c2w(self, x, y):
         s = self._scale()
@@ -4345,7 +4406,7 @@ async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een 
 V.map=async()=>{$('main').innerHTML=`<div class="card"><div class="row"><select id="mw" style="flex:2" onchange="mapWorld(this.value)"></select><button class="sm" id="msel" onclick="mapSel()">▭ Gebied kiezen</button></div>
 <div id="mapbox" style="margin-top:8px"><canvas id="mc"></canvas><div class="mapbtn" style="top:8px"><button onclick="mapZoom(1)">＋</button><button onclick="mapZoom(-1)">－</button><button onclick="mapHome()">⌂</button></div></div>
 <div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div></div><div class="card hide" id="mgen"></div>`;
- const m=cur.m={worlds:[],players:[],w:null,zl:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
+ const m=cur.m={worlds:[],players:[],w:null,zl:2,zt:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
  mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
 async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
  m.players=j.players||[];m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
@@ -4353,34 +4414,36 @@ async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=awa
   if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
  if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
  m.dirty=true;genUI()}
-function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.w=w;m.zl=Math.min(w.def,w.max+w.extra);m.cx=w.spawn.x||0;m.cz=w.spawn.z||0;m.imgs.clear();$('mw').value=n;m.dirty=true}
+function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.w=w;m.zl=m.zt=Math.min(w.def,w.max+w.extra);m.anc=null;m.cx=w.spawn.x||0;m.cz=w.spawn.z||0;m.imgs.clear();$('mw').value=n;m.dirty=true}
 function mapHome(){const m=cur.m;if(m.w){m.cx=m.w.spawn.x||0;m.cz=m.w.spawn.z||0;m.dirty=true}}
-function mapZoom(d,px,py){const m=cur.m;if(!m.w)return;const nz=Math.max(0,Math.min(m.w.max+m.w.extra,m.zl+d));if(nz==m.zl)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;
- if(px==null){px=W/2;py=H/2}const s=2**(m.zl-m.w.max),wx=m.cx+(px-W/2)/s,wz=m.cz+(py-H/2)/s;m.zl=nz;const s2=2**(m.zl-m.w.max);m.cx=wx-(px-W/2)/s2;m.cz=wz-(py-H/2)/s2;m.dirty=true}
+function mapZoom(d,px,py){const m=cur.m;if(!m.w)return;const top=m.w.max+m.w.extra,nt=Math.max(0,Math.min(top,Math.round(m.zt)+d));if(nt==m.zt)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;
+ if(px==null){px=W/2;py=H/2}const s=2**(m.zl-m.w.max);m.anc=[px,py,m.cx+(px-W/2)/s,m.cz+(py-H/2)/s];m.zt=nt;m.dirty=true}
+function mapAnim(m){if(!m.w||Math.abs(m.zl-m.zt)<0.002)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;m.zl+=(m.zt-m.zl)*0.28;if(Math.abs(m.zl-m.zt)<0.01)m.zl=m.zt;
+ if(m.anc){const s=2**(m.zl-m.w.max);m.cx=m.anc[2]-(m.anc[0]-W/2)/s;m.cz=m.anc[3]-(m.anc[1]-H/2)/s}m.dirty=true}
 function mapSel(){const m=cur.m;if(['running','paused','waiting','rendering'].includes(m.gen.state))return toast('Er loopt al een taak');m.selmode=!m.selmode;$('msel').classList.toggle('pri',m.selmode);
  $('mmsg').textContent=m.selmode?'Sleep over de kaart om een gebied te kiezen':''}
 function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=null;
  const wpt=(x,y)=>{const s=2**(m.zl-m.w.max);return [m.cx+(x-cv.clientWidth/2)/s,m.cz+(y-cv.clientHeight/2)/s]};
  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.offsetX,e.offsetY]);if(pts.size==1){last=[e.offsetX,e.offsetY];if(m.selmode&&m.w){start=wpt(e.offsetX,e.offsetY);m.tmp=[start[0],start[1],start[0],start[1]]}}else{start=null;m.tmp=null;last=null}});
  cv.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;const old=pts.get(e.pointerId);pts.set(e.pointerId,[e.offsetX,e.offsetY]);if(!m.w)return;
-  if(pts.size==2){const [a,b]=[...pts.values()];const d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(m.pd){m.pacc=(m.pacc||0)+Math.log2(d/m.pd);if(Math.abs(m.pacc)>0.6){mapZoom(m.pacc>0?1:-1,(a[0]+b[0])/2,(a[1]+b[1])/2);m.pacc=0}}m.pd=d;return}
+  if(pts.size==2){const [a,b]=[...pts.values()];const d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(m.pd){const top=m.w.max+m.w.extra,W=cv.clientWidth,H=cv.clientHeight,px=(a[0]+b[0])/2,py=(a[1]+b[1])/2,s0=2**(m.zl-m.w.max),wx=m.cx+(px-W/2)/s0,wz=m.cz+(py-H/2)/s0;m.zl=Math.max(0,Math.min(top,m.zl+Math.log2(d/m.pd)));m.zt=m.zl;const s1=2**(m.zl-m.w.max);m.cx=wx-(px-W/2)/s1;m.cz=wz-(py-H/2)/s1;m.dirty=true}m.pd=d;return}
   if(m.selmode&&start){const p=wpt(e.offsetX,e.offsetY);m.tmp=[start[0],start[1],p[0],p[1]];m.dirty=true;return}
-  const s=2**(m.zl-m.w.max);m.cx-=(e.offsetX-old[0])/s;m.cz-=(e.offsetY-old[1])/s;m.dirty=true});
+  const s=2**(m.zl-m.w.max);m.anc=null;m.cx-=(e.offsetX-old[0])/s;m.cz-=(e.offsetY-old[1])/s;m.dirty=true});
  const up=e=>{pts.delete(e.pointerId);m.pd=0;if(m.selmode&&start&&m.tmp){const t=m.tmp;m.tmp=null;start=null;m.selmode=false;$('msel').classList.remove('pri');
    const a=[Math.round(Math.min(t[0],t[2])),Math.round(Math.min(t[1],t[3])),Math.round(Math.max(t[0],t[2])),Math.round(Math.max(t[1],t[3]))];
    if(a[2]-a[0]<32||a[3]-a[1]<32){toast('Gebied te klein');m.dirty=true;return}
    go('/map/area',{world:m.w.name,area:a}).then(()=>mapLoad(false))}};
  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
  cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
-function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
+function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv)mapAnim(m);if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
 function tileImg(m,key){let t=m.imgs.get(key);if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.onerror=()=>{t.bad=true};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
   if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
 function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}
- const w=m.w,nat=Math.min(m.zl,w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
- const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=false;
+ const w=m.w,nat=Math.min(Math.ceil(m.zl-1e-6),w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
+ const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=P<511;
  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
-  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.round(W/2+(tx*span-m.cx)*s),Math.round(H/2+(ty*span-m.cz)*s),Math.ceil(P),Math.ceil(P))}
+  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.floor(W/2+(tx*span-m.cx)*s),Math.floor(H/2+(ty*span-m.cz)*s),Math.ceil(P)+1,Math.ceil(P)+1)}
  const c=(a,b)=>[W/2+(a-m.cx)*s,H/2+(b-m.cz)*s];
  const g=m.gen||{};const area=m.tmp?[Math.min(m.tmp[0],m.tmp[2]),Math.min(m.tmp[1],m.tmp[3]),Math.max(m.tmp[0],m.tmp[2]),Math.max(m.tmp[1],m.tmp[3])]:(g.area&&g.world==w.name?g.area:null);
  if(area){const [ax,ay]=c(area[0],area[1]),[bx,by]=c(area[2],area[3]);const col={running:'#22c55e',paused:'#f59e0b',rendering:'#38bdf8',done:'#22c55e'}[g.state]||'#c084fc';

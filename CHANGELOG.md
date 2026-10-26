@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.20
+- Kaart zoomt soepel: tussen twee zoomniveaus loopt een korte animatie, rond de plek waar je zoomt. Op de telefoon ook staploos met twee vingers.
+- Deze versie vereist een herstart.
+
 ## 2.19
 - Tabblad Backups: Backuper-plugin beheren (instellingen uit config.yml met behoud van commentaar, backups bekijken en verwijderen, bestanden van de plugin, nu een backup maken) plus de backups en instellingen van dit programma zelf. Ook op de telefoon (Beheer).
 - Spelerskoppen bij alle spelerslijsten, op de kaart en op de telefoon. Java via mc-heads.net, Bedrock via de Geyser-skin-API. Zonder skin een eigen hoofdje. Opslag in de map heads.
