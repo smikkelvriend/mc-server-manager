@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.26
+- Fout hersteld: in Instellingen was alleen het tabblad Backups zichtbaar. Twee functies met dezelfde naam (`dir_size`) kwamen in elkaar vast te zitten, waardoor de rest van het venster niet werd opgebouwd.
+- Uptime en online-tijd in de spelerslijst hebben weer hun oude notatie (uu:mm:ss); de nieuwe kortere notatie (1u 5m) is alleen voor de Spelers- en Backups-overzichten.
+- Instellingen slaan geen interne lijsten (geleerde commando's, commandogeschiedenis) meer als tekst over.
+- Deze versie vereist een herstart.
+
 ## 2.25
 - De grafieken (CPU, geheugen, TPS, temperatuur) worden bewaard (laatste 6 uur) en lopen door na een herstart van de server of van het programma. Wanneer de server uit was, laat de lijn een gat zien in plaats van door te trekken.
 - Deze versie vereist een herstart.

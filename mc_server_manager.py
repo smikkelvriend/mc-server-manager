@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.25"
+APP_VERSION = "2.26"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.26 - Fout hersteld: het Instellingen-venster toonde alleen het tabblad Backups (een dubbele functienaam brak het opbouwen), en de uptime/online-tijd had een ander formaat gekregen.
 2.25 - De grafieken (CPU, geheugen, TPS, temperatuur) blijven bewaard bij een herstart van de server of het programma en lopen gewoon door; een onderbreking wordt als gat getoond.
 2.24 - Soepel zoomen werkt nu ook op de diepste zoomniveaus (voorbij wat squaremap rendert), zonder sprong aan het eind.
 2.23 - Tab in de console geeft nu dezelfde aanvullingen als de echte console (via het kleine hulpplugin MCMTab, wordt automatisch geplaatst; herstart de server één keer). Kaart zoomt veel vlotter (een frame in één keer), meldt eerlijk wanneer squaremap niet bereikbaar is en probeert dan opnieuw. Resterende helpregels ("Aliases: …") verdwijnen uit de console.
@@ -5448,7 +5449,7 @@ class RemoteServer:
                 for fn in os.listdir(d):
                     n += 1
                     pth = os.path.join(d, fn)
-                    sz += dir_size(pth)[0] if os.path.isdir(pth) else (os.path.getsize(pth) if os.path.exists(pth) else 0)
+                    sz += dir_size_n(pth)[0] if os.path.isdir(pth) else (os.path.getsize(pth) if os.path.exists(pth) else 0)
             own.append({"label": label, "count": n, "size": sz})
         cfg = self.call_main(lambda: {k: self.app.cfg.get(k, DEFAULTS.get(k)) for k in
                                       ("keep_server_backups", "server_backups_max", "keep_plugin_backups", "plugin_backups_max")})
@@ -5615,16 +5616,16 @@ def measure_world(folder):
     out = []
     try:
         for root in world_roots(folder):
-            s, n = dir_size(root)
+            s, n = dir_size_n(root)
             out.append((os.path.basename(root), s, n))
         sqd = os.path.join(folder, "plugins", "squaremap")
         for label, sub in (("Squaremap-kaart", os.path.join("plugins", "squaremap")), ("Logs", "logs"),
                            ("Crash-reports", "crash-reports"), ("Plugins", "plugins")):
             p = os.path.join(folder, sub)
             if os.path.isdir(p):
-                s, n = dir_size(p)
+                s, n = dir_size_n(p)
                 if label == "Plugins" and os.path.isdir(sqd):
-                    s -= dir_size(sqd)[0]
+                    s -= dir_size_n(sqd)[0]
                 out.append((label, s, n))
         try:
             du = shutil.disk_usage(folder)
@@ -5667,7 +5668,7 @@ def toast(title, text):
     threading.Thread(target=work, daemon=True).start()
 
 
-def fmt_dur(sec):
+def fmt_dur_short(sec):
     sec = int(sec or 0)
     d, r = divmod(sec, 86400)
     h, r = divmod(r, 3600)
@@ -5683,7 +5684,7 @@ def fmt_bytes(n):
         n /= 1024
 
 
-def dir_size(path):
+def dir_size_n(path):
     tot = n = 0
     for root, _d, files in os.walk(path):
         for f in files:
@@ -5935,10 +5936,10 @@ class BeheerTab(ttk.Frame):
         for r in rows:
             last = "nu online" if r["online"] else (datetime.fromtimestamp(r["last"]).strftime("%d-%m-%Y %H:%M") if r["last"] else "-")
             self.pl_tree.insert("", "end", iid=str(r["name"]), tags=("on",) if r["online"] else (), values=(
-                r["name"], "●" if r["online"] else "", fmt_dur(r["time"]) if r["time"] else "-", r["sessions"] or "-", last,
+                r["name"], "●" if r["online"] else "", fmt_dur_short(r["time"]) if r["time"] else "-", r["sessions"] or "-", last,
                 int(r["deaths"]) or "-", int(r["kills"]) or "-", f"{r['dist'] / 1000:.1f} km" if r["dist"] else "-"))
         tot = sum(r["time"] for r in rows)
-        self.pl_info.config(text=f"{len(rows)} spelers  •  samen {fmt_dur(tot)} gespeeld" if rows else
+        self.pl_info.config(text=f"{len(rows)} spelers  •  samen {fmt_dur_short(tot)} gespeeld" if rows else
                             "Nog geen spelers gevonden. Kies je servermap (Instellingen) of wacht tot er iemand is binnengekomen.")
 
     # ---------- meldingen ----------
@@ -6513,7 +6514,7 @@ def list_backups(path):
         p = os.path.join(path, fn)
         try:
             if os.path.isdir(p):
-                size, _n = dir_size(p)
+                size, _n = dir_size_n(p)
                 out.append({"name": fn, "size": size, "mtime": os.path.getmtime(p), "dir": True})
             else:
                 out.append({"name": fn, "size": os.path.getsize(p), "mtime": os.path.getmtime(p), "dir": False})
@@ -6693,7 +6694,7 @@ class BackupTab(ttk.Frame):
                     p = os.path.join(pd, fn)
                     try:
                         if os.path.isdir(p):
-                            sz = dir_size(p)[0]
+                            sz = dir_size_n(p)[0]
                             files.append((fn, "map", os.path.getmtime(p), sz, os.path.normcase(p) in skip))
                         else:
                             files.append((fn, "bestand", os.path.getmtime(p), os.path.getsize(p), False))
@@ -6706,7 +6707,7 @@ class BackupTab(ttk.Frame):
                     for fn in os.listdir(d):
                         n += 1
                         p = os.path.join(d, fn)
-                        sz += dir_size(p)[0] if os.path.isdir(p) else (os.path.getsize(p) if os.path.exists(p) else 0)
+                        sz += dir_size_n(p)[0] if os.path.isdir(p) else (os.path.getsize(p) if os.path.exists(p) else 0)
                 own.append((label, n, sz, d))
             try:
                 du = shutil.disk_usage(folder)
@@ -6745,7 +6746,7 @@ class BackupTab(ttk.Frame):
             lim.append(f"max {loc['maxBackupsNumber']} backups")
         if loc.get("maxBackupsWeight"):
             lim.append(f"max {fmt_bytes(loc['maxBackupsWeight'] * 1024 * 1024)}")
-        last = f"laatste backup {fmt_dur(time.time() - bks[0]['mtime'])} geleden" if bks else "nog geen backups gevonden"
+        last = f"laatste backup {fmt_dur_short(time.time() - bks[0]['mtime'])} geleden" if bks else "nog geen backups gevonden"
         per = (st.get("global") or {}).get("autoBackupPeriod")
         warn = ""
         if bks and per and (st.get("global") or {}).get("autoBackup") and time.time() - bks[0]["mtime"] > per * 60 * 2.5:
@@ -9556,7 +9557,8 @@ class SettingsDialog(tk.Toplevel):
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
                      "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
-                     "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only"):
+                     "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only",
+                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))
@@ -9644,7 +9646,10 @@ class SettingsDialog(tk.Toplevel):
         self.v["keep_server_backups"].trace_add("write", refresh)
         self.v["keep_plugin_backups"].trace_add("write", refresh)
         refresh()
-        self._update_info()
+        try:
+            self._update_info()
+        except Exception:
+            self.info_lbl.config(text="")
 
     def _tab_updates(self, nb):
         f = self._frame(nb, "Updates")
