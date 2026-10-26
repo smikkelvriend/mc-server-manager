@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.11.3
+- **Kaart:** te ver inzoomen gaf een zwart beeld, omdat er voorbij het diepste zoomniveau geen tegels bestaan. Nu worden de tegels van het diepste niveau vergroot.
+- **Renderen:** squaremap verwacht in commando's `minecraft:overworld` (met dubbele punt), terwijl de website `minecraft_overworld` gebruikt. Het menu Renderen zet dat nu goed om (dat gaf 'No such world').
+
 ## 2.11.2
 - Programma-update betrouwbaarder: de laatste versie wordt gevonden via de GitHub-API met ETag (een '304' telt niet mee voor de limiet) en, als de API-limiet toch bereikt is, via het git-protocol. Controle bij terugkeren naar het venster hooguit elke 5 minuten.
 

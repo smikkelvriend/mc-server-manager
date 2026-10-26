@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.11.2"
+APP_VERSION = "2.11.3"
 
 CHANGELOG = """
+2.11.3 - Kaart: inzoomen voorbij het diepste niveau geeft geen zwart beeld meer, en renderen gebruikt de juiste wereldnaam (minecraft:overworld).
 2.11.2 - Programma-update betrouwbaarder: vindt nieuwe versies ook als de GitHub-API-limiet bereikt is.
 2.11.1 - Bedrock-controle leest de poort van Geyser zelf (config.yml en opstartregel) in plaats van 19132 te veronderstellen.
 2.11 - Kaart zit nu in het programma zelf (geen browser nodig): tegels van squaremap, spelers live, slepen en zoomen, renderen via een menu.
@@ -2606,6 +2607,7 @@ class MapTab(ttk.Frame):
         self.worlds, self.wset = [], {}
         self.cur = None                       # naam van de wereld die getoond wordt
         self.zl, self.cx, self.cz = 3, 0.0, 0.0   # zoomniveau, midden van het beeld (in blokken)
+        self.zimgs = {}                       # extra uitgezoomde (vergrote) versies voor het diepste zoomniveau
         self.imgs = {}                        # (wereld, z, x, y) -> PhotoImage of None (lege tegel)
         self.sig = {}                         # (wereld, z, x, y) -> hash van de bytes, om verversen goedkoop te houden
         self.pending = set()
@@ -2824,11 +2826,9 @@ class MapTab(ttk.Frame):
             self.imgs[key] = None
         else:
             try:
-                img = tk.PhotoImage(data=base64.b64encode(data).decode("ascii"))
-                extra = key[1] - self._max_native(key[0])
-                if extra > 0:
-                    img = img.zoom(2 ** extra, 2 ** extra)
-                self.imgs[key] = img
+                self.imgs[key] = tk.PhotoImage(data=base64.b64encode(data).decode("ascii"))
+                for zk in [k for k in self.zimgs if k[0] == key]:
+                    del self.zimgs[zk]
             except tk.TclError:
                 self.imgs[key] = None
         if len(self.imgs) > self.CACHE_MAX:
@@ -2836,6 +2836,8 @@ class MapTab(ttk.Frame):
             for k in [k for k in self.imgs if k not in keep][:len(self.imgs) - self.CACHE_MAX + 40]:
                 self.imgs.pop(k, None)
                 self.sig.pop(k, None)
+                for zk in [z for z in self.zimgs if z[0] == k]:
+                    del self.zimgs[zk]
         self._dirty = True
         del old
 
@@ -2876,6 +2878,7 @@ class MapTab(ttk.Frame):
 
     def _clear_tiles(self):
         self.imgs.clear()
+        self.zimgs.clear()
         self.sig.clear()
         self.pending.clear()
         self._dirty = True
@@ -2968,7 +2971,7 @@ class MapTab(ttk.Frame):
         out = []
         for ty in range(math.floor(z0 / span), math.floor(z1 / span) + 1):
             for tx in range(math.floor(x0 / span), math.floor(x1 / span) + 1):
-                out.append((self.cur, self.zl, tx, ty))
+                out.append((self.cur, native, tx, ty))  # voorbij het diepste niveau bestaan geen tegels: vergroot de tegels van het diepste
         return out
 
     def _draw(self):
@@ -2983,15 +2986,19 @@ class MapTab(ttk.Frame):
                                  "Kaart niet bereikbaar.\nStart de server en controleer of squaremap actief is\n(adres rechts in het paneel)."))
             return
         native, span, s = self._geometry()
+        extra = self.zl - native
+        t_end = time.time() + 0.03
         for key in sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz)):
             if key in self.imgs:
                 img = self.imgs[key]
+                if img is not None and extra > 0:
+                    img = self._zoomed(key, extra, t_end)
                 if img is not None:
                     cv.create_image(W / 2 + (key[2] * span - self.cx) * s, H / 2 + (key[3] * span - self.cz) * s,
                                     anchor="nw", image=img, tags="t")
             else:
                 self.fetch_tile(key)
-        for key in self._view_keys(0.5):  # alvast net buiten beeld ophalen, zodat slepen soepel blijft
+        for key in self._view_keys(0.5 if extra == 0 else 0.0):  # alvast net buiten beeld ophalen, zodat slepen soepel blijft
             if key not in self.imgs:
                 self.fetch_tile(key)
         sp = (self.wset.get(self.cur) or {}).get("spawn")
@@ -2999,6 +3006,23 @@ class MapTab(ttk.Frame):
             sx, sy = self._w2c(sp.get("x", 0), sp.get("z", 0))
             cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 15, "bold"), tags="t")
         self._draw_overlay()
+
+    def _zoomed(self, key, extra, t_end):
+        """Vergrote tegel (2x, 4x) voor de diepste zoomniveaus; maximaal een paar tegelijk, in kleine happen."""
+        zk = (key, extra)
+        img = self.zimgs.get(zk)
+        if img is None:
+            if time.time() > t_end:
+                self._dirty = True  # de rest volgt in de volgende ronde
+                return None
+            f = 2 ** extra
+            img = self.imgs[key].zoom(f, f)
+            if len(self.zimgs) > 14:
+                keep = {(k, extra) for k in self._view_keys(0.0)}
+                for old in [z for z in self.zimgs if z not in keep][:10]:
+                    del self.zimgs[old]
+            self.zimgs[zk] = img
+        return img
 
     def _draw_overlay_only(self):
         if self.cur and self.cv.winfo_width() > 20:
@@ -3079,6 +3103,7 @@ class MapTab(ttk.Frame):
         if "{w}" in template and not w:
             self.status_var.set("Kaart nog niet geladen")
             return
+        w = w.replace("_", ":", 1)  # op de website heet de wereld minecraft_overworld, in de commando's minecraft:overworld
         c = "map " + template.format(w=w)
         if app.srv_send(c):
             self.status_var.set(f"Verstuurd: {c}")
