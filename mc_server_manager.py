@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.4"
+APP_VERSION = "2.12.5"
 
 CHANGELOG = """
+2.12.5 - Bedrock-check begrijpt Geyser NetherNet: test TCP-poort in plaats van RakNet-ping.
 2.12.4 - Bedrock: als Java de UDP-poort open heeft maar niet op de ping antwoordt, oranje waarschuwing in plaats van rood kruis.
 2.12.3 - Bedrock-check: ping met herhaling en ook IPv6, en meldt dat Geyser luistert als Java de UDP-poort open heeft.
 2.12.2 - Bedrock-check probeert ook je netwerk-adres (Geyser kan aan dat adres gebonden zijn).
@@ -867,6 +868,29 @@ def detect_geyser_port(folder, java_port=25565):
     except OSError:
         pass
     return None
+
+
+def geyser_transport(folder):
+    """'nethernet', 'raknet' of 'both' uit Geyser's config (nieuwe Bedrock-verbinding), of None."""
+    try:
+        pdir = os.path.join(folder, "plugins")
+        for d in sorted(os.listdir(pdir)):
+            cfg = os.path.join(pdir, d, "config.yml")
+            if d.lower().startswith("geyser") and os.path.isfile(cfg):
+                text = open(cfg, encoding="utf-8", errors="replace").read()
+                m = re.search(r"^\s+transport:\s*[\"']?(\w+)", text, re.M)
+                return m.group(1).lower() if m else None
+    except OSError:
+        pass
+    return None
+
+
+def tcp_open(host, port, timeout=2.5):
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def lan_ips():
@@ -4667,6 +4691,7 @@ class App(tk.Tk):
         self._net_busy = True
         self._net_set_busy(True)
         self.net_status.config(text="Bezig met controleren…", fg="#6b7280")
+        self._nn_mode = geyser_transport(self.folder_var.get().strip()) if self.reach_bed_var.get() else None
         threading.Thread(target=self._net_worker, daemon=True,
                          args=(host, jport, local_only, bool(self.reach_bed_var.get()), bport, lport,
                                self.srv_state == "online", silent)).start()
@@ -4680,6 +4705,9 @@ class App(tk.Tk):
                     res["ext"] = ext_status(host, jport)
                 except Exception as e:
                     res["ext_err"] = describe_net_error(e)
+                if bed and getattr(self, "_nn_mode", None) == "nethernet":
+                    res["nn"] = {"loc": tcp_open("127.0.0.1", bport), "own": tcp_open(host, bport, 4)}
+                    bed = False
                 if bed:
                     try:
                         raknet_ping("127.0.0.1", bport, timeout=1.5)
@@ -4782,7 +4810,16 @@ class App(tk.Tk):
         if res.get("bed_found") and self.reach_bport_var.get() != res["bed_found"]:
             self.reach_bport_var.set(res["bed_found"])
         bl, bo = res.get("bed_loc"), res.get("bed_own")
-        if bed and not bed["online"]:
+        nn = res.get("nn")
+        if nn:
+            L = [f"Bedrock (Geyser): staat op NetherNet (poort {res['bport']}). De ping-test en externe diensten werken hier niet "
+                 "meer: die gebruiken het oude RakNet."]
+            L.append("Naam en motd in de serverlijst lopen via TCP naar Geyser. Zet de poort dus voor TCP én UDP open.")
+            L.append(f"TCP {res['bport']} lokaal: " + ("✔ open." if nn["loc"] else "✖ gesloten: luistert Geyser wel op TCP?"))
+            L.append(f"TCP {res['bport']} via {res['host']}: " + ("✔ bereikbaar." if nn["own"] else
+                     "✖ niet bereikbaar. Router: stuur TCP 19132 ook door (niet alleen UDP) en sta het toe in de Windows Firewall."))
+            self.net_bed.config(fg="#059669" if (nn["loc"] and nn["own"]) else "#d97706", text="\n".join(L), justify="left")
+        elif bed and not bed["online"]:
             tried = ", ".join(f"{n} ({'online' if o else 'offline' if o is not None else 'fout'})" for n, o in bed.get("tried", []))
             lines = [f"Bedrock (Geyser): ✖ de controlediensten zien hem niet op UDP-poort {res['bport']}."]
             listening = res["bport"] in (res.get("udp_ports") or [])
