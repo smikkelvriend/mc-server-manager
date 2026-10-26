@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.4.1
+- Zoeken: woorden die Modrinth niet kent (zoals "waardoor", "omhakken", "1x") blokkeerden alle resultaten. Die laat het programma nu
+  weg zodra de rest vertaald kan worden, en korte Engelse zoekopdrachten worden altijd erbij gedaan.
+- Nieuw onderwerp "bomen omhakken" (tree feller / timber); "farmen / oogsten" is apart gezet.
+
 ## 2.4
 - **Nieuw tabblad Plugins.**
   - *Geïnstalleerd:* alle plugins in één lijst, aan en uit te zetten (een uitgezette plugin krijgt de extensie `.jar.disabled`,

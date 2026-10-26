@@ -44,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.4"
+APP_VERSION = "2.4.1"
 
 CHANGELOG = """
+2.4.1 - Slimmer zoeken: Nederlandse restwoorden blokkeren Modrinth niet meer, en bomen omhakken wordt herkend.
 2.4 - Nieuw tabblad Plugins: beheren (aan/uit/verwijderen), slim zoeken op naam of beschrijving en installeren, met optioneel /plm load. Tab-aanvulling in de console.
 2.3.1 - Programma-update haalt het bestand nu op via de exacte laatste commit, zodat een verouderde cache niets meer uitmaakt.
 2.3 - Bedrock-controle laat nu zien wat er misgaat: eigen UDP-ping lokaal en via je domein, plus wat elke dienst zegt.
@@ -1142,10 +1143,12 @@ STOPWORDS = set("""de het een en of dat die dit deze als dan ervoor zorgt zorg z
 mijn mij je jij jouw we wij zoek zoeken zoekt graag iets wat welke er zodat zodra is zijn ben heb hebben geef geven om te naar bij
 ook nog wel niet geen voor met van in op aan uit door dan toe the a an that which makes make so when if i want looking for find me
 one who how to is are of and or on in it be do does my our need needs plugin plugins something called named hebt heeft wordt worden
-wordt werd moet moeten laat laten zodat dus maar want toch al alle alles elke iedereen iemand""".split())
+wordt werd moet moeten laat laten zodat dus maar want toch al alle alles elke iedereen iemand waardoor waarmee waarbij daarmee
+daardoor daarbij waarvoor waar hoe zonder meteen gewoon even x""".split())
 
 # Nederlandse stam -> Engelse zoekterm (voor beschrijvingen die in geen enkel 'concept' passen)
 NL_EN = {
+    "omhak": "chop", "hak": "chop", "kap": "chop", "vell": "fell", "rooi": "chop", "omzaag": "chop", "zaag": "saw",
     "slaap": "sleep", "slap": "sleep", "nacht": "night", "dag": "day", "overslaan": "skip", "geslagen": "skip",
     "speler": "player", "thuis": "home", "huis": "home", "teleport": "teleport", "beschermen": "protect",
     "bescherming": "protection", "kist": "chest", "deur": "door", "geld": "money", "munt": "coins", "winkel": "shop",
@@ -1241,8 +1244,10 @@ CONCEPTS = [
      ["afk", "afk kick", "afk detection"], ["afk", "idle", "inactive"]),
     ("willekeurig teleporteren", r"random teleport|\brtp\b|willekeurig|\bwild\b",
      ["random teleport", "rtp", "wild"], ["random", "teleport", "rtp", "wild"]),
-    ("farmen / bomen kappen", r"\bfarm|gewas|crops|oogst|harvest|replant|boomstam|tree ?feller|timber|vein ?miner|automatisch hakken|bomen kappen",
-     ["farming", "replant", "harvest", "tree feller", "vein miner", "timber"], ["farm", "replant", "harvest", "tree", "timber", "vein"]),
+    ("bomen omhakken", r"bom(en)?\b.*(hak|kap|vell|rooi|zaag)|(hak|kap|vell|rooi)\w*.*\bbom|tree ?(feller|capitator|chop)|timber|lumber|houthakker|boomstam|chop (down )?trees?",
+     ["tree feller", "timber", "treecapitator", "lumberjack", "chop trees"], ["tree", "timber", "feller", "chop", "lumber", "log", "wood"]),
+    ("farmen / oogsten", r"\bfarm|gewas|crops|oogst|harvest|replant|vein ?miner|ertsader",
+     ["farming", "replant", "harvest", "vein miner"], ["farm", "replant", "harvest", "crop", "vein"]),
     ("kisten sorteren / opslag", r"sorteer|\bsort|kist.*sort|chest ?sort|opslag|storage",
      ["chest sort", "inventory sort", "storage"], ["sort", "chest", "inventory", "storage"]),
     ("kisten / deuren vergrendelen", r"vergrendel|\block|slot\b|deur.*beveilig|kist.*beveilig|chest ?lock",
@@ -1304,28 +1309,37 @@ def interpret_query(text):
     raw = (text or "").strip()
     low = norm_text(raw)
     toks = tokenize(raw)
-    content = [t for t in toks if t not in STOPWORDS and not t.isdigit()]
+    content = [t for t in toks if t not in STOPWORDS and not t.isdigit() and not re.fullmatch(r"x?\d+x?", t)]
     concepts = [c for c in CONCEPTS if re.search(c[1], low)]
     name_like = 0 < len(content) <= 3 and len(toks) <= 4 and (len(content) == 1 or not concepts) and not any(
         w in toks for w in ("als", "dat", "die", "zodat", "wanneer", "that", "which", "when", "if", "ervoor", "zorgt"))
     queries, kw = [], []
     if raw:
-        queries.append((raw, 1.0))
+        queries.append((raw, 1.0 if name_like else 0.4))
     if name_like and len(content) > 1:
         queries.append(("".join(content), 0.9))  # 'world edit' -> 'worldedit'
     for label, _rx, qs, keys in concepts[:3]:
         for i, q in enumerate(qs[:5]):
             queries.append((q, 0.9 - 0.08 * i))
         kw += keys
-    translated = []
+    known, unknown = [], []
     for t in content:
         e = _translate_token(t)
-        translated.append(e or t)
-    translated = [w for w in dict.fromkeys(translated) if w not in STOPWORDS]
-    if translated and (not concepts or not name_like):
-        queries.append((" ".join(translated[:5]), 0.7))
-        if len(translated) > 2:
-            queries.append((" ".join(translated[:2]), 0.5))
+        (known if e else unknown).append(e or t)
+    known = [w for w in dict.fromkeys(known) if w not in STOPWORDS]
+    unknown = [w for w in dict.fromkeys(unknown) if w not in STOPWORDS]
+    # Modrinth eist dat alle woorden voorkomen: Nederlandse restwoorden laten we daarom weg als we de rest wel vertalen
+    translated = known if known else unknown
+    if translated and (not name_like or (len(content) >= 2 and not concepts)):
+        if not concepts:
+            queries.append((" ".join(translated[:4]), 0.8))
+            if len(translated) > 2:
+                queries.append((" ".join(translated[:2]), 0.6))
+            for w in translated[:3]:
+                if len(w) > 3:
+                    queries.append((w, 0.4))
+        elif len(known) >= 2:
+            queries.append((" ".join(known[:3]), 0.5))
     if not concepts:
         kw += translated
     seen, out = set(), []
