@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.6"
+APP_VERSION = "2.8.7"
 
 CHANGELOG = """
+2.8.7 - Kaart-diagnose: toont de reden waarom een chunk niet getekend kan worden en de gebruikte wereldmap.
 2.8.6 - Kaart laadt veel sneller bij het opstarten (bewaarde kaart als PNG).
 2.8.5 - Kaart: in- en uitzoomen zonder haperen (zoomniveaus worden alvast voorbereid).
 2.8.4 - Zwart consolevenster wordt verborgen; kaart toont bij het aanwijzen van een regio waarom stukken ontbreken.
@@ -2690,9 +2691,13 @@ def sample_chunk(root, dim):
     if "full" not in status:
         return None
     S = {}
-    for s in lvl.get("sections") or lvl.get("Sections") or []:
+    secs = lvl.get("sections") or lvl.get("Sections") or []
+    sample_chunk.why = ""
+    for s in secs:
         bs = s.get("block_states")
         if not isinstance(bs, dict):
+            if not sample_chunk.why:
+                sample_chunk.why = "oud formaat" if ("Palette" in s or "BlockStates" in s) else "sectie zonder block_states (" + ",".join(list(s)[:6]) + ")"
             continue
         pal = [p.get("Name", "minecraft:air") for p in bs.get("palette", []) if isinstance(p, dict)]
         if not pal:
@@ -2700,6 +2705,8 @@ def sample_chunk(root, dim):
         data = bs.get("data")
         S[s.get("Y", 0)] = (pal, 0, None) if (len(pal) == 1 or not data) else (pal, max(4, (len(pal) - 1).bit_length()), data)
     if not S:
+        if not secs:
+            sample_chunk.why = "geen secties (sleutels: " + ",".join(list(lvl)[:8]) + ")"
         return None
     hm = lvl.get("Heightmaps") if isinstance(lvl.get("Heightmaps"), dict) else {}
     ws, of = hm.get("WORLD_SURFACE") or hm.get("MOTION_BLOCKING"), hm.get("OCEAN_FLOOR")
@@ -2746,6 +2753,8 @@ def render_region(path, dim):
         if res is None:
             lv = root.get("Level") if isinstance(root.get("Level"), dict) else root
             st = str(lv.get("Status", "?")).replace("minecraft:", "")
+            if st == "full":
+                st += ": " + (getattr(sample_chunk, "why", "") or "onbekend")
             skip[st] = skip.get(st, 0) + 1
             continue
         ok += 1
@@ -2867,6 +2876,8 @@ def map_cache_load(folder, dim, rx, rz, mt):
         hd = json.loads(head.decode("ascii"))
         if float(hd["mt"]) != mt or not png.startswith(b"\x89PNG"):
             return None
+        if "full" in (hd.get("skip") or {}):
+            return None  # oude bewaarde regio zonder uitleg waarom chunks overgeslagen zijn: opnieuw tekenen
         return png, int(hd["bad"]), hd.get("skip") or {}
     except Exception:
         return None
@@ -3434,7 +3445,8 @@ class MapTab(ttk.Frame):
         if rk in self.base:
             bad, skip = getattr(self, "rstats", {}).get(rk, (0, {}))
             txt += f"     regio r.{rk[1]}.{rk[2]}" + (f", {bad} onleesbaar" if bad else "") + \
-                   ("".join(f", {n}x '{st}'" for st, n in skip.items()) if skip else "")
+                   ("".join(f", {n}x '{st}'" for st, n in skip.items()) if skip else "") + \
+                   f"   [{self.world.get(self.dim)}]"
         elif os.path.exists(os.path.join(self.world.get(self.dim) or "", f"r.{rk[1]}.{rk[2]}.mca")):
             txt += f"     regio r.{rk[1]}.{rk[2]} bestaat maar kon niet getekend worden"
         for n, p in self.pos.items():

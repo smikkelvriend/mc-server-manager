@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.7
+- Kaart-diagnose: bij het aanwijzen van een regio zie je nu de reden waarom chunks niet getekend worden (bijv. oud wereldformaat) en welke wereldmap gebruikt wordt.
+
 ## 2.8.6
 - Kaart laadt bij het opstarten veel sneller: de bewaarde kaart wordt nu als PNG opgeslagen en direct door Tk geladen. De eerste keer na deze update wordt de kaart nog één keer opnieuw opgebouwd.
 
