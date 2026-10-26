@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.34
+- Slaapstand, Bedrock met NetherNet (experimenteel): het programma luistert nu ook op TCP van de Bedrock-poort, schrijft in het logboek wat een Bedrock-client daar vraagt en wekt de server bij een join-verzoek. Het exacte NetherNet-verzoek is nog niet bevestigd; het log helpt om dat vast te stellen.
+- Deze versie vereist een herstart.
+
 ## 2.33
 - Slaapstand: de Bedrock-serverlijst toont nu "💤 Server slaapt" met de uitleg "Join = starten, wacht ±1 min". Een melding op het moment van joinen zelf is bij Bedrock niet gemaakt: daarvoor moet het volledige Bedrock-protocol worden nagebouwd.
 - Deze versie vereist een herstart.

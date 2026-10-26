@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.33"
+APP_VERSION = "2.34"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.34 - Slaapstand: eerste stap voor Bedrock met NetherNet. Het programma luistert nu ook op TCP van de Bedrock-poort, logt wat de Bedrock-client daar vraagt en wekt de server bij een join-verzoek. Experimenteel: het formaat is nog niet bevestigd.
 2.33 - Slaapstand: in de Bedrock-serverlijst staat nu duidelijk "💤 Server slaapt" met "Join = starten, wacht ±1 min". (Een melding bij het joinen zelf is bij Bedrock niet mogelijk zonder het volledige Bedrock-protocol na te bouwen.)
 2.32 - Nieuw: Slaapstand (Instellingen > Starten & Java). Als er X minuten niemand online is, stopt de server veilig en luistert het programma op de serverpoort. In de serverlijst staat dan "Server slaapt"; zodra iemand probeert te joinen start de server vanzelf weer (die speler probeert het na ca. een minuut opnieuw). Niet tijdens kaartgeneratie.
 2.31 - Grafieken verbruiken veel minder processortijd (alleen hertekenen als de lijn echt verschuift: van ca. 15% naar 4% van een kern in rust); de knop "Pagina" bij plugin-zoekresultaten werkt weer.
@@ -2434,6 +2435,13 @@ class WakeListener:
                 u.bind(("0.0.0.0", int(self.bport)))
                 self.socks.append(u)
                 threading.Thread(target=self._udp, args=(u,), daemon=True).start()
+                # NetherNet (nieuwe Bedrock-transport): de client vraagt eerst via TCP/HTTP hoe hij moet verbinden
+                h = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                h.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                h.bind(("0.0.0.0", int(self.bport)))
+                h.listen(8)
+                self.socks.append(h)
+                threading.Thread(target=self._http_accept, args=(h,), daemon=True).start()
             except OSError as e:
                 errs.append(f"Bedrock-poort {self.bport}: {e}")
         return errs
@@ -2529,6 +2537,40 @@ class WakeListener:
             except OSError:
                 pass
 
+    # ---- Bedrock NetherNet (signalering over HTTP; formaat nog niet bevestigd, daarom wordt alles gelogd) ----
+    def _http_accept(self, srv):
+        while not self._stop:
+            try:
+                c, a = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._http_conn, args=(c, a), daemon=True).start()
+
+    def _http_conn(self, c, addr):
+        try:
+            c.settimeout(3)
+            data = b""
+            while b"\r\n\r\n" not in data and len(data) < 4096:
+                chunk = c.recv(2048)
+                if not chunk:
+                    break
+                data += chunk
+            head = data.decode("latin-1", "replace")
+            first = head.split("\r\n", 1)[0][:200]
+            self.log(f"Slaapstand (Bedrock/HTTP) van {addr[0]}: {first}", "info")
+            body = json.dumps({"motd": "Server slaapt", "message": "De server wordt gestart, probeer het over een minuut opnieuw"})
+            c.sendall(("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: %d\r\n"
+                       "Connection: close\r\n\r\n%s" % (len(body.encode()), body)).encode())
+            if "join" in first.lower():
+                self._wake("Bedrock-speler")
+        except OSError:
+            pass
+        finally:
+            try:
+                c.close()
+            except OSError:
+                pass
+
     # ---- Bedrock ----
     def _udp(self, u):
         while not self._stop:
@@ -2546,7 +2588,10 @@ class WakeListener:
                 except OSError:
                     pass
             elif data[0] == 5:  # open connection request: iemand probeert te verbinden
+                self.log(f"Slaapstand (Bedrock/RakNet) verbindingspoging van {addr[0]}", "info")
                 self._wake("Bedrock-speler")
+            else:
+                self.log(f"Slaapstand (Bedrock/UDP) onbekend pakket 0x{data[0]:02x} ({len(data)} bytes) van {addr[0]}", "info")
 
 
 def make_scroll_frame(parent):
