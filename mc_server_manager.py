@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.48"
+APP_VERSION = "2.49"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.49 - Nieuwe interface: de grafiek in het Overzicht hapert niet meer. De lijn wordt nu op tijd getekend (met een korte vertraging van een paar seconden) in plaats van te springen zodra er een nieuwe meting binnenkomt, en het scherm ververst elke seconde. Na een update met herstart blijft het bestaande venster verbonden in plaats van dat er een tweede opent.
 2.48 - De nieuwe interface is nu de enige interface: het klassieke scherm is niet meer te zien. Het programma sluit als je het venster sluit (als de server niet draait), of via de knop Afsluiten onderin de zijbalk.
 2.47 - Nieuwe interface, Overzicht: alle grafieken (geheugen, processor, TPS, temperatuur) staan gecombineerd in één grafiek bovenaan, het aantal spelers staat achter "Spelers online" en het Overzicht past op één scherm zonder scrollen.
 2.46 - Nieuwe interface: de grafiek Belasting loopt nu soepel door (de lijn schuift continu mee in plaats van per meting te springen) en bij Plugins staat nu duidelijk welke plugins aan en uit staan. Rechtsonder staat niets meer over het programma zelf (dat staat bij Updates).
@@ -5423,6 +5424,25 @@ def lists_file_remove(folder, key, names):
     lists_write(folder, key, data)
 
 
+def desk_secret():
+    """Vaste geheime sleutel voor het eigen scherm (staat naast het programma), zodat een open venster een herstart overleeft."""
+    path = os.path.join(app_dir(), "mc_server_manager_scherm.key")
+    try:
+        with open(path, encoding="utf-8") as f:
+            tok = f.read().strip()
+        if len(tok) >= 20:
+            return tok, "d." + hashlib.sha256(("cookie" + tok).encode()).hexdigest()
+    except OSError:
+        pass
+    tok = secrets.token_urlsafe(24)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(tok)
+    except OSError:
+        pass
+    return tok, "d." + hashlib.sha256(("cookie" + tok).encode()).hexdigest()
+
+
 def open_app_window(url):
     """Opent een adres in een eigen venster zonder adresbalk (Edge of Chrome in app-modus); anders gewoon de browser."""
     cands = []
@@ -5575,11 +5595,17 @@ const num=s=>{const m=String(s==null?'':s).replace(',','.').match(/-?\d+(\.\d+)?
 function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth||100,h=c.clientHeight||32,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let l=lo!=null?lo:Math.min(...d),hh=hi!=null?hi:Math.max(...d);if(hh-l<1e-6){hh=l+1}
  x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-2-(Math.min(Math.max(v,l),hh)-l)/(hh-l)*(h-4);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
-const CH={t:0,tc:0,dt:2000,cpu:[],ram:[],tps:[],temp:[],xmx:0,N:150};
-function chartLoop(){if(tab!='ov'||!$('cBig'))return;const now=performance.now();if(now-(CH.last||0)>30){CH.last=now;const f=Math.min(1,(now-CH.tc)/CH.dt);
- const rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);bigChart('cBig',[[smoothTail(rp,f),'#6ea8fe'],[smoothTail(CH.cpu,f),'#f5a524'],[smoothTail((CH.tps||[]).map(v=>v==null?null:v*5),f),'#3ddc97'],[smoothTail((CH.temp||[]).map(v=>v==null?null:v/110*100),f),'#f87171']])}requestAnimationFrame(chartLoop)}
-/* de lijn schuift continu: het laatste stuk loopt van de vorige naar de nieuwste meting */
-function smoothTail(d,f){const n=d.length;if(n<3)return null;const N=CH.N,pts=[];for(let i=0;i<=n-2;i++)if(d[i]!=null)pts.push([1-(n-2+f-i)/(N-1),d[i]]);if(d[n-2]!=null&&d[n-1]!=null)pts.push([1,d[n-2]+(d[n-1]-d[n-2])*f]);return pts}
+const CH={ts:[],cpu:[],ram:[],tps:[],temp:[],xmx:0,off:null,W:300};
+/* De lijn wordt op tijd getekend: een paar seconden achter de werkelijkheid, zodat de nieuwste meting er altijd al is en de lijn nooit springt. */
+function chartLoop(){if(tab!='ov'||!$('cBig'))return;const now=performance.now();if(now-(CH.last||0)>30){CH.last=now;
+ if(CH.off!=null){const T=Date.now()/1000+CH.off-LAG(),rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);
+  bigChart('cBig',[[tail(rp,T),'#6ea8fe'],[tail(CH.cpu,T),'#f5a524'],[tail((CH.tps||[]).map(v=>v==null?null:v*5),T),'#3ddc97'],[tail((CH.temp||[]).map(v=>v==null?null:v/110*100),T),'#f87171']])}}
+ requestAnimationFrame(chartLoop)}
+const LAG=()=>2.6;
+function tail(d,T){const ts=CH.ts,n=Math.min(ts.length,d.length);if(n<2)return null;const W=CH.W,pts=[];let last=null;
+ for(let i=0;i<n;i++){if(ts[i]>T)break;if(d[i]!=null){pts.push([(ts[i]-(T-W))/W,d[i]]);last=i}}
+ for(let i=0;i<n-1;i++){if(ts[i]<=T&&ts[i+1]>T&&d[i]!=null&&d[i+1]!=null){pts.push([1,d[i]+(d[i+1]-d[i])*(T-ts[i])/(ts[i+1]-ts[i])]);return pts}}
+ if(last!=null&&last<n){const x=(ts[last]-(T-W))/W;if(x<1)pts.push([1,d[last]])}return pts}
 function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
  
@@ -5849,18 +5875,18 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
   $('lgTps').textContent=tps==null?'':String(tps).replace('.',',');
   $('lgTmp').textContent=tmp==null?'':Math.round(tmp)+' °C';
   const pc=j.players.length,pm=String(j.stats.players||'').split('/')[1];$('plCnt').textContent='('+pc+(pm?' / '+pm.trim():'')+')';
-  if(j.gd&&j.gd.t!=CH.t){CH.t=j.gd.t;CH.tc=performance.now();CH.dt=j.gd.dt*1000}if(j.gd){CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx}
+  if(j.gd){CH.ts=j.gd.ts;CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx;if(j.now){const o=j.now-Date.now()/1000;CH.off=CH.off==null?o:CH.off+(o-CH.off)*0.1}}
   const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
  if(tab=='pl')plOnline();
  if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
 /* ---------- poll ---------- */
-async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;fails=0;$('off').style.display='none';
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
- draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.'}}busy=0}
-build();poll();setInterval(poll,2000);window.addEventListener('resize',()=>{if(S.stats)draw()});
+ draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
+build();poll();setInterval(poll,1000);window.addEventListener('resize',()=>{if(S.stats)draw()});
 </script></body></html>
 """
 # DESK_PAGE>>
@@ -6152,6 +6178,7 @@ class RemoteServer:
         self.desk_only, self.port = False, 0
         self.bye_t, self.last_poll = 0.0, 0.0
         self.desk_token = secrets.token_urlsafe(18)
+        self.desk_cookie = ""      # vaste sessiesleutel (alleen voor het eigen scherm): een open venster blijft na een herstart gewoon werken
         self.fails = {}
         self.error = ""
         self.lock = threading.Lock()
@@ -6269,7 +6296,7 @@ class RemoteServer:
                 return out
             d = list(a.spark_cpu.data)
             snap["gd"] = {"t": d[-1][0] if d else 0, "dt": min(10.0, max(0.5, d[-1][0] - d[-2][0])) if len(d) > 1 else 2.0,
-                          "cpu": [v for _t, v in d[-150:] if v is not None], "ram": [v for _t, v in list(a.spark_ram.data)[-150:] if v is not None],
+                          "ts": [t for t, v in d[-150:] if v is not None], "cpu": [v for _t, v in d[-150:] if v is not None], "ram": [v for _t, v in list(a.spark_ram.data)[-150:] if v is not None],
                           "tps": align(a.spark_tps, d[-150:]), "temp": align(a.spark_temp, d[-150:])}
             snap["stats"]["sleep"] = a.sv["sleep"].get()
             try:
@@ -6300,6 +6327,7 @@ class RemoteServer:
         self.last_poll = time.time()
         with self.lock:
             snap = dict(self.snap)
+            snap["now"] = self.last_poll      # tijd van de server, zodat de grafiek in het scherm op de seconde kan meelopen
             snap["lines"] = [l for l in self.lines if l[0] > since][-300:]
             snap["notes"] = [x for x in self.notes if x[0] > ns]
             snap["alog"] = [x for x in self.alog if x[0] > asn][-100:]
@@ -6730,8 +6758,10 @@ class RemoteServer:
                 self.wfile.write(body)
 
             def _authed(self):
-                m = re.search(r"mcsess=([A-Za-z0-9_-]+)", self.headers.get("Cookie", ""))
+                m = re.search(r"mcsess=([A-Za-z0-9_.-]+)", self.headers.get("Cookie", ""))
                 t = outer.sessions.get(m.group(1)) if m else None
+                if m and outer.desk_cookie and hmac.compare_digest(m.group(1), outer.desk_cookie):
+                    t = time.time() + 1
                 return bool(t and t > time.time())
 
             def _json_body(self):
@@ -6756,7 +6786,7 @@ class RemoteServer:
                     if path == "/desk":
                         tok = (query.get("t") or [""])[0]
                         if tok and self.client_address[0] in ("127.0.0.1", "::1") and hmac.compare_digest(tok, outer.desk_token):
-                            st = secrets.token_urlsafe(32)
+                            st = outer.desk_cookie or secrets.token_urlsafe(32)
                             outer.sessions[st] = time.time() + 30 * 86400
                             return self._send(200, DESK_PAGE, "text/html",
                                               extra=[("Set-Cookie", f"mcsess={st}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
@@ -8568,6 +8598,7 @@ class App(tk.Tk):
         self.tab_plug.sub.insert(1, body, text="🔧  Updates")
         self.remote = RemoteServer(self)
         self.desk = RemoteServer(self)      # eigen scherm op dit adres (alleen deze computer)
+        self.desk.desk_token, self.desk.desk_cookie = desk_secret()
         self.tab_map = MapTab(self.nb, self)
         self.tab_beheer = BeheerTab(self.nb, self)
         self.tab_backup = BackupTab(self.nb, self)
@@ -8876,7 +8907,7 @@ class App(tk.Tk):
         self.after(20000, self._health_tick)
         self.after(2000, self._sleep_stats_show)
         if self.cfg.get("desk_main", True):
-            self.after(1500, self._open_desk_main)
+            self.after(300, self._open_desk_main)
         self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
                           "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
@@ -9880,9 +9911,19 @@ class App(tk.Tk):
         return True
 
     def _open_desk_main(self):
-        if self.open_desk():
-            # het klassieke scherm is niet meer te zien; alleen als er geen eigen venster kon worden geopend blijft het op de taakbalk
-            self.withdraw() if getattr(self, "_desk_app", False) else self.iconify()
+        """Start het eigen scherm. Staat er na een herstart nog een venster open, dan pakt dat de nieuwe sessie zelf weer op; anders openen we er een."""
+        if not self.desk.running and not (self.desk.start(8799, "127.0.0.1", True) or self.desk.start(0, "127.0.0.1", True)):
+            messagebox.showerror(APP_NAME, "De nieuwe interface kon niet starten: " + self.desk.error)
+            return
+        self.desk.update()
+        self.after(4500, self._desk_main_check)
+
+    def _desk_main_check(self):
+        if self.desk.last_poll > 0:
+            self._desk_app = True          # een bestaand venster is al weer verbonden
+        elif not self.open_desk():
+            return
+        self.withdraw() if getattr(self, "_desk_app", False) else self.iconify()
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""

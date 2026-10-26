@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.49
+- Nieuwe interface: de grafiek in het Overzicht hapert niet meer. De lijn wordt nu op tijd getekend, een paar seconden achter de werkelijkheid, in plaats van te springen zodra er een nieuwe meting binnenkomt. Het scherm ververst elke seconde.
+- Na een update met herstart blijft het bestaande venster nu verbonden met het nieuwe programma (vaste sleutel in `mc_server_manager_scherm.key`), in plaats van dat er een tweede venster opent en het oude blijft staan. Een venster dat het programma na 90 seconden nog niet terugvindt, sluit zichzelf.
+- Deze versie vereist een herstart.
+
 ## 2.48
 - De nieuwe interface is nu de **enige** interface: het klassieke scherm is niet meer te zien (ook niet op de taakbalk). De knop Klassiek scherm en de instelling "Nieuwe interface als hoofdscherm" zijn weggehaald.
 - Het programma sluit zodra je het venster sluit, als de server niet draait. Draait de server nog, dan opent het venster weer en sluit je af met de nieuwe knop **Afsluiten** onderin de zijbalk (die de server eerst veilig stopt).
