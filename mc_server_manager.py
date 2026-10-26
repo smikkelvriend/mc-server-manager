@@ -11,6 +11,7 @@ Optioneel: "pip install psutil" voor CPU- en geheugenstatistieken van de server.
 Bouwen naar .exe:  pyinstaller --onefile --windowed --name MCServerManager mc_server_manager.py
 """
 
+import gzip
 import hashlib
 import importlib
 import json
@@ -32,6 +33,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
+import zlib
 from collections import defaultdict, deque
 from datetime import datetime
 
@@ -44,9 +46,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.10"
+APP_VERSION = "2.11.1"
 
 CHANGELOG = """
+2.11.1 - Bedrock-controle leest de poort van Geyser zelf (config.yml en opstartregel) in plaats van 19132 te veronderstellen.
+2.11 - Kaart zit nu in het programma zelf (geen browser nodig): tegels van squaremap, spelers live, slepen en zoomen, renderen via een menu.
 2.10 - Nieuw tabblad Kaart: opent je squaremap-kaart en bedient het renderen (hele wereld, rond de spawn, pauzeren, stoppen).
 2.9 - Het tabblad Kaart is weer verwijderd (werkte niet goed genoeg). Al het andere blijft zoals het was.
 2.8.11 - Kaart leest regiobestanden uit alle wereldmappen die het vindt (oude en nieuwe indeling samen).
@@ -834,6 +838,27 @@ def ext_status(host, port, bedrock=False):
 
 
 RAKNET_MAGIC = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
+
+
+def detect_geyser_port(folder, java_port=25565):
+    """Leest de Bedrock-poort uit de config van Geyser (plugins/Geyser-*/config.yml). Geeft (poort, bron) of None."""
+    try:
+        pdir = os.path.join(folder, "plugins")
+        for d in sorted(os.listdir(pdir)):
+            cfg = os.path.join(pdir, d, "config.yml")
+            if d.lower().startswith("geyser") and os.path.isfile(cfg):
+                text = open(cfg, encoding="utf-8", errors="replace").read()
+                m = re.search(r"^bedrock:\s*\n((?:[ \t]+.*\n?|\s*\n|#.*\n)+)", text, re.M)
+                block = m.group(1) if m else ""
+                clone = re.search(r"^\s+clone-remote-port:\s*(true|false)", block, re.M | re.I)
+                port = re.search(r"^\s+port:\s*(\d+)", block, re.M)
+                if clone and clone.group(1).lower() == "true":
+                    return int(java_port), "clone-remote-port staat aan: Geyser gebruikt dezelfde poort als Java"
+                if port:
+                    return int(port.group(1)), f"{d}/config.yml"
+    except OSError:
+        pass
+    return None
 
 
 def raknet_ping(host, port, timeout=4):
@@ -2518,168 +2543,504 @@ class PluginsTab(ttk.Frame):
 
 
 class MapTab(ttk.Frame):
-    """Tabblad Kaart: opent de squaremap-kaart van je server en bedient het renderen."""
-    BG = "#f3f4f6"
+    """Tabblad Kaart: toont de squaremap-kaart van je server rechtstreeks in het programma (zonder browser).
+
+    Het programma haalt dezelfde tegels (PNG's) op als de squaremap-website, tekent alleen wat in beeld is en doet
+    niets zolang het tabblad dicht is. Spelers komen uit squaremap zelf (tiles/players.json)."""
+    TILE = 512
+    COLORS = ("#ef4444", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899")
+    BG = "#0f172a"
+    CACHE_MAX = 220
 
     def __init__(self, parent, app):
-        super().__init__(parent, padding=14)
+        super().__init__(parent, padding=6)
         self.app = app
         self.url_var = tk.StringVar(value=app.cfg.get("squaremap_url", "http://localhost:8080"))
         self.world_var = tk.StringVar()
-        self.radius_var = tk.StringVar(value="2000")
-        self.state_var = tk.StringVar(value="Controleren…")
-        self.visible, self._busy = False, False
+        self.status_var, self.coord_var = tk.StringVar(), tk.StringVar()
+        self.follow_var = tk.BooleanVar(value=False)
+        self.names_var = tk.BooleanVar(value=True)
+        self.q = queue.Queue()
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        self.worlds, self.wset = [], {}
+        self.cur = None                       # naam van de wereld die getoond wordt
+        self.zl, self.cx, self.cz = 3, 0.0, 0.0   # zoomniveau, midden van het beeld (in blokken)
+        self.imgs = {}                        # (wereld, z, x, y) -> PhotoImage of None (lege tegel)
+        self.sig = {}                         # (wereld, z, x, y) -> hash van de bytes, om verversen goedkoop te houden
+        self.pending = set()
+        self.players, self.trails = [], {}
+        self.visible, self.online, self.loading = False, False, False
+        self._drag, self._moved, self._dirty, self._tok = None, False, True, 0
+        self._last_refresh = self._last_players = 0.0
         self._build()
 
-    def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827", big=False):
-        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg,
-                         relief="flat", bd=0, padx=18 if big else 10, pady=9 if big else 4, cursor="hand2",
-                         font=("Segoe UI", 12 if big else 9, "bold"))
-
-    def _card(self, title):
-        box = tk.Frame(self, bg="white", highlightbackground="#e5e7eb", highlightthickness=1)
-        box.pack(fill="x", pady=(0, 12))
-        tk.Label(box, text=title, bg="white", fg="#111827", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=14, pady=(10, 4))
-        inner = tk.Frame(box, bg="white")
-        inner.pack(fill="x", padx=14, pady=(0, 12))
-        return inner
+    # ---------- opbouw ----------
+    def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
+        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg, relief="flat",
+                         bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
 
     def _build(self):
-        c = self._card("🗺  Wereldkaart (squaremap)")
-        row = tk.Frame(c, bg="white")
-        row.pack(fill="x")
-        self.dot = tk.Label(row, text="●", bg="white", fg="#9ca3af", font=("Segoe UI", 14))
-        self.dot.pack(side="left")
-        tk.Label(row, textvariable=self.state_var, bg="white", fg="#374151", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(6, 0))
-        row2 = tk.Frame(c, bg="white")
-        row2.pack(fill="x", pady=(10, 0))
-        self._btn(row2, "🌍  Kaart openen in je browser", self.open_map, "#2563eb", "white", big=True).pack(side="left")
-        tk.Label(row2, text="Adres:", bg="white", fg="#6b7280", font=("Segoe UI", 9)).pack(side="left", padx=(16, 4))
-        e = ttk.Entry(row2, textvariable=self.url_var, width=30)
-        e.pack(side="left")
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", pady=(0, 6))
+        self.world_cb = ttk.Combobox(bar, textvariable=self.world_var, state="readonly", width=18)
+        self.world_cb.pack(side="left")
+        self.world_cb.bind("<<ComboboxSelected>>", lambda e: self._pick_world())
+        self._btn(bar, "+", lambda: self._zoom(1)).pack(side="left", padx=(6, 0))
+        self._btn(bar, "−", lambda: self._zoom(-1)).pack(side="left", padx=(4, 0))
+        self._btn(bar, "⌂  Spawn", self.goto_spawn).pack(side="left", padx=(6, 0))
+        self._btn(bar, "\U0001F3AF  Alle spelers", self.fit_players, "#2563eb", "white").pack(side="left", padx=(6, 0))
+        self._btn(bar, "↻  Vernieuwen", lambda: self.refresh(True)).pack(side="left", padx=(6, 0))
+        ttk.Checkbutton(bar, text="Namen", variable=self.names_var, command=self._draw_overlay_only).pack(side="left", padx=(12, 0))
+        self.render_btn = tk.Menubutton(bar, text="⚙  Renderen ▾", relief="flat", bd=0, bg="#e5e7eb", padx=9, pady=3,
+                                        font=("Segoe UI", 9, "bold"), cursor="hand2")
+        m = tk.Menu(self.render_btn, tearoff=0)
+        for label, tpl in (("Hele wereld renderen", "fullrender {w}"), ("Alleen rond de spawn (2000 blokken)", "radiusrender {w} 2000"),
+                           ("Pauzeer / hervat", "pauserender {w}"), ("Stoppen met renderen", "cancelrender {w}"),
+                           ("Instellingen herladen", "reload")):
+            m.add_command(label=label, command=lambda t=tpl: self.cmd(t))
+        self.render_btn.config(menu=m)
+        self.render_btn.pack(side="left", padx=(12, 0))
+        tk.Label(bar, textvariable=self.status_var, fg="#6b7280", font=("Segoe UI", 9)).pack(side="right")
+        main = ttk.Frame(self)
+        main.pack(fill="both", expand=True)
+        side = ttk.Frame(main, width=250)
+        side.pack(side="right", fill="y", padx=(8, 0))
+        side.pack_propagate(False)
+        ttk.Label(side, text="Spelers op de kaart", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.tree = ttk.Treeview(side, columns=("name", "pos"), show="headings", height=12, selectmode="browse")
+        self.tree.heading("name", text="Speler")
+        self.tree.heading("pos", text="X  Y  Z")
+        self.tree.column("name", width=95, anchor="w")
+        self.tree.column("pos", width=130, anchor="w")
+        self.tree.pack(fill="both", expand=True, pady=(4, 6))
+        self.tree.bind("<Double-1>", lambda e: self._goto_selected())
+        ttk.Checkbutton(side, text="Volg de geselecteerde speler", variable=self.follow_var).pack(anchor="w")
+        ttk.Label(side, text="Adres van de kaart:", foreground="#6b7280").pack(anchor="w", pady=(10, 0))
+        e = ttk.Entry(side, textvariable=self.url_var)
+        e.pack(fill="x")
+        e.bind("<Return>", lambda ev: self._save_url(reload=True))
         e.bind("<FocusOut>", lambda ev: self._save_url())
-        e.bind("<Return>", lambda ev: (self._save_url(), self.check()))
-        self.lan_lbl = tk.Label(c, text="", bg="white", fg="#6b7280", font=("Segoe UI", 9), anchor="w", justify="left")
-        self.lan_lbl.pack(fill="x", pady=(8, 0))
+        self._btn(side, "Open in browser", lambda: webbrowser.open(self.url_var.get())).pack(anchor="w", pady=(6, 0))
+        self.cv = tk.Canvas(main, bg=self.BG, highlightthickness=0, cursor="fleur")
+        self.cv.pack(side="left", fill="both", expand=True)
+        tk.Label(self, textvariable=self.coord_var, anchor="w", fg="#4b5563", font=("Consolas", 9)).pack(fill="x", pady=(4, 0))
+        cv = self.cv
+        cv.bind("<Configure>", lambda e: self._draw())
+        cv.bind("<ButtonPress-1>", lambda e: setattr(self, "_drag", (e.x, e.y)))
+        cv.bind("<B1-Motion>", self._motion)
+        cv.bind("<ButtonRelease-1>", self._release)
+        cv.bind("<Motion>", self._hover)
+        for ev in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            cv.bind(ev, self._wheel)
+        cv.bind("<Double-Button-1>", lambda e: self._zoom(1, e.x, e.y))
 
-        r = self._card("⚙  Kaart laten renderen")
-        tk.Label(r, text="Squaremap tekent de kaart zelf bij tijdens het spelen. Met deze knoppen laat je hem ook alvast de rest van de wereld tekenen. "
-                         "Dat kost processorkracht en bij een grote wereld duurt het lang. Je kunt het altijd stoppen.",
-                 bg="white", fg="#6b7280", font=("Segoe UI", 9), wraplength=900, justify="left", anchor="w").pack(fill="x")
-        row = tk.Frame(r, bg="white")
-        row.pack(fill="x", pady=(10, 0))
-        tk.Label(row, text="Wereld:", bg="white", font=("Segoe UI", 9)).pack(side="left")
-        self.world_cb = ttk.Combobox(row, textvariable=self.world_var, width=22)
-        self.world_cb.pack(side="left", padx=(6, 16))
-        tk.Label(row, text="Straal (blokken):", bg="white", font=("Segoe UI", 9)).pack(side="left")
-        ttk.Entry(row, textvariable=self.radius_var, width=7).pack(side="left", padx=(6, 0))
-        row = tk.Frame(r, bg="white")
-        row.pack(fill="x", pady=(10, 0))
-        for text, cmd, bg, fg in (("▶  Hele wereld renderen", lambda: self.cmd("fullrender {w}"), "#16a34a", "white"),
-                                  ("◎  Alleen rond de spawn", lambda: self.cmd("radiusrender {w} {r}"), "#e5e7eb", "#111827"),
-                                  ("⏸  Pauzeer / hervat", lambda: self.cmd("pauserender {w}"), "#e5e7eb", "#111827"),
-                                  ("■  Stoppen", lambda: self.cmd("cancelrender {w}"), "#dc2626", "white"),
-                                  ("↻  Instellingen herladen", lambda: self.cmd("reload"), "#e5e7eb", "#111827")):
-            self._btn(row, text, cmd, bg, fg).pack(side="left", padx=(0, 6))
-        self.msg = tk.Label(r, text="", bg="white", fg="#6b7280", font=("Segoe UI", 9), anchor="w", justify="left", wraplength=900)
-        self.msg.pack(fill="x", pady=(8, 0))
-        tk.Label(self, text="De uitkomst van elk commando zie je in de console op het tabblad Server.", bg=self.BG, fg="#9ca3af",
-                 font=("Segoe UI", 9)).pack(anchor="w")
+    # ---------- netwerk (alleen in achtergrondthreads) ----------
+    def _get(self, path):
+        base = self.url_var.get().strip().rstrip("/")
+        try:
+            with urllib.request.urlopen(f"{base}/{path}", timeout=5) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            return b"" if e.code == 404 else None
+        except Exception:
+            return None
 
-    # ---------- acties ----------
-    def _save_url(self):
+    def _save_url(self, reload=False):
         u = self.url_var.get().strip() or "http://localhost:8080"
         if not re.match(r"^https?://", u):
             u = "http://" + u
         self.url_var.set(u)
-        self.app.cfg["squaremap_url"] = u
-        save_config(self.app.cfg)
+        if u != self.app.cfg.get("squaremap_url"):
+            self.app.cfg["squaremap_url"] = u
+            save_config(self.app.cfg)
+            reload = True
+        if reload:
+            self.worlds, self.cur = [], None
+            self._clear_tiles()
+            self.load_worlds()
 
-    def open_map(self):
-        self._save_url()
-        webbrowser.open(self.url_var.get())
+    def load_worlds(self):
+        if self.loading:
+            return
+        self.loading = True
 
-    def _world_names(self):
-        try:
-            lvl = read_properties(self.app.folder_var.get().strip()).get("level-name", "world") or "world"
-        except Exception:
-            lvl = "world"
-        return [lvl, lvl + "_nether", lvl + "_the_end"]
+        def work():
+            raw = self._get("tiles/settings.json")
+            out = None
+            try:
+                data = json.loads(raw.decode("utf-8")) if raw else None
+                if data:
+                    worlds = sorted(data.get("worlds") or [], key=lambda w: w.get("order", 0))
+                    sets = {}
+                    for w in worlds:
+                        s = self._get(f"tiles/{w['name']}/settings.json")
+                        sets[w["name"]] = json.loads(s.decode("utf-8")) if s else {}
+                    out = (worlds, sets)
+            except Exception:
+                out = None
+            self.q.put(("worlds", out))
+
+        self.pool.submit(work)
+
+    def fetch_tile(self, key, replace=False):
+        if key in self.pending:
+            return
+        self.pending.add(key)
+        w, z, x, y = key
+
+        def work():
+            data = self._get(f"tiles/{w}/{z}/{x}_{y}.png")
+            self.q.put(("tile", key, data, replace))
+
+        self.pool.submit(work)
+
+    def fetch_players(self):
+        def work():
+            raw = self._get("tiles/players.json")
+            try:
+                self.q.put(("players", json.loads(raw.decode("utf-8")) if raw else None))
+            except Exception:
+                self.q.put(("players", None))
+
+        self.pool.submit(work)
+
+    # ---------- zichtbaar / onzichtbaar ----------
+    def on_show(self):
+        self.visible = True
+        self._tok += 1
+        if not self.worlds:
+            self.load_worlds()
+        self._loop(self._tok)
+
+    def on_hide(self):
+        self.visible = False
+        self._tok += 1
+
+    def _loop(self, tok):
+        """Eén rustige timer, alleen actief zolang het tabblad open is."""
+        if tok != self._tok or not self.visible:
+            return
+        self._drain()
+        now = time.time()
+        if self.worlds and now - self._last_players > 3:
+            self._last_players = now
+            self.fetch_players()
+        if self.worlds and now - self._last_refresh > 60:
+            self.refresh()
+        if not self.worlds and not self.loading and now - self._last_players > 5:
+            self._last_players = now
+            self.load_worlds()
+        if self._dirty:
+            self._dirty = False
+            self._draw()
+        self.after(120, lambda: self._loop(tok))
+
+    def refresh(self, force=False):
+        self._last_refresh = time.time()
+        if force:
+            self.sig.clear()
+        for key in list(self._view_keys()):
+            self.fetch_tile(key, replace=True)
+
+    # ---------- verwerken van antwoorden (hoofdthread) ----------
+    def _drain(self):
+        t_end = time.time() + 0.02
+        while time.time() < t_end:
+            try:
+                m = self.q.get_nowait()
+            except queue.Empty:
+                break
+            if m[0] == "worlds":
+                self.loading = False
+                if m[1] is None:
+                    self.online = False
+                    self.status_var.set("Kaart niet bereikbaar: server uit of squaremap niet actief")
+                    self._dirty = True
+                    continue
+                self.worlds, self.wset = m[1]
+                self.online = True
+                names = [w.get("display_name") or w["name"] for w in self.worlds]
+                self.world_cb.config(values=names)
+                if self.worlds and self.cur not in [w["name"] for w in self.worlds]:
+                    first = next((w for w in self.worlds if w.get("type") == "normal"), self.worlds[0])
+                    self._set_world(first["name"])
+                self.status_var.set("")
+            elif m[0] == "tile":
+                self._tile(*m[1:])
+            elif m[0] == "players":
+                self._players(m[1])
+
+    def _tile(self, key, data, replace):
+        self.pending.discard(key)
+        if data is None:
+            return  # netwerkfout: later opnieuw proberen
+        sig = hash(data)
+        if replace and self.sig.get(key) == sig:
+            return
+        self.sig[key] = sig
+        old = self.imgs.pop(key, None)
+        if not data:
+            self.imgs[key] = None
+        else:
+            try:
+                img = tk.PhotoImage(data=base64.b64encode(data).decode("ascii"))
+                extra = key[1] - self._max_native(key[0])
+                if extra > 0:
+                    img = img.zoom(2 ** extra, 2 ** extra)
+                self.imgs[key] = img
+            except tk.TclError:
+                self.imgs[key] = None
+        if len(self.imgs) > self.CACHE_MAX:
+            keep = set(self._view_keys())
+            for k in [k for k in self.imgs if k not in keep][:len(self.imgs) - self.CACHE_MAX + 40]:
+                self.imgs.pop(k, None)
+                self.sig.pop(k, None)
+        self._dirty = True
+        del old
+
+    def _players(self, data):
+        if data is None:
+            return
+        self.players = [p for p in (data.get("players") or []) if isinstance(p, dict) and "x" in p and "z" in p]
+        names = set()
+        for p in self.players:
+            n = p.get("name", "?")
+            names.add(n)
+            tr = self.trails.setdefault(n, deque(maxlen=60))
+            if not tr or abs(tr[-1][0] - p["x"]) + abs(tr[-1][1] - p["z"]) >= 3:
+                tr.append((p["x"], p["z"], p.get("world")))
+        for n in list(self.trails):
+            if n not in names:
+                del self.trails[n]
+        sel = self.tree.selection()
+        self.tree.delete(*self.tree.get_children())
+        for p in sorted(self.players, key=lambda p: p.get("name", "").lower()):
+            self.tree.insert("", "end", iid=p["name"], values=(p["name"], f"{p['x']}  {p.get('y', 0)}  {p['z']}"))
+        if sel and self.tree.exists(sel[0]):
+            self.tree.selection_set(sel[0])
+        if self.follow_var.get() and sel:
+            p = next((p for p in self.players if p.get("name") == sel[0]), None)
+            if p:
+                self.cx, self.cz = float(p["x"]), float(p["z"])
+                self._dirty = True
+        self._draw_overlay_only()
+
+    # ---------- wereld en zoom ----------
+    def _max_native(self, world):
+        return int((self.wset.get(world) or {}).get("zoom", {}).get("max", 3))
+
+    def _max_zoom(self):
+        z = (self.wset.get(self.cur) or {}).get("zoom", {})
+        return int(z.get("max", 3)) + int(z.get("extra", 1))
+
+    def _clear_tiles(self):
+        self.imgs.clear()
+        self.sig.clear()
+        self.pending.clear()
+        self._dirty = True
+
+    def _set_world(self, name):
+        self.cur = name
+        w = next((w for w in self.worlds if w["name"] == name), None)
+        if w:
+            self.world_var.set(w.get("display_name") or name)
+        s = self.wset.get(name) or {}
+        z = s.get("zoom", {})
+        self.zl = int(z.get("def", min(2, int(z.get("max", 3)))))
+        sp = s.get("spawn") or {}
+        self.cx, self.cz = float(sp.get("x", 0)), float(sp.get("z", 0))
+        self._clear_tiles()
+
+    def _pick_world(self):
+        label = self.world_var.get()
+        for w in self.worlds:
+            if (w.get("display_name") or w["name"]) == label:
+                self._set_world(w["name"])
+                break
+
+    def goto_spawn(self):
+        sp = (self.wset.get(self.cur) or {}).get("spawn") or {}
+        self.cx, self.cz = float(sp.get("x", 0)), float(sp.get("z", 0))
+        self._dirty = True
+
+    def fit_players(self):
+        pts = [(p["x"], p["z"]) for p in self.players if p.get("world") == self.cur]
+        if not pts:
+            self.status_var.set("Geen spelers in deze wereld")
+            return
+        xs, zs = [a for a, _ in pts], [b for _, b in pts]
+        self.cx, self.cz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+        W, H = max(self.cv.winfo_width(), 300), max(self.cv.winfo_height(), 200)
+        span = max(max(xs) - min(xs), max(zs) - min(zs), 64) * 1.4
+        mx = self._max_native(self.cur)
+        zl = mx
+        while zl > 0 and span * 2 ** (zl - mx) > min(W, H):
+            zl -= 1
+        self.zl = zl
+        self._dirty = True
+
+    def _goto_selected(self):
+        sel = self.tree.selection()
+        p = next((p for p in self.players if sel and p.get("name") == sel[0]), None)
+        if p:
+            if p.get("world") != self.cur and p.get("world") in self.wset:
+                self._set_world(p["world"])
+            self.cx, self.cz = float(p["x"]), float(p["z"])
+            self.zl = max(self.zl, self._max_native(self.cur) - 1)
+            self._dirty = True
+
+    def _scale(self):
+        return 2.0 ** (self.zl - self._max_native(self.cur))  # pixels per blok
+
+    def _zoom(self, d, mx=None, my=None):
+        nz = max(0, min(self._max_zoom(), self.zl + d))
+        if nz == self.zl:
+            return
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        old = self._scale()
+        if mx is not None:
+            wx, wz = self.cx + (mx - W / 2) / old, self.cz + (my - H / 2) / old
+        self.zl = nz
+        if mx is not None:
+            new = self._scale()
+            self.cx, self.cz = wx - (mx - W / 2) / new, wz - (my - H / 2) / new
+        self._draw()
+
+    def _wheel(self, ev):
+        self._zoom(1 if (getattr(ev, "num", 0) == 4 or getattr(ev, "delta", 0) > 0) else -1, ev.x, ev.y)
+
+    # ---------- tekenen ----------
+    def _geometry(self):
+        mx = self._max_native(self.cur)
+        native = min(self.zl, mx)
+        extra = self.zl - native
+        span = self.TILE * 2 ** (mx - native)     # blokken per tegel
+        return native, span, 2.0 ** (self.zl - mx)
+
+    def _view_keys(self, margin=0.5):
+        if not self.cur or self.cv.winfo_width() < 20:
+            return []
+        native, span, s = self._geometry()
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        x0, x1 = self.cx - W / 2 / s - span * margin, self.cx + W / 2 / s + span * margin
+        z0, z1 = self.cz - H / 2 / s - span * margin, self.cz + H / 2 / s + span * margin
+        out = []
+        for ty in range(math.floor(z0 / span), math.floor(z1 / span) + 1):
+            for tx in range(math.floor(x0 / span), math.floor(x1 / span) + 1):
+                out.append((self.cur, self.zl, tx, ty))
+        return out
+
+    def _draw(self):
+        cv = self.cv
+        W, H = cv.winfo_width(), cv.winfo_height()
+        if W < 20 or H < 20:
+            return
+        cv.delete("all")
+        if not self.cur:
+            cv.create_text(W / 2, H / 2, fill="#94a3b8", font=("Segoe UI", 12), justify="center",
+                           text=("Kaart laden…" if self.loading else
+                                 "Kaart niet bereikbaar.\nStart de server en controleer of squaremap actief is\n(adres rechts in het paneel)."))
+            return
+        native, span, s = self._geometry()
+        for key in sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz)):
+            if key in self.imgs:
+                img = self.imgs[key]
+                if img is not None:
+                    cv.create_image(W / 2 + (key[2] * span - self.cx) * s, H / 2 + (key[3] * span - self.cz) * s,
+                                    anchor="nw", image=img, tags="t")
+            else:
+                self.fetch_tile(key)
+        for key in self._view_keys(0.5):  # alvast net buiten beeld ophalen, zodat slepen soepel blijft
+            if key not in self.imgs:
+                self.fetch_tile(key)
+        sp = (self.wset.get(self.cur) or {}).get("spawn")
+        if sp:
+            sx, sy = self._w2c(sp.get("x", 0), sp.get("z", 0))
+            cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 15, "bold"), tags="t")
+        self._draw_overlay()
+
+    def _draw_overlay_only(self):
+        if self.cur and self.cv.winfo_width() > 20:
+            self.cv.delete("o")
+            self._draw_overlay()
+
+    def _w2c(self, x, z):
+        s = self._scale()
+        return self.cv.winfo_width() / 2 + (x - self.cx) * s, self.cv.winfo_height() / 2 + (z - self.cz) * s
+
+    def _color(self, name):
+        return self.COLORS[zlib.crc32(name.encode("utf-8")) % len(self.COLORS)]
+
+    def _draw_overlay(self):
+        cv = self.cv
+        W, H = cv.winfo_width(), cv.winfo_height()
+        for n, tr in self.trails.items():
+            pts = [self._w2c(x, z) for x, z, w in tr if w == self.cur]
+            if len(pts) >= 2:
+                cv.create_line(*[v for p in pts for v in p], fill=self._color(n), width=2, dash=(3, 2), tags="o")
+        for p in self.players:
+            if p.get("world") != self.cur:
+                continue
+            px, py = self._w2c(p["x"], p["z"])
+            if px < -40 or py < -40 or px > W + 40 or py > H + 40:
+                continue
+            col = self._color(p.get("name", ""))
+            if "yaw" in p:
+                a = math.radians(p["yaw"])
+                cv.create_line(px, py, px - math.sin(a) * 18, py + math.cos(a) * 18, fill="white", width=3, arrow="last", tags="o")
+            cv.create_oval(px - 7, py - 7, px + 7, py + 7, fill=col, outline="white", width=2, tags="o")
+            if self.names_var.get():
+                t = cv.create_text(px, py - 18, text=p.get("name", ""), fill="white", font=("Segoe UI", 9, "bold"), tags="o")
+                bb = cv.bbox(t)
+                r = cv.create_rectangle(bb[0] - 4, bb[1] - 1, bb[2] + 4, bb[3] + 1, fill="#111827", outline=col, tags="o")
+                cv.tag_lower(r, t)
+
+    # ---------- bediening ----------
+    def _motion(self, ev):
+        if not self._drag:
+            return
+        dx, dy = ev.x - self._drag[0], ev.y - self._drag[1]
+        self._drag = (ev.x, ev.y)
+        if dx or dy:
+            s = self._scale()
+            self.cx -= dx / s
+            self.cz -= dy / s
+            self.cv.move("all", dx, dy)  # in één keer verschuiven in plaats van opnieuw tekenen
+            self._moved = True
+            self.follow_var.set(False)
+
+    def _release(self, ev):
+        self._drag = None
+        if self._moved:
+            self._moved = False
+            self._draw()
+
+    def _hover(self, ev):
+        if not self.cur:
+            return
+        s = self._scale()
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        wx, wz = self.cx + (ev.x - W / 2) / s, self.cz + (ev.y - H / 2) / s
+        txt = f"X {wx:7.0f}   Z {wz:7.0f}     zoom {self.zl}/{self._max_zoom()}"
+        for p in self.players:
+            if p.get("world") == self.cur:
+                px, py = self._w2c(p["x"], p["z"])
+                if abs(px - ev.x) < 12 and abs(py - ev.y) < 12:
+                    txt += f"     ● {p.get('name')}  ({p['x']}, {p.get('y', 0)}, {p['z']})"
+        self.coord_var.set(txt)
 
     def cmd(self, template):
         app = self.app
         if not app.srv_running() or app.srv_state != "online":
-            self.msg.config(text="De server draait niet. Start hem eerst, dan kan squaremap renderen.", fg="#b45309")
+            self.status_var.set("De server draait niet")
             return
-        w = self.world_var.get().strip()
+        w = self.cur or ""
         if "{w}" in template and not w:
-            self.msg.config(text="Kies eerst een wereld.", fg="#b45309")
+            self.status_var.set("Kaart nog niet geladen")
             return
-        try:
-            radius = int(self.radius_var.get())
-        except ValueError:
-            radius = 0
-        if "{r}" in template and radius <= 0:
-            self.msg.config(text="Vul een straal in als getal, bijvoorbeeld 2000.", fg="#b45309")
-            return
-        c = "map " + template.format(w=w, r=radius)
+        c = "map " + template.format(w=w)
         if app.srv_send(c):
-            self.msg.config(text=f"Verstuurd: {c}", fg="#16a34a")
-        else:
-            self.msg.config(text="Versturen mislukt.", fg="#dc2626")
-
-    # ---------- status ----------
-    def on_show(self):
-        self.visible = True
-        names = self._world_names()
-        self.world_cb.config(values=names)
-        if not self.world_var.get():
-            self.world_var.set(names[0])
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-        except OSError:
-            ip = ""
-        port = re.search(r":(\d+)", self.url_var.get())
-        if ip:
-            self.lan_lbl.config(text=f"Op een andere apparaat in je netwerk: http://{ip}:{port.group(1) if port else '8080'}")
-        self.check()
-
-    def on_hide(self):
-        self.visible = False
-
-    def check(self):
-        if self._busy:
-            return
-        self._busy = True
-        url = self.url_var.get().strip() or "http://localhost:8080"
-
-        def work():
-            try:
-                with urllib.request.urlopen(url, timeout=2) as r:
-                    ok = 200 <= r.status < 400
-            except Exception:
-                ok = False
-            self._result = ok
-
-        self._result = None
-        threading.Thread(target=work, daemon=True).start()
-        self.after(200, self._wait_result)
-
-    def _wait_result(self):
-        if self._result is None:
-            self.after(200, self._wait_result)
-        else:
-            self._set_state(self._result)
-
-    def _set_state(self, ok):
-        self._busy = False
-        self.dot.config(fg="#16a34a" if ok else "#dc2626")
-        self.state_var.set("Kaart is online" if ok else "Kaart niet bereikbaar (server uit of squaremap niet actief)")
-        if self.visible:
-            self.after(5000, self.check)
+            self.status_var.set(f"Verstuurd: {c}")
 
 
 class App(tk.Tk):
@@ -3693,6 +4054,11 @@ class App(tk.Tk):
             suppress = suppress or now < self._sup["tps"]
         if now < self._sup["any"] and "nknown" in msg and "ommand" in msg:
             suppress = True
+        gm = re.search(r"Started Geyser on (?:UDP )?port (\d+)", msg)
+        if gm and gm.group(1).isdigit() and 0 < int(gm.group(1)) < 65536:
+            if int(gm.group(1)) != int_var(self.reach_bport_var, 19132):
+                self.reach_bport_var.set(int(gm.group(1)))
+                self.log(f"Geyser luistert op UDP-poort {gm.group(1)}: Bedrock-poort bij Bereikbaarheid aangepast.", "info")
         jm = JOIN_RE.match(msg)
         if jm:
             self.players.setdefault(jm.group(1), now)
@@ -4085,6 +4451,11 @@ class App(tk.Tk):
         if port_in:
             jport = port_in
             self.reach_port_var.set(jport)
+        det = detect_geyser_port(self.folder_var.get().strip(), jport) if self.reach_bed_var.get() else None
+        if det and det[0] != bport:
+            bport = det[0]
+            self.reach_bport_var.set(bport)
+            self.log(f"Bedrock-poort aangepast naar {bport} (gelezen uit {det[1]}).", "info")
         if host != self.reach_host_var.get().strip():
             self.reach_host_var.set(host)
         if not local_only and not host:

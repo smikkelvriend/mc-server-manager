@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.11.1
+- Bedrock-controle (Bereikbaarheid): leest de poort van Geyser uit `plugins/Geyser-*/config.yml` (ook `clone-remote-port`) en uit de opstartregel "Started Geyser on UDP port …", in plaats van altijd 19132 te testen.
+
+## 2.11
+- **Kaart in het programma zelf, zonder browser:** het programma haalt de tegels op van je squaremap-webserver (`tiles/<wereld>/<zoom>/<x>_<z>.png`) en tekent alleen wat in beeld is. Slepen, in- en uitzoomen, alle werelden, spawn, spelers live met naam, richting en spoor (uit squaremap zelf), en een menu Renderen. Doet niets zolang het tabblad dicht is.
+- Wereldnamen worden uit squaremap gelezen (bijv. `minecraft_overworld`), zodat de rendercommando's kloppen.
+
 ## 2.10
 - **Tabblad Kaart (nieuw, nu met squaremap):** toont of je kaartwebsite online is, opent hem met één klik in je browser (adres instelbaar, met adres voor andere apparaten) en bedient het renderen: hele wereld, alleen rond de spawn met instelbare straal, pauzeren/hervatten, stoppen en instellingen herladen.
 
