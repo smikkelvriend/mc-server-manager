@@ -13,6 +13,10 @@ Bouwen naar .exe:  pyinstaller --onefile --windowed --name MCServerManager mc_se
 
 import gzip
 import hashlib
+import hmac
+import http.server
+import ipaddress
+import secrets
 import importlib
 import json
 import math
@@ -46,9 +50,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.15"
+APP_VERSION = "2.16"
 
 CHANGELOG = """
+2.16 - Telefoon: bedien je server op afstand via een webpagina/app met wachtwoord (tabblad Beheer, Telefoon).
 2.15 - Donker thema (Instellingen -> Gedrag).
 2.14.1 - Kaart werkt ook als de server uit staat: gebruikt de opgeslagen tegels van squaremap.
 2.14 - Nieuw tabblad Beheer: spelersstatistieken, Windows-meldingen, server-tuning en wereldgrootte met opruimen.
@@ -172,6 +177,7 @@ DEFAULTS = {
     "squaremap_url": "http://localhost:8080",
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
+    "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
     "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
@@ -3674,6 +3680,290 @@ class MapTab(ttk.Frame):
 
 
 # --------------------------------------------------------------------------
+# Bediening op afstand (telefoon): kleine beveiligde webserver in het programma
+# --------------------------------------------------------------------------
+def _png(w, h, rgb_rows):
+    raw = b"".join(b"\x00" + bytes(r) for r in rgb_rows)
+
+    def ch(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    return (b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) +
+            ch(b"IDAT", zlib.compress(raw, 6)) + ch(b"IEND", b""))
+
+
+def app_icon_png(size=192):
+    """Eenvoudig app-icoon (grasblok) zonder afbeeldingsbestand."""
+    g = ["GGGGGGGGGGGGGGGG", "GGgGGGGGgGGGGgGG", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGgGGGG", "DDDDDDDDDDDDDDDD", "DdDDDDdDDDDdDDDD",
+         "DDDDDDDDDDDDDDdD", "DDDdDDDDDDDDDDDD", "DDDDDDDDDdDDDDDD", "DDdDDDDDDDDDDDDD", "DDDDDDdDDDDDDdDD", "DDDDDDDDDDDDDDDD",
+         "DdDDDDDDDdDDDDDD", "DDDDDDDDDDDDDDDD", "DDDDdDDDDDDDdDDD", "DDDDDDDDDDDDDDDD"]
+    pal = {"G": (91, 175, 52), "g": (70, 150, 40), "D": (134, 96, 67), "d": (110, 78, 52)}
+    k = size // 16
+    rows = []
+    for y in range(16):
+        row = []
+        for x in range(16):
+            row += list(pal[g[y][x]]) * k
+        rows += [row] * k
+    return _png(k * 16, k * 16, rows)
+
+
+REMOTE_PAGE = r"""<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.png"><link rel="apple-touch-icon" href="/icon.png">
+<title>MC Server</title><style>
+:root{--bg:#0f172a;--card:#1e293b;--b:#334155;--t:#e2e8f0;--m:#94a3b8;--g:#22c55e;--r:#ef4444;--y:#f59e0b;--a:#3b82f6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:15px system-ui,sans-serif;padding:env(safe-area-inset-top) 0 80px}
+header{position:sticky;top:0;background:#111827;padding:12px 16px;display:flex;align-items:center;gap:10px;z-index:5;border-bottom:1px solid var(--b)}
+header b{font-size:17px;flex:1}.dot{width:12px;height:12px;border-radius:50%;background:var(--m)}
+main{padding:12px;max-width:760px;margin:auto;display:grid;gap:12px}.card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px}
+h3{margin:0 0 8px;font-size:13px;color:var(--m);text-transform:uppercase;letter-spacing:.05em}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.s{background:#0f172a;border-radius:10px;padding:8px;text-align:center}
+.s b{display:block;font-size:18px}.s span{font-size:11px;color:var(--m)}
+button{background:var(--b);color:var(--t);border:0;border-radius:10px;padding:12px 14px;font-size:15px;font-weight:600}
+button:active{opacity:.7}.row{display:flex;gap:8px;flex-wrap:wrap}.row button{flex:1}.go{background:#15803d}.stop{background:#b45309}.kill{background:#b91c1c}
+#con{background:#020617;border-radius:10px;padding:8px;height:42vh;overflow:auto;font:12px ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.e{color:#fca5a5}.w{color:#fcd34d}.o{color:#5eead4}.c{color:#93c5fd}
+form{display:flex;gap:8px;margin-top:8px}input{flex:1;background:#0f172a;border:1px solid var(--b);color:var(--t);border-radius:10px;padding:12px;font-size:16px;min-width:0}
+canvas{width:100%;height:64px;display:block}.pl{display:flex;flex-wrap:wrap;gap:6px}.pl span{background:#0f172a;border-radius:20px;padding:5px 11px}
+#login{max-width:340px;margin:20vh auto;padding:16px}#login input{width:100%;margin:10px 0}.hide{display:none}
+#toast{position:fixed;left:12px;right:12px;bottom:14px;background:#334155;padding:12px;border-radius:12px;display:none;z-index:9}
+</style></head><body>
+<div id="login" class="card hide"><h3>MC Server Manager</h3><input id="pw" type="password" placeholder="Wachtwoord" autocomplete="current-password"><button class="go" style="width:100%" onclick="login()">Inloggen</button><p id="lerr" style="color:var(--r)"></p></div>
+<div id="app" class="hide"><header><span class="dot" id="dot"></span><b id="st">…</b><span id="up" style="color:var(--m)"></span></header><main>
+<div class="card"><div class="grid"><div class="s"><b id="cpu">-</b><span>CPU</span></div><div class="s"><b id="ram">-</b><span>Geheugen</span></div><div class="s"><b id="tps">-</b><span>TPS</span></div></div>
+<div class="grid" style="margin-top:8px"><div class="s"><canvas id="g1"></canvas><span>CPU</span></div><div class="s"><canvas id="g2"></canvas><span>Geheugen</span></div><div class="s"><canvas id="g3"></canvas><span>TPS</span></div></div></div>
+<div class="card"><h3>Server</h3><div class="row"><button class="go" onclick="act('start')">Starten</button><button class="stop" onclick="act('restart')">Herstarten</button><button class="kill" onclick="act('stop')">Stoppen</button></div></div>
+<div class="card"><h3>Spelers online (<span id="pn">0</span>)</h3><div class="pl" id="pl"><span style="color:var(--m)">niemand</span></div></div>
+<div class="card"><h3>Console</h3><div id="con"></div><form onsubmit="return send()"><input id="cmd" placeholder="Commando…" autocapitalize="off" autocomplete="off" enterkeyhint="send"><button class="go">Stuur</button></form>
+<div class="row" style="margin-top:8px"><button onclick="q('list')">list</button><button onclick="q('save-all')">save-all</button><button onclick="q('tps')">tps</button></div></div>
+</main></div><div id="toast"></div>
+<script>
+let since=0,busy=0;const $=i=>document.getElementById(i);
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',3500)}
+async function api(p,b){const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}});
+ if(r.status==401){show(false);throw 0}return r.json()}
+function show(on){$('app').classList.toggle('hide',!on);$('login').classList.toggle('hide',on)}
+async function login(){const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify({password:$('pw').value})});
+ const j=await r.json();if(j.ok){$('pw').value='';show(true);since=0;$('con').innerHTML='';poll()}else $('lerr').textContent=j.error||'Mislukt'}
+function spark(id,d,col){const c=$(id),x=c.getContext('2d');c.width=c.clientWidth*2;c.height=c.clientHeight*2;x.clearRect(0,0,c.width,c.height);
+ d=d.filter(v=>v!=null);if(d.length<2)return;let lo=Math.min(...d),hi=Math.max(...d);if(hi-lo<1e-6){hi+=1;lo-=1}
+ x.strokeStyle=col;x.lineWidth=3;x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*c.width,Y=c.height-(v-lo)/(hi-lo)*(c.height-8)-4;i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+function esc(s){return s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}
+async function poll(){if(busy)return;busy=1;try{const j=await api('/api/state?since='+since);
+ const m={online:['Online','var(--g)'],starting:['Opstarten…','var(--y)'],stopping:['Stoppen…','var(--y)'],stopped:['Gestopt','var(--r)']}[j.state]||[j.state,'var(--m)'];
+ $('st').textContent=m[0];$('dot').style.background=m[1];$('up').textContent=j.stats.uptime&&j.stats.uptime!='-'?j.stats.uptime:'';
+ $('cpu').textContent=j.stats.cpu;$('ram').textContent=(j.stats.ram||'-').split(' / ')[0];$('tps').textContent=j.stats.tps;
+ spark('g1',j.graphs.cpu,'#38bdf8');spark('g2',j.graphs.ram,'#a78bfa');spark('g3',j.graphs.tps,'#4ade80');
+ $('pn').textContent=j.players.length;$('pl').innerHTML=j.players.length?j.players.map(n=>'<span>'+esc(n)+'</span>').join(''):'<span style="color:var(--m)">niemand</span>';
+ const c=$('con'),bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;
+ j.lines.forEach(l=>{const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);since=Math.max(since,l[0])});
+ while(c.childElementCount>400)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}catch(e){}busy=0}
+async function act(a){if(!confirm({start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?'}[a]))return;
+ try{const j=await api('/api/action',{name:a});toast(j.msg||'Gedaan');poll()}catch(e){}}
+async function q(c){try{await api('/api/cmd',{cmd:c});setTimeout(poll,600)}catch(e){}}
+function send(){const v=$('cmd').value.trim();if(v){q(v);$('cmd').value=''}return false}
+fetch('/api/state?since=0',{headers:{'X-MC':'1'}}).then(r=>{show(r.status!=401);if(r.status!=401)poll()});setInterval(poll,2000);
+</script></body></html>"""
+
+
+class RemoteServer:
+    """Webserver voor de telefoon. Alles wat met het programma zelf te maken heeft gebeurt in de hoofdthread (via wachtrij)."""
+
+    def __init__(self, app):
+        self.app = app
+        self.httpd = None
+        self.thread = None
+        self.lines = deque(maxlen=400)   # (id, tekst, soort)
+        self.lid = 0
+        self.snap = {"state": "stopped", "stats": {}, "players": [], "graphs": {"cpu": [], "ram": [], "tps": []}}
+        self.actions = queue.Queue()
+        self.sessions = {}
+        self.fails = {}
+        self.error = ""
+        self.lock = threading.Lock()
+
+    # --- vanuit de hoofdthread ---
+    def push(self, e):
+        kind = {"error": "e", "warn": "w", "ok": "o", "cmd": "c"}.get(e.get("tag"), "")
+        text = e.get("raw") if e.get("kind") == "own" else (e.get("raw") or "")
+        with self.lock:
+            self.lid += 1
+            self.lines.append((self.lid, str(text)[:600], kind))
+
+    def update(self):
+        a = self.app
+        try:
+            def series(sk):
+                pts = [v for _t, v in list(sk.data)[-150:]]
+                return pts[::max(1, len(pts) // 60)]
+            snap = {"state": a.srv_state, "stats": {k: a.sv[k].get() for k in ("uptime", "cpu", "ram", "tps", "players")},
+                    "players": sorted(a.players), "graphs": {"cpu": series(a.spark_cpu), "ram": series(a.spark_ram),
+                                                                "tps": series(a.spark_tps)}}
+            with self.lock:
+                self.snap = snap
+        except Exception:
+            pass
+
+    def drain_actions(self):
+        while True:
+            try:
+                kind, arg = self.actions.get_nowait()
+            except queue.Empty:
+                return
+            a = self.app
+            try:
+                if kind == "cmd":
+                    a.srv_send(arg)
+                elif kind == "start" and not a.srv_running():
+                    a.srv_start()
+                elif kind == "stop" and a.srv_running():
+                    a.srv_stop()
+                elif kind == "restart" and a.srv_running():
+                    a.srv_stop(restart=True)
+                a.log(f"Telefoon: {kind}" + (f" {arg}" if arg else ""), "info")
+            except Exception as e:
+                a.log(f"Telefoon-opdracht mislukt: {e}", "warn")
+
+    # --- start/stop ---
+    def start(self, port):
+        self.stop()
+        outer = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            server_version = "MCM"
+
+            def log_message(self, *a):
+                pass
+
+            def _ip_ok(self):
+                if not outer.app.cfg.get("remote_lan_only", True):
+                    return True
+                try:
+                    ip = ipaddress.ip_address(self.client_address[0].split("%")[0])
+                    return bool(ip.is_private or ip.is_loopback or ip.is_link_local or
+                                (ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")))
+                except ValueError:
+                    return False
+
+            def _send(self, code, body, ctype="application/json", extra=()):
+                if isinstance(body, (dict, list)):
+                    body = json.dumps(body).encode("utf-8")
+                elif isinstance(body, str):
+                    body = body.encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") or "json" in ctype else ""))
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                for k, v in extra:
+                    self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _authed(self):
+                m = re.search(r"mcsess=([A-Za-z0-9_-]+)", self.headers.get("Cookie", ""))
+                t = outer.sessions.get(m.group(1)) if m else None
+                return bool(t and t > time.time())
+
+            def _json_body(self):
+                try:
+                    n = min(int(self.headers.get("Content-Length") or 0), 10000)
+                    return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+                except (ValueError, OSError):
+                    return {}
+
+            def do_GET(self):
+                if not self._ip_ok():
+                    return self._send(403, "Alleen op je eigen netwerk", "text/plain")
+                path = self.path.split("?")[0]
+                if path == "/":
+                    return self._send(200, REMOTE_PAGE, "text/html")
+                if path == "/icon.png":
+                    return self._send(200, app_icon_png(192), "image/png")
+                if path == "/manifest.json":
+                    return self._send(200, {"name": "MC Server Manager", "short_name": "MC Server", "start_url": "/",
+                                            "display": "standalone", "background_color": "#0f172a", "theme_color": "#111827",
+                                            "icons": [{"src": "/icon.png", "sizes": "192x192", "type": "image/png"}]},
+                                      "application/manifest+json")
+                if path == "/api/state":
+                    if not self._authed():
+                        return self._send(401, {"error": "login"})
+                    try:
+                        since = int(re.search(r"since=(\d+)", self.path).group(1))
+                    except (AttributeError, ValueError):
+                        since = 0
+                    with outer.lock:
+                        snap = dict(outer.snap)
+                        lines = [l for l in outer.lines if l[0] > since]
+                    snap["lines"] = lines[-300:]
+                    return self._send(200, snap)
+                self._send(404, {"error": "niet gevonden"})
+
+            def do_POST(self):
+                if not self._ip_ok():
+                    return self._send(403, "Alleen op je eigen netwerk", "text/plain")
+                if self.headers.get("X-MC") != "1":
+                    return self._send(400, {"error": "ongeldig"})
+                path, body = self.path.split("?")[0], self._json_body()
+                if path == "/api/login":
+                    ip = self.client_address[0]
+                    now = time.time()
+                    f = [t for t in outer.fails.get(ip, []) if now - t < 300]
+                    if len(f) >= 5:
+                        return self._send(429, {"ok": False, "error": "Te veel pogingen. Probeer het over 5 minuten opnieuw."})
+                    real = str(outer.app.cfg.get("remote_pass", ""))
+                    if real and hmac.compare_digest(str(body.get("password", "")).encode(), real.encode()):
+                        tok = secrets.token_urlsafe(32)
+                        outer.sessions[tok] = now + 30 * 86400
+                        outer.fails.pop(ip, None)
+                        return self._send(200, {"ok": True}, extra=[("Set-Cookie", f"mcsess={tok}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
+                    f.append(now)
+                    outer.fails[ip] = f
+                    time.sleep(1)
+                    return self._send(200, {"ok": False, "error": "Verkeerd wachtwoord"})
+                if not self._authed():
+                    return self._send(401, {"error": "login"})
+                if path == "/api/cmd":
+                    c = str(body.get("cmd", "")).strip()
+                    if c and len(c) < 400 and "\n" not in c and "\r" not in c:
+                        outer.actions.put(("cmd", c))
+                        return self._send(200, {"ok": True})
+                    return self._send(400, {"error": "ongeldig commando"})
+                if path == "/api/action":
+                    n = body.get("name")
+                    if n in ("start", "stop", "restart"):
+                        outer.actions.put((n, None))
+                        return self._send(200, {"ok": True, "msg": {"start": "Starten…", "stop": "Stoppen…", "restart": "Herstarten…"}[n]})
+                return self._send(404, {"error": "niet gevonden"})
+
+        try:
+            self.httpd = http.server.ThreadingHTTPServer(("0.0.0.0", int(port)), H)
+        except OSError as e:
+            self.error = f"Poort {port} is niet beschikbaar ({e})."
+            self.httpd = None
+            return False
+        self.error = ""
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        return True
+
+    def stop(self):
+        if self.httpd:
+            try:
+                self.httpd.shutdown()
+                self.httpd.server_close()
+            except Exception:
+                pass
+        self.httpd = None
+        self.sessions.clear()
+
+    @property
+    def running(self):
+        return self.httpd is not None
+
+
+# --------------------------------------------------------------------------
 # Tabblad Beheer: spelersstatistieken, meldingen, server-tuning, wereldgrootte
 # --------------------------------------------------------------------------
 STATS_PATH = os.path.join(app_dir(), "mc_server_manager_spelers.json")
@@ -3859,12 +4149,15 @@ class BeheerTab(ttk.Frame):
         self.pg_nf = ttk.Frame(self.sub, padding=12)
         self.pg_tu = ttk.Frame(self.sub, padding=8)
         self.pg_wd = ttk.Frame(self.sub, padding=8)
-        for pg, t in ((self.pg_pl, "📊  Spelers"), (self.pg_nf, "🔔  Meldingen"), (self.pg_tu, "⚙  Tuning"), (self.pg_wd, "💾  Wereld")):
+        self.pg_rm = ttk.Frame(self.sub, padding=12)
+        for pg, t in ((self.pg_pl, "📊  Spelers"), (self.pg_nf, "🔔  Meldingen"), (self.pg_tu, "⚙  Tuning"), (self.pg_wd, "💾  Wereld"),
+                      (self.pg_rm, "📱  Telefoon")):
             self.sub.add(pg, text=t)
         self._build_players()
         self._build_notify()
         self._build_tuning()
         self._build_world()
+        self._build_remote()
         self.sub.bind("<<NotebookTabChanged>>", lambda e: self.on_show())
 
     def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
@@ -3880,6 +4173,8 @@ class BeheerTab(ttk.Frame):
             self.refresh_tuning()
         elif cur == str(self.pg_wd):
             self.refresh_world()
+        elif cur == str(self.pg_rm):
+            self.refresh_remote()
 
     def on_hide(self):
         self.visible = False
@@ -4136,6 +4431,82 @@ class BeheerTab(ttk.Frame):
         a.log("server.properties aangepast: " + ", ".join(f"{k}={v}" for k, v in (self.tu_fix[i] for i in sel)) +
               ". Herstart de server om het te laten werken.", "ok")
         self.refresh_tuning()
+
+    # ---------- telefoon ----------
+    def _build_remote(self):
+        f, c = self.pg_rm, self.app.cfg
+        ttk.Label(f, text="Bedien je server vanaf je telefoon (status, console, spelers, starten en stoppen).",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.rm_on = tk.BooleanVar(value=bool(c.get("remote_enabled")))
+        ttk.Checkbutton(f, text="Toegang vanaf telefoon aanzetten", variable=self.rm_on, command=self._rm_save).pack(anchor="w", pady=(10, 2))
+        self.rm_lan = tk.BooleanVar(value=bool(c.get("remote_lan_only", True)))
+        ttk.Checkbutton(f, text="Alleen vanaf je eigen netwerk of VPN (aanbevolen)", variable=self.rm_lan,
+                        command=self._rm_save).pack(anchor="w", pady=2)
+        row = ttk.Frame(f)
+        row.pack(anchor="w", pady=(8, 2))
+        ttk.Label(row, text="Poort:").pack(side="left")
+        self.rm_port = tk.IntVar(value=int(c.get("remote_port", 8765)))
+        sp = ttk.Spinbox(row, from_=1024, to=65535, width=7, textvariable=self.rm_port, command=self._rm_save)
+        sp.pack(side="left", padx=(4, 16))
+        sp.bind("<FocusOut>", lambda e: self._rm_save())
+        ttk.Label(row, text="Wachtwoord:").pack(side="left")
+        self.rm_pw = tk.StringVar(value=c.get("remote_pass", ""))
+        self.rm_pw_e = ttk.Entry(row, textvariable=self.rm_pw, width=22, show="•")
+        self.rm_pw_e.pack(side="left", padx=4)
+        self.rm_pw_e.bind("<FocusOut>", lambda e: self._rm_save())
+        self._btn(row, "👁", lambda: self.rm_pw_e.config(show="" if self.rm_pw_e.cget("show") else "•")).pack(side="left", padx=2)
+        self._btn(row, "Nieuw wachtwoord", self._rm_newpw).pack(side="left", padx=4)
+        self.rm_status = tk.Label(f, text="", font=("Segoe UI", 10, "bold"), anchor="w", justify="left")
+        self.rm_status.pack(anchor="w", pady=(12, 2))
+        self.rm_urls = tk.Label(f, text="", font=("Consolas", 12, "bold"), fg="#2563eb", anchor="w", justify="left", cursor="hand2")
+        self.rm_urls.pack(anchor="w")
+        ttk.Label(f, justify="left", foreground="#6b7280", wraplength=900, text=(
+            "Zo gebruik je het:\n"
+            "1. Zet je telefoon op hetzelfde wifi als deze pc, open het adres hierboven in Chrome en log in.\n"
+            "2. Chrome-menu (⋮) → ‘Toevoegen aan startscherm’: dan heb je een app-icoon.\n"
+            "3. Windows vraagt bij de eerste keer om toestemming in de firewall: kies ‘Privénetwerken’.\n\n"
+            "Buiten je wifi? Gebruik een VPN zoals Tailscale (gratis): installeer het op pc en telefoon en open het Tailscale-adres "
+            "van deze pc. Zet de poort NIET open in je router: de verbinding is niet versleuteld en wie het wachtwoord raadt, "
+            "kan je server bedienen.")).pack(anchor="w", pady=(14, 0))
+        self.rm_urls.bind("<Button-1>", lambda e: self._rm_copy())
+
+    def _rm_newpw(self):
+        self.rm_pw.set(secrets.token_urlsafe(9).replace("-", "x").replace("_", "y"))
+        self.rm_pw_e.config(show="")
+        self._rm_save()
+
+    def _rm_copy(self):
+        u = self.rm_urls.cget("text").split("\n")[0]
+        if u.startswith("http"):
+            self.clipboard_clear()
+            self.clipboard_append(u)
+            self.rm_status.config(text="Adres gekopieerd.", fg="#6b7280")
+
+    def _rm_save(self):
+        a, c = self.app, self.app.cfg
+        c["remote_enabled"] = bool(self.rm_on.get())
+        c["remote_lan_only"] = bool(self.rm_lan.get())
+        try:
+            c["remote_port"] = min(max(int(self.rm_port.get()), 1024), 65535)
+        except (tk.TclError, ValueError):
+            c["remote_port"] = 8765
+        c["remote_pass"] = self.rm_pw.get().strip()
+        if c["remote_enabled"] and not c["remote_pass"]:
+            self._rm_newpw()
+            return
+        a._save_cfg()
+        a.remote_apply()
+
+    def refresh_remote(self):
+        a, c = self.app, self.app.cfg
+        if a.remote.running:
+            ips = lan_ips() or ["jouw-pc-adres"]
+            self.rm_status.config(text="● Aan: open dit adres op je telefoon (klik om te kopiëren)", fg="#059669")
+            self.rm_urls.config(text="\n".join(f"http://{ip}:{c.get('remote_port', 8765)}" for ip in ips))
+        else:
+            err = a.remote.error
+            self.rm_status.config(text=("✖ " + err) if err else "○ Uit", fg="#b91c1c" if err else "#6b7280")
+            self.rm_urls.config(text="")
 
     # ---------- wereld ----------
     def _build_world(self):
@@ -4438,6 +4809,7 @@ class App(tk.Tk):
         self.tab_srv = ttk.Frame(self.nb, padding=10)
         self.tab_net = ttk.Frame(self.nb, padding=10)
         self.tab_plug = PluginsTab(self.nb, self)
+        self.remote = RemoteServer(self)
         self.tab_map = MapTab(self.nb, self)
         self.tab_beheer = BeheerTab(self.nb, self)
         self.nb.add(self.tab_srv, text="🖥  Server")
@@ -4451,6 +4823,8 @@ class App(tk.Tk):
         self._build_net_tab(self.tab_net)
         self.nb.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.after(300, self._spark_anim)
+        self.after(1500, self.remote_apply)
+        self.after(1000, self._remote_tick)
         self.after(700, self._upd_tab_blink)
 
         # --- Server ---
@@ -5174,6 +5548,7 @@ class App(tk.Tk):
             self.srv_hidden += 1
             self._update_hidden_label()
             return
+        self.remote.push(e)
         r = self._render(e)
         if r:
             self._text_insert(*r)
@@ -5309,6 +5684,30 @@ class App(tk.Tk):
         except tk.TclError:
             pass
         self.after(50, self._spark_anim)
+
+    def remote_apply(self):
+        """Zet de telefoon-webserver aan of uit volgens de instellingen."""
+        c = self.cfg
+        if c.get("remote_enabled") and c.get("remote_pass"):
+            if not self.remote.running or getattr(self, "_remote_port", None) != int(c.get("remote_port", 8765)):
+                self._remote_port = int(c.get("remote_port", 8765))
+                if self.remote.start(self._remote_port):
+                    self.log(f"Telefoon-toegang aan op poort {self._remote_port}.", "ok")
+                else:
+                    self.log("Telefoon-toegang: " + self.remote.error, "warn")
+        elif self.remote.running:
+            self.remote.stop()
+            self.log("Telefoon-toegang uitgezet.", "info")
+        try:
+            self.tab_beheer.refresh_remote()
+        except Exception:
+            pass
+
+    def _remote_tick(self):
+        if self.remote.running:
+            self.remote.update()
+            self.remote.drain_actions()
+        self.after(700, self._remote_tick)
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""
@@ -6697,7 +7096,8 @@ class SettingsDialog(tk.Toplevel):
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
-                     "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore"):
+                     "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
+                     "remote_enabled", "remote_port", "remote_pass", "remote_lan_only"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))

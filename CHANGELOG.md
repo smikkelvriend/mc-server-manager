@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.16
+- **Telefoon-app:** in Beheer, tabblad Telefoon zet je een beveiligd webadres aan dat je op je Android opent (en als app-icoon op het startscherm zet): status, CPU/geheugen/TPS-grafieken, spelers, live console, commando's sturen en starten/stoppen/herstarten. Standaard uit, met wachtwoord, begrensd tot je eigen netwerk of VPN.
+
 ## 2.15
 - **Donker thema:** aan te zetten bij Instellingen, Gedrag (het programma herstart daarna). Geldt voor alle tabbladen, lijsten, knoppen en de titelbalk.
 
