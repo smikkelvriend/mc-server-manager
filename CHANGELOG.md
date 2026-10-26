@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.21
+- Soepel zoomen met veel meer tussenstappen (ongeveer 16 per niveau in plaats van 3).
+- Tab-aanvulling leert de commando's via /help en /help <plugin> (de server geeft per plugin een lijst), toont daarna ook plugin-commando's zoals backuper, geeft bij plugin-commando's geen spelersnamen meer als subcommando en vergeet commando's die de server afkeurt.
+- Deze versie vereist een herstart.
+
 ## 2.20
 - Kaart zoomt soepel: tussen twee zoomniveaus loopt een korte animatie, rond de plek waar je zoomt. Op de telefoon ook staploos met twee vingers.
 - Deze versie vereist een herstart.

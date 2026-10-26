@@ -52,12 +52,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.20"
+APP_VERSION = "2.21"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.21 - Zoomen op de kaart gebruikt veel meer tussenstappen (ca. 16). Tab-aanvulling: leert via /help <plugin>, geeft bij plugin-commando's geen spelersnamen meer en vergeet commando's die de server afkeurt.
 2.20 - Kaart zoomt soepel (animatie tussen de niveaus) in het programma en op de telefoon, ook met twee vingers.
 2.19 - Nieuw tabblad Backups (Backuper beheren), spelerskoppen (Java en Bedrock) in lijsten, kaart en telefoon, en Tab-aanvulling kent nu ook plugin-commando's.
 2.18.1 - Plugins die up-to-date zijn tonen overal gewoon "Up-to-date".
@@ -2124,7 +2125,7 @@ TAB_SUBS = {
 PLM_PLUGIN_SUBS = {"load", "unload", "reload", "enable", "disable", "restart", "info", "lookup"}
 
 
-def complete_command(text, commands, players, plugins, history=()):
+def complete_command(text, commands, players, plugins, history=(), plugin_cmds=()):
     """Tab-aanvulling voor het commandoveld. Geeft alle volledige mogelijke vervangingen van de ingevoerde tekst."""
     slash = text.startswith("/")
     body = text[1:] if slash else text
@@ -2155,7 +2156,8 @@ def complete_command(text, commands, players, plugins, history=()):
             pref = " ".join(parts[:-1]).lower()
             hw = sorted({h.split(" ")[len(parts) - 1] for h in history if h.lower().startswith(pref + " " if pref else "")
                          and len(h.split(" ")) >= len(parts)}, key=str.lower)
-            pool = list(hw) + (list(pool) if pool else []) if hw or pool else players
+            # bij een plugin-commando zijn spelers zelden de juiste suggestie: dan alleen wat je eerder gebruikte
+            pool = list(hw) + (list(pool) if pool else []) if hw or pool else ([] if cmd in plugin_cmds else players)
     low = last.lower()
     return [pre + c for c in sorted({c for c in pool if c.lower().startswith(low)}, key=str.lower)]
 
@@ -3390,7 +3392,18 @@ class MapTab(ttk.Frame):
         return self._geometry()[2]  # pixels per blok (afgerond op hele tegelpixels, ook tijdens het soepele zoomen)
 
     # tijdens het zoomen: tegel van het volgende niveau verkleind met een kleine breuk (zoom p, subsample q) -> breedte in pixels
-    SHRINK = {-0.25: (5, 6, 430), -0.5: (7, 10, 364), -0.75: (3, 5, 309)}
+    _PQ = {}
+
+    @classmethod
+    def _frac(cls, ex):
+        """Beste breuk p/q (q <= 14) voor een verkleining 2**ex; geeft (p, q, tegelbreedte in pixels). Veel breuken = veel tussenstappen."""
+        k = round(ex * 32)
+        r = cls._PQ.get(k)
+        if r is None:
+            t = 2.0 ** (k / 32.0)
+            p, q = min(((pp, qq) for qq in range(1, 15) for pp in range(1, qq + 1)), key=lambda c: (abs(c[0] / c[1] - t), c[1]))
+            r = cls._PQ[k] = (p, q, -(-cls.TILE // q) * p)
+        return r
 
     def _zoom(self, d, mx=None, my=None):
         nz = max(0, min(self._max_zoom(), self.zl + d))
@@ -3405,7 +3418,7 @@ class MapTab(ttk.Frame):
         self.zl = nz
         nat = self._max_native(self.cur)
         # soepel alleen tussen de echte tegelniveaus; de extra vergrotingen daarbuiten springen gewoon
-        self.zfrac = 0.0 if max(ze, nz) > nat else max(-1.0, min(1.0, round((ze - nz) * 4) / 4))
+        self.zfrac = 0.0 if max(ze, nz) > nat else max(-1.0, min(1.0, round((ze - nz) * 32) / 32))
         self._anchor = (mx, my, wx, wz)
         self._fix_center()
         self._draw()
@@ -3424,11 +3437,13 @@ class MapTab(ttk.Frame):
         self._anim_job = None
         if not self.zfrac:
             return
-        self.zfrac = min(0.0, self.zfrac + 0.25) if self.zfrac < 0 else max(0.0, self.zfrac - 0.25)
+        step = max(1 / 32, abs(self.zfrac) * 0.16)          # uitlopen: eerst sneller, op het eind kleine stapjes
+        step = round(step * 32) / 32
+        self.zfrac = min(0.0, self.zfrac + step) if self.zfrac < 0 else max(0.0, self.zfrac - step)
         self._fix_center()
         self._draw()
         if self.zfrac:
-            self._anim_job = self.after(40, self._anim_tick)
+            self._anim_job = self.after(18, self._anim_tick)
         else:
             self._anchor = None
             self._dirty = True
@@ -3443,8 +3458,12 @@ class MapTab(ttk.Frame):
         native = min(math.ceil(ze - 1e-9), mx)
         ex = ze - native
         span = self.TILE * 2 ** (mx - native)     # blokken per tegel
-        wp = self.SHRINK[round(ex * 4) / 4][2] if (ex < 0 and abs(ex - round(ex)) > 1e-6 and round(ex * 4) / 4 in self.SHRINK) \
-            else round(self.TILE * 2 ** round(ex)) if abs(ex - round(ex)) <= 1e-6 else round(self.TILE * 2 ** ex)
+        if abs(ex - round(ex)) <= 1e-6:
+            wp = round(self.TILE * 2 ** round(ex))
+        elif ex < 0:
+            wp = self._frac(ex)[2]
+        else:
+            wp = round(self.TILE * 2 ** ex)
         self._wp = wp
         return native, span, wp / span
 
@@ -3501,17 +3520,17 @@ class MapTab(ttk.Frame):
 
     def _shrunk(self, key, ex, t_end):
         """Verkleinde tegel voor de tussenstappen tijdens het zoomen (snelle, ruwe verkleining; alleen onderweg zichtbaar)."""
-        zk = (key, round(ex * 4) / 4)
+        p, q, _w = self._frac(ex)
+        zk = (key, ("s", p, q))
         img = self.zimgs.get(zk)
         if img is None:
             if time.time() > t_end:
                 self._dirty = True
                 return None
-            p, q, _w = self.SHRINK.get(zk[1], (1, 1, 512))
-            img = self.imgs[key].subsample(q, q).zoom(p, p)
-            if len(self.zimgs) > 90:
-                keep = {(k, zk[1]) for k in self._view_keys(0.0)}
-                for old in [z for z in self.zimgs if z not in keep][:60]:
+            img = self.imgs[key].subsample(q, q).zoom(p, p) if q > 1 else self.imgs[key]
+            if len(self.zimgs) > 160:
+                keep = {(k, ("s", p, q)) for k in self._view_keys(0.0)}
+                for old in [z for z in self.zimgs if z not in keep][:120]:
                     del self.zimgs[old]
             self.zimgs[zk] = img
         return img
@@ -4418,7 +4437,7 @@ function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.
 function mapHome(){const m=cur.m;if(m.w){m.cx=m.w.spawn.x||0;m.cz=m.w.spawn.z||0;m.dirty=true}}
 function mapZoom(d,px,py){const m=cur.m;if(!m.w)return;const top=m.w.max+m.w.extra,nt=Math.max(0,Math.min(top,Math.round(m.zt)+d));if(nt==m.zt)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;
  if(px==null){px=W/2;py=H/2}const s=2**(m.zl-m.w.max);m.anc=[px,py,m.cx+(px-W/2)/s,m.cz+(py-H/2)/s];m.zt=nt;m.dirty=true}
-function mapAnim(m){if(!m.w||Math.abs(m.zl-m.zt)<0.002)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;m.zl+=(m.zt-m.zl)*0.28;if(Math.abs(m.zl-m.zt)<0.01)m.zl=m.zt;
+function mapAnim(m){if(!m.w||Math.abs(m.zl-m.zt)<0.002)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;m.zl+=(m.zt-m.zl)*0.18;if(Math.abs(m.zl-m.zt)<0.01)m.zl=m.zt;
  if(m.anc){const s=2**(m.zl-m.w.max);m.cx=m.anc[2]-(m.anc[0]-W/2)/s;m.cz=m.anc[3]-(m.anc[1]-H/2)/s}m.dirty=true}
 function mapSel(){const m=cur.m;if(['running','paused','waiting','rendering'].includes(m.gen.state))return toast('Er loopt al een taak');m.selmode=!m.selmode;$('msel').classList.toggle('pri',m.selmode);
  $('mmsg').textContent=m.selmode?'Sleep over de kaart om een gebied te kiezen':''}
@@ -6719,7 +6738,7 @@ class App(tk.Tk):
         self._after_exit = self._tmp_script = self._rr_job = None
         self._crash_times, self.cmd_hist, self.hist_idx = [], [str(x) for x in (self.cfg.get("cmd_history") or [])][-200:], 0
         self.hist_idx = len(self.cmd_hist)
-        self._learn_until = 0.0
+        self._learn_until, self._learn_topics = 0.0, []
         self._stop_t = self._last_nl = self._stop_deadline = 0
         self.noise = compile_noise(c.get("noise_filters", DEFAULT_NOISE))
         self.keep = compile_noise(c.get("startup_keep", DEFAULT_KEEP))
@@ -7628,6 +7647,7 @@ class App(tk.Tk):
             cmd = cmd[1:]
         if self.srv_send(cmd):
             self.cmd_hist.append(cmd)
+            self._last_sent = (cmd, time.time())
             self.hist_idx = len(self.cmd_hist)
             self.cfg["cmd_history"] = list(dict.fromkeys(self.cmd_hist))[-200:]
             self._save_cfg()
@@ -7655,14 +7675,26 @@ class App(tk.Tk):
         return self._plug_cache[2], self._plug_cache[3]
 
     def _learn_commands(self):
-        """Vraagt de server stil om zijn commandolijst (/help) zodat Tab ook plugin-commando's kent."""
+        """Vraagt de server stil om zijn commandolijst: eerst /help (lijst met plugins), dan /help <plugin> voor elk (daar staan de commando's)."""
         if self.srv_state != "online":
             return
-        self._learn_until = time.time() + 8
-        self._learn_dirty = False
+        self._learn_topics, self._learn_dirty = [], False
+        self._learn_until = time.time() + 6
         self.srv_send("help", echo=False)
-        self.after(9000, lambda: (self._save_cfg(), self.log(f"{len(self.cfg.get('learned_cmds') or [])} commando's geleerd voor Tab-aanvulling.", "info"))
-                   if getattr(self, "_learn_dirty", False) else None)
+        self.after(2000, self._learn_topics_next)
+
+    def _learn_topics_next(self, i=0):
+        tops = self._learn_topics
+        if self.srv_state != "online":
+            return
+        if i < len(tops) and i < 60:
+            self._learn_until = time.time() + 3
+            self.srv_send(f"help {tops[i]}", echo=False)
+            self.after(350, lambda: self._learn_topics_next(i + 1))
+            return
+        if getattr(self, "_learn_dirty", False):
+            self._save_cfg()
+            self.log(f"{len(self.cfg.get('learned_cmds') or [])} commando's geleerd voor Tab-aanvulling.", "info")
 
     def _tab_complete(self, direction=1):
         text = self.cmd_var.get()
@@ -7673,7 +7705,7 @@ class App(tk.Tk):
             cmds, plugs = self._plugin_cmds()
             cmds = set(cmds) | {x.lower() for x in plugs if re.fullmatch(r"[a-z0-9_\-]{2,30}", x.lower())} | set(self.cfg.get("learned_cmds") or [])
             cands = complete_command(text, sorted(set(VANILLA_CMDS) | cmds),
-                                     sorted(self.player_names, key=str.lower), plugs, self.cmd_hist)
+                                     sorted(self.player_names, key=str.lower), plugs, self.cmd_hist, cmds)
             if not cands:
                 return "break"
             st = self._tab_state = {"cands": cands, "i": 0 if direction > 0 else len(cands) - 1, "cur": None}
@@ -7808,9 +7840,20 @@ class App(tk.Tk):
             suppress = True
         if self.tab_map.gen["state"] in ("running", "paused") and self.tab_map.on_chunky(msg):
             suppress = True
+        ls = getattr(self, "_last_sent", None)
+        if ls and now - ls[1] < 3 and ("Incorrect argument for command" in msg or "Unknown or incomplete command" in msg or "Unknown command" in msg):
+            # een fout commando hoort niet in de Tab-aanvulling
+            self.cmd_hist[:] = [h for h in self.cmd_hist if h != ls[0]]
+            self.cfg["cmd_history"] = list(dict.fromkeys(self.cmd_hist))[-200:]
+            self._last_sent = None
         if now < self._learn_until:
             lc = re.match(r"^/([A-Za-z0-9_:.\-]{1,40}):", msg)
-            if lc or msg.startswith("Help: Index") or msg.startswith("Use /help"):
+            tp = re.match(r"^([A-Za-z0-9_.\-]{1,40}): All commands for ", msg)
+            if tp:
+                suppress = True
+                if tp.group(1) not in self._learn_topics:
+                    self._learn_topics.append(tp.group(1))
+            elif lc or msg.startswith("Help:") or msg.startswith("Use /help"):
                 suppress = True
                 if lc:
                     nm = lc.group(1).split(":")[-1].lower()
