@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.39"
+APP_VERSION = "2.40"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
-HOT_SAFE = False
+HOT_SAFE = True
 
 CHANGELOG = """
+2.40 - De grafieken (CPU, geheugen, TPS) zakken naar 0 zolang de server uit staat of slaapt, in plaats van te stoppen. Kan zonder herstart worden toegepast.
 2.39 - Het vinkje voor de slaapstand op het tabblad Server heet nu "Auto slaapstand".
 2.38 - Nieuwe knop "Nu in slaapstand" op het tabblad Server: zet de server meteen in slaapstand, ook als de automatische slaapstand uit staat.
 2.37 - Nieuw: venster Whitelist en bans (whitelist, bans, IP-bans, operators; ook via rechtsklik op een speler), logboek doorzoeken (alle logs inclusief .gz, filter op speler, soort en datum), slaapstand-knop op het Server-tabblad met statistieken en rooster, en gezondheidscontrole (schijf, TPS, geheugen).
@@ -8456,8 +8457,6 @@ class App(tk.Tk):
         self.players.clear()
         self.max_players = None
         self._refresh_players()
-        for sk in (self.spark_cpu, self.spark_ram, self.spark_tps):
-            sk.gap()
         self.sv["tps"].set("-")
         self._set_state("starting")
         self._console_add("▶ Starten: " + subprocess.list2cmdline(cmd), own=True)
@@ -9422,6 +9421,8 @@ class App(tk.Tk):
 
     def _stats_update(self):
         if not self.srv_running():
+            for sk in (self.spark_cpu, self.spark_ram, self.spark_tps):   # server uit of in slaapstand: de lijn zakt gewoon naar 0
+                sk.add(0)
             return
         now = time.time()
         self.sv["uptime"].set(fmt_dur(now - self.srv_t0))

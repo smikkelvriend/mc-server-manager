@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.40
+- De grafieken voor CPU, geheugen en TPS zakken naar 0 zolang de server uit staat of slaapt, in plaats van te stoppen met tekenen. Dit kan zonder herstart worden toegepast.
+
 ## 2.39
 - Het vinkje voor de slaapstand op het tabblad Server heet nu "Auto slaapstand" (de knop eronder zet de server meteen in slaapstand).
 - Deze versie vereist een herstart.
