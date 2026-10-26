@@ -52,12 +52,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.17"
+APP_VERSION = "2.18"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.18 - Telefoon-app heeft nu alle functies: server, plugins (zoeken/installeren), updates, kaart met gebied genereren, beheer, bereikbaarheid en instellingen.
 2.17 - Updates kunnen zonder herstart worden toegepast als het programma dat veilig vindt; de server blijft dan draaien.
 2.16.1 - Chunky pauzeert zodra er een speler online komt (met reden op de kaart) en hervat als de server leeg is.
 2.16 - Telefoon: bedien je server op afstand via een webpagina/app met wachtwoord (tabblad Beheer, Telefoon).
@@ -2752,8 +2753,8 @@ class PluginsTab(ttk.Frame):
         else:
             self._with_server_stopped(f"{len(sel)} plugin(s) uitzetten", act)
 
-    def _remove(self):
-        sel = self._selected()
+    def _remove(self, only=None):
+        sel = only if only is not None else self._selected()
         if not sel:
             return
         if not messagebox.askyesno(APP_NAME, f"{len(sel)} plugin(s) verwijderen?\n\n" + "\n".join(i["file"] for i in sel) +
@@ -3905,78 +3906,268 @@ def app_icon_png(size=192):
 REMOTE_PAGE = r"""<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.png"><link rel="apple-touch-icon" href="/icon.png">
 <title>MC Server</title><style>
-:root{--bg:#0f172a;--card:#1e293b;--b:#334155;--t:#e2e8f0;--m:#94a3b8;--g:#22c55e;--r:#ef4444;--y:#f59e0b;--a:#3b82f6}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:15px system-ui,sans-serif;padding:env(safe-area-inset-top) 0 80px}
-header{position:sticky;top:0;background:#111827;padding:12px 16px;display:flex;align-items:center;gap:10px;z-index:5;border-bottom:1px solid var(--b)}
-header b{font-size:17px;flex:1}.dot{width:12px;height:12px;border-radius:50%;background:var(--m)}
-main{padding:12px;max-width:760px;margin:auto;display:grid;gap:12px}.card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px}
-h3{margin:0 0 8px;font-size:13px;color:var(--m);text-transform:uppercase;letter-spacing:.05em}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.s{background:#0f172a;border-radius:10px;padding:8px;text-align:center}
+:root{--bg:#0f172a;--card:#1e293b;--in:#0b1220;--b:#334155;--t:#e2e8f0;--m:#94a3b8;--g:#22c55e;--r:#ef4444;--y:#f59e0b;--a:#3b82f6}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0}
+body{background:var(--bg);color:var(--t);font:15px system-ui,sans-serif;padding-top:env(safe-area-inset-top);padding-bottom:calc(66px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;background:#111827;padding:11px 14px;display:flex;align-items:center;gap:10px;z-index:5;border-bottom:1px solid var(--b)}
+header b{font-size:16px;flex:1}.dot{width:12px;height:12px;border-radius:50%;background:var(--m)}
+nav{position:fixed;left:0;right:0;bottom:0;background:#111827;border-top:1px solid var(--b);display:flex;z-index:6;padding-bottom:env(safe-area-inset-bottom);overflow-x:auto}
+nav a{flex:1;min-width:62px;text-align:center;padding:8px 2px 7px;font-size:11px;color:var(--m);position:relative}nav a i{display:block;font-style:normal;font-size:20px}
+nav a.on{color:#fff;background:#1e293b}nav a .bd{position:absolute;top:3px;right:12px;background:var(--r);color:#fff;border-radius:9px;font-size:10px;padding:0 5px}
+main{padding:12px;max-width:820px;margin:auto;display:grid;gap:12px}.card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;min-width:0}
+h3{margin:0 0 8px;font-size:12px;color:var(--m);text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.s{background:var(--in);border-radius:10px;padding:8px;text-align:center}
 .s b{display:block;font-size:18px}.s span{font-size:11px;color:var(--m)}
-button{background:var(--b);color:var(--t);border:0;border-radius:10px;padding:12px 14px;font-size:15px;font-weight:600}
-button:active{opacity:.7}.row{display:flex;gap:8px;flex-wrap:wrap}.row button{flex:1}.go{background:#15803d}.stop{background:#b45309}.kill{background:#b91c1c}
-#con{background:#020617;border-radius:10px;padding:8px;height:42vh;overflow:auto;font:12px ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
-.e{color:#fca5a5}.w{color:#fcd34d}.o{color:#5eead4}.c{color:#93c5fd}
-form{display:flex;gap:8px;margin-top:8px}input{flex:1;background:#0f172a;border:1px solid var(--b);color:var(--t);border-radius:10px;padding:12px;font-size:16px;min-width:0}
-canvas{width:100%;height:64px;display:block}.pl{display:flex;flex-wrap:wrap;gap:6px}.pl span{background:#0f172a;border-radius:20px;padding:5px 11px}
-#login{max-width:340px;margin:20vh auto;padding:16px}#login input{width:100%;margin:10px 0}.hide{display:none}
-#toast{position:fixed;left:12px;right:12px;bottom:14px;background:#334155;padding:12px;border-radius:12px;display:none;z-index:9}
+button,.btn{background:var(--b);color:var(--t);border:0;border-radius:10px;padding:11px 13px;font-size:14px;font-weight:600;font-family:inherit}
+button:active{opacity:.7}button:disabled{opacity:.4}.sm{padding:7px 10px;font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>button{flex:1}
+.go{background:#15803d}.warn{background:#b45309}.bad{background:#b91c1c}.pri{background:#1d4ed8}
+input,select{background:var(--in);border:1px solid var(--b);color:var(--t);border-radius:10px;padding:11px;font-size:16px;min-width:0;font-family:inherit}
+input[type=checkbox]{width:22px;height:22px;accent-color:#3b82f6;flex:none;padding:0}
+.con{background:#020617;border-radius:10px;padding:8px;height:44vh;overflow:auto;font:12px ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.e{color:#fca5a5}.w{color:#fcd34d}.o{color:#5eead4}.c{color:#93c5fd}.mut{color:var(--m)}.ok{color:var(--g)}.err{color:var(--r)}.yel{color:var(--y)}
+form,.f{display:flex;gap:8px;margin-top:8px}form input,.f input{flex:1}canvas.sp{width:100%;height:56px;display:block}
+.chip{display:inline-block;background:var(--in);border-radius:20px;padding:6px 12px;margin:0 6px 6px 0}
+.li{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--b)}.li:first-child{border-top:0}.li>div{flex:1;min-width:0}
+.li b{display:block;overflow:hidden;text-overflow:ellipsis}.li small{color:var(--m);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:11px;border-radius:6px;padding:1px 6px;background:var(--b);margin-left:6px;font-weight:400}
+.bar{height:10px;background:var(--in);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--g);transition:width .5s}
+.hide{display:none!important}#login{max-width:340px;margin:20vh auto;padding:16px}#login input{width:100%;margin:10px 0}
+#toast{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));background:#475569;padding:12px;border-radius:12px;display:none;z-index:9;box-shadow:0 4px 20px #0008}
+#dlg{position:fixed;inset:0;background:#000a;z-index:20;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:420px;width:100%;white-space:pre-wrap}
+#mapbox{position:relative;height:62vh;min-height:320px;background:#0b1220;border-radius:12px;overflow:hidden;touch-action:none}#mapbox canvas{width:100%;height:100%;display:block}
+.mapbtn{position:absolute;right:8px;display:flex;flex-direction:column;gap:6px}.mapbtn button{width:42px;height:42px;padding:0;font-size:20px;background:#1e293bdd}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-top:1px solid var(--b);text-align:left}th{color:var(--m);font-weight:600;border:0}td.n,th.n{text-align:right}
+.lab{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--b)}.lab:first-child{border-top:0}.lab span{flex:1}.lab input:not([type=checkbox]){width:46%;flex:none}
 </style></head><body>
-<div id="login" class="card hide"><h3>MC Server Manager</h3><input id="pw" type="password" placeholder="Wachtwoord" autocomplete="current-password"><button class="go" style="width:100%" onclick="login()">Inloggen</button><p id="lerr" style="color:var(--r)"></p></div>
-<div id="app" class="hide"><header><span class="dot" id="dot"></span><b id="st">…</b><span id="up" style="color:var(--m)"></span></header><main>
-<div class="card"><div class="grid"><div class="s"><b id="cpu">-</b><span>CPU</span></div><div class="s"><b id="ram">-</b><span>Geheugen</span></div><div class="s"><b id="tps">-</b><span>TPS</span></div></div>
-<div class="grid" style="margin-top:8px"><div class="s"><canvas id="g1"></canvas><span>CPU</span></div><div class="s"><canvas id="g2"></canvas><span>Geheugen</span></div><div class="s"><canvas id="g3"></canvas><span>TPS</span></div></div></div>
-<div class="card"><h3>Server</h3><div class="row"><button class="go" onclick="act('start')">Starten</button><button class="stop" onclick="act('restart')">Herstarten</button><button class="kill" onclick="act('stop')">Stoppen</button></div></div>
-<div class="card"><h3>Spelers online (<span id="pn">0</span>)</h3><div class="pl" id="pl"><span style="color:var(--m)">niemand</span></div></div>
-<div class="card"><h3>Console</h3><div id="con"></div><form onsubmit="return send()"><input id="cmd" placeholder="Commando…" autocapitalize="off" autocomplete="off" enterkeyhint="send"><button class="go">Stuur</button></form>
-<div class="row" style="margin-top:8px"><button onclick="q('list')">list</button><button onclick="q('save-all')">save-all</button><button onclick="q('tps')">tps</button></div></div>
-</main></div><div id="toast"></div>
+<div id="login" class="card hide"><h3>MC Server Manager</h3><input id="pw" type="password" placeholder="Wachtwoord" autocomplete="current-password"><button class="go" style="width:100%" onclick="login()">Inloggen</button><div id="lerr" class="err" style="margin-top:8px"></div></div>
+<div id="app" class="hide"><header><span class="dot" id="dot"></span><b id="st">…</b><span id="up" class="mut"></span></header><main id="main"></main>
+<nav id="nav"></nav></div><div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
 <script>
-let since=0,busy=0;const $=i=>document.getElementById(i);
-function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',3500)}
-async function api(p,b){const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}});
- if(r.status==401){show(false);throw 0}return r.json()}
+const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=localStorage.getItem('tab')||'srv',LOG=[],cur={};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+function toast(t,ms=4000){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
+function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';
+ for(const [t,v,c] of [[no,false,''],[yes,true,'pri']]){const b=document.createElement('button');b.textContent=t;b.className=c;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
+async function api(p,b){let r;try{r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}})}catch(e){toast('Geen verbinding met de pc');throw e}
+ if(r.status==401){show(false);throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
+const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.msg);return j}catch(e){return null}};
 function show(on){$('app').classList.toggle('hide',!on);$('login').classList.toggle('hide',on)}
 async function login(){const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify({password:$('pw').value})});
- const j=await r.json();if(j.ok){$('pw').value='';show(true);since=0;$('con').innerHTML='';poll()}else $('lerr').textContent=j.error||'Mislukt'}
-function spark(id,d,col){const c=$(id),x=c.getContext('2d');c.width=c.clientWidth*2;c.height=c.clientHeight*2;x.clearRect(0,0,c.width,c.height);
- d=d.filter(v=>v!=null);if(d.length<2)return;let lo=Math.min(...d),hi=Math.max(...d);if(hi-lo<1e-6){hi+=1;lo-=1}
- x.strokeStyle=col;x.lineWidth=3;x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*c.width,Y=c.height-(v-lo)/(hi-lo)*(c.height-8)-4;i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
-function esc(s){return s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}
-async function poll(){if(busy)return;busy=1;try{const j=await api('/api/state?since='+since);
+ const j=await r.json();if(j.ok){$('pw').value='';show(true);since=nsince=asince=0;LOG=[];build();poll()}else $('lerr').textContent=j.error||'Mislukt'}
+$('pw').addEventListener('keydown',e=>{if(e.key=='Enter')login()});
+const TABS=[['srv','🖥️','Server'],['plug','🧩','Plugins'],['upd','🔧','Updates'],['map','🗺️','Kaart'],['beh','👥','Beheer'],['more','⚙️','Meer']];
+function build(){$('nav').innerHTML=TABS.map(t=>`<a data-t="${t[0]}" onclick="setTab('${t[0]}')"><i>${t[1]}</i>${t[2]}<span class="bd hide" id="bd-${t[0]}"></span></a>`).join('');setTab(tab)}
+function setTab(t){if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('tab',t)}catch(e){}
+ document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));$('main').innerHTML='';window.scrollTo(0,0);(V[t]||V.srv)()}
+const V={};
+/* ---------- Server ---------- */
+V.srv=()=>{$('main').innerHTML=`<div class="card"><div class="grid"><div class="s"><b id="cpu">-</b><span>CPU</span></div><div class="s"><b id="ram">-</b><span>Geheugen</span></div><div class="s"><b id="tps">-</b><span>TPS</span></div></div>
+<div class="grid" style="margin-top:8px"><div class="s"><canvas class="sp" id="g1"></canvas><span>CPU</span></div><div class="s"><canvas class="sp" id="g2"></canvas><span>Geheugen</span></div><div class="s"><canvas class="sp" id="g3"></canvas><span>TPS</span></div></div>
+<div class="mut" style="margin-top:8px;font-size:12px" id="stline"></div></div>
+<div class="card"><h3>Server</h3><div class="row"><button class="go" onclick="act('start')">Starten</button><button class="warn" onclick="act('restart')">Herstarten</button><button class="bad" onclick="act('stop')">Stoppen</button></div>
+<div id="busy" class="hide" style="margin-top:10px"><div class="mut" id="busytx" style="font-size:12px;margin-bottom:4px"></div><div class="bar"><i id="busybar" style="width:0"></i></div></div>
+<div class="row" style="margin-top:8px"><button class="sm" onclick="act('kill')">Geforceerd stoppen</button><button class="sm" onclick="ramDlg()">Geheugen (RAM)…</button></div></div>
+<div class="card"><h3><span>Spelers online (<span id="pn">0</span>)</span></h3><div id="pl"></div></div>
+<div class="card"><h3>Console <label class="mut" style="text-transform:none;font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="clean" onchange="go('/api/clean',{on:this.checked})">schoon</label></h3><div class="con" id="con"></div>
+<form onsubmit="return send()"><input id="cmd" placeholder="Commando…" autocapitalize="off" autocomplete="off" enterkeyhint="send"><button class="pri">Stuur</button></form>
+<div class="row" style="margin-top:8px"><button class="sm" onclick="q('list')">list</button><button class="sm" onclick="q('save-all')">save-all</button><button class="sm" onclick="q('tps')">tps</button></div></div>`;
+ cur.con=1;LOG.forEach(addLine);draw()};
+function addLine(l){const c=$('con');if(!c)return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
+ while(c.childElementCount>400)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
+function spark(id,d,col){const c=$(id);if(!c)return;const x=c.getContext('2d');c.width=c.clientWidth*2;c.height=c.clientHeight*2;x.clearRect(0,0,c.width,c.height);
+ d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let lo=Math.min(...d),hi=Math.max(...d);if(hi-lo<1e-6){hi+=1;lo-=1}
+ x.strokeStyle=col;x.lineWidth=3;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*c.width,Y=c.height-(v-lo)/(hi-lo)*(c.height-8)-4;i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+function draw(){const j=S;if(!j.stats||!$('cpu'))return;$('cpu').textContent=j.stats.cpu;$('ram').textContent=(j.stats.ram||'-').split(' / ')[0];$('tps').textContent=j.stats.tps;
+ spark('g1',j.graphs.cpu,'#38bdf8');spark('g2',j.graphs.ram,'#a78bfa');spark('g3',j.graphs.tps,'#4ade80');
+ $('pn').textContent=j.players.length;$('pl').innerHTML=j.players.length?j.players.map(p=>`<span class="chip" onclick="plDlg('${esc(p.name)}')">${esc(p.name)}${p.type?` <span class="mut" style="font-size:11px">${esc(p.type)}</span>`:''}</span>`).join(''):'<span class="mut">niemand</span>';
+ $('stline').textContent=[j.stats.temp&&j.stats.temp!='-'?'Temperatuur '+j.stats.temp:'',j.status].filter(Boolean).join('  •  ');
+ const b=$('busy');b.classList.toggle('hide',!j.busy);if(j.busy){$('busytx').textContent=j.status||'Bezig…';const p=j.progress||[0,1,'determinate'];$('busybar').style.width=(p[2]=='indeterminate'?100:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
+ if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
+async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
+async function q(c){await go('/api/cmd',{cmd:c});setTimeout(poll,600)}
+function send(){const v=$('cmd').value.trim();if(v){q(v);$('cmd').value=''}return false}
+async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
+function plDlg(n){const acts=[['kick','Kick'],['ban','Ban'],['pardon','Pardon'],['op','Op'],['deop','Deop'],['whitelist_add','Whitelist +'],['whitelist_remove','Whitelist −'],['gm','Gamemode'],['tp','Tp naar speler'],['msg','Bericht']];
+ $('dmsg').textContent='Speler: '+n;$('dbtn').innerHTML='';
+ for(const [a,t] of acts){const b=document.createElement('button');b.className='sm';b.textContent=t;b.onclick=async()=>{let arg='';
+  if(['kick','ban'].includes(a))arg=prompt('Reden (mag leeg):')||'';else if(a=='gm'){arg=prompt('survival, creative, adventure of spectator:','survival')||''}else if(a=='tp'){arg=prompt('Naar welke speler?')||'';if(!arg)return}else if(a=='msg'){arg=prompt('Bericht:')||'';if(!arg)return}
+  if(['ban','kick','op','deop'].includes(a)&&!await ask(t+' '+n+'?'))return;$('dlg').style.display='none';go('/api/player',{name:n,action:a,arg},t+' '+n)};$('dbtn').appendChild(b)}
+ const c=document.createElement('button');c.className='sm';c.textContent='Sluiten';c.onclick=()=>$('dlg').style.display='none';$('dbtn').appendChild(c);$('dlg').style.display='flex'}
+/* ---------- Plugins ---------- */
+V.plug=async()=>{$('main').innerHTML=`<div class="card"><h3>Plugins <button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
+<div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
+<label class="row mut" style="margin-top:8px;gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres" style="margin-top:8px"></div></div>`;
+ const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
+function renderPl(j){const items=j.items;$('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">Laden (/plm)</button>':''}</div>`+
+ items.map(i=>`<label class="li"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b class="${i.enabled?'':'mut'}">${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.enabled?'':'<span class="tag">uit</span>'}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div></label>`).join(''):'Geen plugins gevonden.'}
+function plSel(f,on){on?cur.sel.add(f):cur.sel.delete(f)}
+async function plAct(en,force,stop_ok){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');
+ const j=await go('/api/plugins/toggle',{files,enable:en,force:!!force,stop_ok:!!stop_ok,restart:true});if(!j)return;
+ if(j.confirm){if(await ask(j.confirm))return plAct(en,true,true);return}setTimeout(V.plug,1500)}
+async function plRm(){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');if(!await ask(files.length+' plugin(s) verwijderen?\nZe gaan naar een aparte map en kunnen worden teruggezet. Een draaiende server wordt eerst veilig gestopt en daarna weer gestart.'))return;
+ await go('/api/plugins/remove',{files});setTimeout(V.plug,2000)}
+async function plLoad(){await go('/api/plugins/plm',{files:[...cur.sel]},'Verstuurd')}
+async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres').innerHTML='<span class="mut">Zoeken…</span>';
+ const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
+ $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
+async function pInst(idx){const j=await go('/api/plugins/install',{idx});if(!j||!j.plan_id)return;
+ if(!await ask('Dit wordt geïnstalleerd:\n\n'+j.lines.join('\n')+(j.running?'\n\nDe server draait. Na het installeren kun je hem herstarten.':'')))return;
+ let restart=false;if(j.running)restart=await ask('Server nu herstarten zodat de plugin geladen wordt?','Ja, herstart','Later');
+ await go('/api/plugins/install',{plan_id:j.plan_id,restart});setTimeout(()=>V.plug(),1500)}
+/* ---------- Updates ---------- */
+V.upd=async()=>{$('main').innerHTML='<div class="card" id="u1">Laden…</div><div class="card" id="u2"></div>';cur.t=setInterval(updRender,3000);cur.stop=()=>clearInterval(cur.t);updRender()};
+async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))return;
+ $('u1').innerHTML=`<h3>Paper (Minecraft ${esc(j.mc)}, build ${esc(j.build)})</h3><div style="color:${j.paper.color||'inherit'}">${esc(j.paper.text)}</div>
+ <div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('all')">Alles controleren</button><button class="sm go" onclick="uInst('paper')">Paper updaten</button></div>
+ <label class="lab"><span>Ook bèta/alpha-versies</span><input type="checkbox" ${j.unstable?'checked':''} onchange="go('/api/updates/opt',{unstable:this.checked})"></label>
+ <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>`;
+ const n=j.rows.filter(r=>r.tag=='update').length;
+ $('u2').innerHTML=`<h3>Plugins <span>${n?`<button class="sm go" onclick="uInst('plugins')">Alle ${n} updaten</button>`:''}</span></h3>`+j.rows.map(r=>`<div class="li"><div><b>${esc(r.name)}</b><small>${esc(r.cur)} → ${esc(r.latest)} • ${esc(r.source)}</small></div><span class="${r.tag=='update'?'yel':r.tag=='ok'?'ok':r.tag=='error'?'err':'mut'}" style="font-size:12px;max-width:40%;text-align:right">${esc(r.status)}</span></div>`).join('')+
+ `<div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('plugins')">Plugins controleren</button></div>
+ <h3 style="margin-top:16px">Dit programma (versie ${esc(j.version)})</h3>${j.selfupd?`<div>Nieuwe versie ${esc(j.selfupd)} beschikbaar.</div><div class="row" style="margin-top:8px"><button class="go" onclick="selfUpd()">Installeren</button></div>`:'<div class="mut">Je hebt de nieuwste versie (voor zover bekend).</div><div class="row" style="margin-top:8px"><button class="sm" onclick="go(\'/api/selfupdate\',{action:\'check\'},\'Zoeken…\')">Zoek updates</button></div>'}`}
+async function uCheck(w){await go('/api/updates/check',{what:w},'Controleren…');setTimeout(updRender,4000)}
+async function uInst(w){if(!await ask(w=='paper'?'Paper updaten? De server wordt veilig gestopt en weer gestart.':'Alle plugin-updates installeren? De server wordt zo nodig veilig gestopt en weer gestart.'))return;await go('/api/updates/install',{what:w},'Bezig…')}
+async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'},'Bezig…')}
+/* ---------- Kaart ---------- */
+V.map=async()=>{$('main').innerHTML=`<div class="card"><div class="row"><select id="mw" style="flex:2" onchange="mapWorld(this.value)"></select><button class="sm" id="msel" onclick="mapSel()">▭ Gebied kiezen</button></div>
+<div id="mapbox" style="margin-top:8px"><canvas id="mc"></canvas><div class="mapbtn" style="top:8px"><button onclick="mapZoom(1)">＋</button><button onclick="mapZoom(-1)">－</button><button onclick="mapHome()">⌂</button></div></div>
+<div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div></div><div class="card hide" id="mgen"></div>`;
+ const m=cur.m={worlds:[],players:[],w:null,zl:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
+ mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
+async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
+ m.players=j.players||[];m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
+ if(first||!m.worlds.length){m.worlds=j.worlds;$('mw').innerHTML=j.worlds.map(w=>`<option value="${esc(w.name)}">${esc(w.display)}</option>`).join('');
+  if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
+ if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
+ m.dirty=true;genUI()}
+function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.w=w;m.zl=Math.min(w.def,w.max+w.extra);m.cx=w.spawn.x||0;m.cz=w.spawn.z||0;m.imgs.clear();$('mw').value=n;m.dirty=true}
+function mapHome(){const m=cur.m;if(m.w){m.cx=m.w.spawn.x||0;m.cz=m.w.spawn.z||0;m.dirty=true}}
+function mapZoom(d,px,py){const m=cur.m;if(!m.w)return;const nz=Math.max(0,Math.min(m.w.max+m.w.extra,m.zl+d));if(nz==m.zl)return;const cv=$('mc'),W=cv.clientWidth,H=cv.clientHeight;
+ if(px==null){px=W/2;py=H/2}const s=2**(m.zl-m.w.max),wx=m.cx+(px-W/2)/s,wz=m.cz+(py-H/2)/s;m.zl=nz;const s2=2**(m.zl-m.w.max);m.cx=wx-(px-W/2)/s2;m.cz=wz-(py-H/2)/s2;m.dirty=true}
+function mapSel(){const m=cur.m;if(['running','paused','waiting','rendering'].includes(m.gen.state))return toast('Er loopt al een taak');m.selmode=!m.selmode;$('msel').classList.toggle('pri',m.selmode);
+ $('mmsg').textContent=m.selmode?'Sleep over de kaart om een gebied te kiezen':''}
+function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=null;
+ const wpt=(x,y)=>{const s=2**(m.zl-m.w.max);return [m.cx+(x-cv.clientWidth/2)/s,m.cz+(y-cv.clientHeight/2)/s]};
+ cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.offsetX,e.offsetY]);if(pts.size==1){last=[e.offsetX,e.offsetY];if(m.selmode&&m.w){start=wpt(e.offsetX,e.offsetY);m.tmp=[start[0],start[1],start[0],start[1]]}}else{start=null;m.tmp=null;last=null}});
+ cv.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;const old=pts.get(e.pointerId);pts.set(e.pointerId,[e.offsetX,e.offsetY]);if(!m.w)return;
+  if(pts.size==2){const [a,b]=[...pts.values()];const d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(m.pd){m.pacc=(m.pacc||0)+Math.log2(d/m.pd);if(Math.abs(m.pacc)>0.6){mapZoom(m.pacc>0?1:-1,(a[0]+b[0])/2,(a[1]+b[1])/2);m.pacc=0}}m.pd=d;return}
+  if(m.selmode&&start){const p=wpt(e.offsetX,e.offsetY);m.tmp=[start[0],start[1],p[0],p[1]];m.dirty=true;return}
+  const s=2**(m.zl-m.w.max);m.cx-=(e.offsetX-old[0])/s;m.cz-=(e.offsetY-old[1])/s;m.dirty=true});
+ const up=e=>{pts.delete(e.pointerId);m.pd=0;if(m.selmode&&start&&m.tmp){const t=m.tmp;m.tmp=null;start=null;m.selmode=false;$('msel').classList.remove('pri');
+   const a=[Math.round(Math.min(t[0],t[2])),Math.round(Math.min(t[1],t[3])),Math.round(Math.max(t[0],t[2])),Math.round(Math.max(t[1],t[3]))];
+   if(a[2]-a[0]<32||a[3]-a[1]<32){toast('Gebied te klein');m.dirty=true;return}
+   go('/map/area',{world:m.w.name,area:a}).then(()=>mapLoad(false))}};
+ cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+ cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
+function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
+function tileImg(m,key){let t=m.imgs.get(key);if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.onerror=()=>{t.bad=true};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
+  if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
+function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
+ const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}
+ const w=m.w,nat=Math.min(m.zl,w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
+ const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=false;
+ for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
+  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.round(W/2+(tx*span-m.cx)*s),Math.round(H/2+(ty*span-m.cz)*s),Math.ceil(P),Math.ceil(P))}
+ const c=(a,b)=>[W/2+(a-m.cx)*s,H/2+(b-m.cz)*s];
+ const g=m.gen||{};const area=m.tmp?[Math.min(m.tmp[0],m.tmp[2]),Math.min(m.tmp[1],m.tmp[3]),Math.max(m.tmp[0],m.tmp[2]),Math.max(m.tmp[1],m.tmp[3])]:(g.area&&g.world==w.name?g.area:null);
+ if(area){const [ax,ay]=c(area[0],area[1]),[bx,by]=c(area[2],area[3]);const col={running:'#22c55e',paused:'#f59e0b',rendering:'#38bdf8',done:'#22c55e'}[g.state]||'#c084fc';
+  x.fillStyle=col+'33';x.strokeStyle=col;x.lineWidth=2;x.setLineDash([6,3]);x.fillRect(ax,ay,bx-ax,by-ay);x.strokeRect(ax,ay,bx-ax,by-ay);x.setLineDash([])}
+ const sp=w.spawn;if(sp){const [a,b]=c(sp.x||0,sp.z||0);x.fillStyle='#fde047';x.font='bold 18px sans-serif';x.fillText('⌂',a-6,b+6)}
+ for(const p of m.players){if(p.world!=w.name)continue;const [a,b]=c(p.x,p.z);x.fillStyle=pcol(p.name);x.strokeStyle='#fff';x.lineWidth=2;x.beginPath();x.arc(a,b,7,0,7);x.fill();x.stroke();
+  x.font='bold 12px sans-serif';const tw=x.measureText(p.name).width;x.fillStyle='#111827cc';x.fillRect(a-tw/2-4,b-27,tw+8,16);x.fillStyle='#fff';x.fillText(p.name,a-tw/2,b-15)}}
+function pcol(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return['#ef4444','#3b82f6','#22c55e','#eab308','#a855f7','#f97316','#14b8a6','#ec4899'][h%8]}
+function genUI(){const m=cur.m,g=m.gen||{},e=$('mgen');if(!e)return;const st=g.state||'idle';e.classList.toggle('hide',st=='idle');if(st=='idle')return;
+ const fmt=n=>Math.round(n||0).toLocaleString('nl'),a=g.area,size=a?`${a[2]-a[0]} × ${a[3]-a[1]} blokken (${fmt(g.chunks)} chunks)`:'';let t='',btn='';
+ if(st=='ready'){t='Gebied: '+size;btn=m.chunky?`<button class="go" onclick="genAct('start')">Genereren</button>`:'<span class="yel">Chunky staat niet in de plugins</span>';btn+=`<button onclick="genAct('clear')">Wissen</button>`}
+ else if(st=='waiting'){t='⏳ Wacht tot de server leeg is • '+size;btn='<button class="bad" onclick="genAct(\'cancel\')">Annuleren</button>'}
+ else if(st=='running'||st=='paused'){t=st=='paused'&&g.reason?'⏸ Gepauzeerd: '+g.reason:(st=='running'?'Chunks genereren':'⏸ Gepauzeerd')+' • '+size;btn=`<button class="warn" onclick="genAct('pause')">${st=='running'?'⏸ Pauze':'▶ Hervat'}</button><button class="bad" onclick="genAct('cancel')">■ Stop</button>`}
+ else if(st=='rendering')t='✔ Chunks klaar • kaart wordt bijgewerkt…';else if(st=='done'){t='✔ Klaar • '+size;btn='<button onclick="genAct(\'clear\')">Sluiten</button>'}
+ e.innerHTML=`<h3>Gebied genereren</h3><div>${esc(t)}</div><div class="bar" style="margin:8px 0"><i style="width:${st=='done'||st=='rendering'?100:(g.pct||0)}%"></i></div><div class="mut" style="font-size:12px">${esc(m.info||'')}${st=='paused'&&g.auto?' • hervat vanzelf als de server leeg is':''}</div><div class="row" style="margin-top:8px">${btn}</div>`}
+async function genAct(a){await go('/map/gen',{action:a});mapLoad(false)}
+/* ---------- Beheer ---------- */
+V.beh=()=>{$('main').innerHTML=`<div class="card"><h3>Spelers <button class="sm" onclick="behP()">↻</button></h3><div id="bp" class="mut">Laden…</div></div>
+<div class="card"><h3>Server-tuning <button class="sm" onclick="behT()">↻</button></h3><div id="bt" class="mut">Laden…</div></div>
+<div class="card"><h3>Wereldgrootte <button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div>`;behP();behT();behW()};
+const dur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}u ${m}m`:`${m}m`};
+async function behP(){const j=await go('/api/stats');if(!j||!$('bp'))return;j.rows.sort((a,b)=>b.online-a.online||b.time-a.time);
+ $('bp').innerHTML=j.rows.length?`<table><tr><th>Speler</th><th class="n">Tijd</th><th class="n">Dood</th><th class="n">Kills</th><th class="n">km</th></tr>`+j.rows.map(r=>`<tr><td>${r.online?'🟢 ':''}${esc(r.name)}</td><td class="n">${dur(r.time)}</td><td class="n">${r.deaths}</td><td class="n">${r.kills}</td><td class="n">${(r.dist/1000).toFixed(1)}</td></tr>`).join('')+'</table>':'Geen spelersgegevens gevonden.'}
+async function behT(){const j=await go('/api/tuning');if(!j||!$('bt'))return;const fx=j.rows.filter(r=>r.fix);
+ $('bt').innerHTML=j.rows.map(r=>`<div class="li"><div><b class="${r.warn?'yel':''}">${esc(r.what)}: ${esc(r.now)}</b><small style="white-space:normal">${esc(r.adv)}</small></div></div>`).join('')+(fx.length?`<div class="row" style="margin-top:8px"><button class="go" onclick='behFix(${JSON.stringify(fx.map(r=>r.fix.split("=")[0]))})'>Alle ${fx.length} adviezen toepassen</button></div>`:'')}
+async function behFix(keys){if(!await ask('Adviezen toepassen in server.properties? Je moet de server daarna herstarten.'))return;await go('/api/tuning/apply',{keys});behT()}
+async function behW(){const j=await go('/api/world');if(!j||!$('bw'))return;const tot=j.items.reduce((a,b)=>a+b.size,0)||1,fb=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
+ $('bw').innerHTML=j.items.map(i=>`<div class="li"><div><b>${esc(i.name)}</b><div class="bar" style="margin-top:4px"><i style="width:${i.size/tot*100}%"></i></div></div><span>${fb(i.size)}</span></div>`).join('')+(j.disk?`<div class="mut" style="margin-top:6px">Schijf: ${fb(j.disk.free)} vrij van ${fb(j.disk.total)}</div>`:'')+
+ `<div class="row" style="margin-top:10px"><button onclick="behLogs()">Oude logs opruimen</button></div><div class="mut" style="font-size:12px;margin-top:8px">Regio's buiten een gebied wegzetten: kies op de kaart een gebied en gebruik dat op de pc (de server moet uit staan).</div>`}
+async function behLogs(){if(!await ask('Logs ouder dan 7 dagen en crash-reports ouder dan 14 dagen verwijderen?'))return;await go('/api/world/logs',{},'Opgeruimd');setTimeout(behW,1500)}
+/* ---------- Meer ---------- */
+V.more=()=>{$('main').innerHTML=`<div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div><div class="card"><h3>Instellingen van het programma</h3><div id="set" class="mut">Laden…</div></div>
+<div class="card"><h3>Logboek van het programma</h3><div class="con" id="alog" style="height:30vh"></div></div>
+<div class="card"><h3>Telefoon</h3><div class="row"><button onclick="logout()">Uitloggen</button></div><div class="mut" style="font-size:12px;margin-top:8px" id="ver"></div></div>`;
+ netLoad();setLoad();LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')};
+const LOG2=[];function addAlog(l){const c=$('alog');if(!c)return;const d=document.createElement('div');d.className={error:'e',warn:'w',ok:'o'}[l[3]]||'';d.textContent=`[${l[1]}] ${l[2]}`;c.appendChild(d);c.scrollTop=c.scrollHeight}
+async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
+ $('net').innerHTML=`<div style="color:${j.status.color||'inherit'}">${esc(j.status.text)}</div><div class="mut" style="margin:4px 0">${esc(j.motd)} ${esc(j.info)}</div><div style="color:${j.bedrock.color||'inherit'}">${esc(j.bedrock.text)}</div><div class="mut" style="font-size:12px;margin-top:4px;white-space:pre-wrap">${esc(j.diag)}</div>
+ <div class="f"><input id="nh" value="${esc(j.host)}" placeholder="Adres/IP"><input id="np" value="${esc(j.jport)}" style="max-width:90px" inputmode="numeric"></div>
+ <div class="row" style="margin-top:8px"><button onclick="netChk(false)" ${j.busy?'disabled':''}>Controleer</button><button onclick="netChk(true)" ${j.busy?'disabled':''}>Alleen lokaal</button></div>`}
+async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport:$('np').value,local},'Controleren…');setTimeout(netLoad,3500);setTimeout(netLoad,8000)}
+async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;
+ $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
+const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+async function logout(){document.cookie='mcsess=;Max-Age=0;path=/';show(false)}
+/* ---------- poll ---------- */
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;
  const m={online:['Online','var(--g)'],starting:['Opstarten…','var(--y)'],stopping:['Stoppen…','var(--y)'],stopped:['Gestopt','var(--r)']}[j.state]||[j.state,'var(--m)'];
  $('st').textContent=m[0];$('dot').style.background=m[1];$('up').textContent=j.stats.uptime&&j.stats.uptime!='-'?j.stats.uptime:'';
- $('cpu').textContent=j.stats.cpu;$('ram').textContent=(j.stats.ram||'-').split(' / ')[0];$('tps').textContent=j.stats.tps;
- spark('g1',j.graphs.cpu,'#38bdf8');spark('g2',j.graphs.ram,'#a78bfa');spark('g3',j.graphs.tps,'#4ade80');
- $('pn').textContent=j.players.length;$('pl').innerHTML=j.players.length?j.players.map(n=>'<span>'+esc(n)+'</span>').join(''):'<span style="color:var(--m)">niemand</span>';
- const c=$('con'),bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;
- j.lines.forEach(l=>{const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);since=Math.max(since,l[0])});
- while(c.childElementCount>400)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}catch(e){}busy=0}
-async function act(a){if(!confirm({start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?'}[a]))return;
- try{const j=await api('/api/action',{name:a});toast(j.msg||'Gedaan');poll()}catch(e){}}
-async function q(c){try{await api('/api/cmd',{cmd:c});setTimeout(poll,600)}catch(e){}}
-function send(){const v=$('cmd').value.trim();if(v){q(v);$('cmd').value=''}return false}
-fetch('/api/state?since=0',{headers:{'X-MC':'1'}}).then(r=>{show(r.status!=401);if(r.status!=401)poll()});setInterval(poll,2000);
-</script></body></html>"""
+ j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>400)LOG.shift();if(tab=='srv')addLine(l)});
+ j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='more')addAlog(l)});
+ const bd=$('bd-upd');if(bd){bd.classList.toggle('hide',!j.selfupd);bd.textContent='!'}
+ if(tab=='srv')draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){}busy=0}
+fetch('/api/state?since=0',{headers:{'X-MC':'1'}}).then(r=>{show(r.status!=401);if(r.status!=401){build();poll()}});setInterval(poll,2000);
+</script></body></html>
+"""
 
 
 class RemoteServer:
-    """Webserver voor de telefoon. Alles wat met het programma zelf te maken heeft gebeurt in de hoofdthread (via wachtrij)."""
+    """Webserver voor de telefoon. Alles wat het programma zelf aanraakt gebeurt in de hoofdthread (call_main)."""
+
+    SETTINGS = {  # sleutel -> (soort, label, min, max)
+        "confirm": ("bool", "Bevestiging vragen voor updates"), "auto_restart": ("bool", "Automatisch herstarten na een crash"),
+        "keep_server_backups": ("bool", "Backups van server.jar bewaren"), "server_backups_max": ("int", "Aantal server.jar-backups", 1, 99),
+        "keep_plugin_backups": ("bool", "Backups van plugins bewaren"), "plugin_backups_max": ("int", "Aantal plugin-backups", 1, 99),
+        "stop_timeout": ("int", "Wachttijd bij stoppen (sec)", 10, 600), "poll_secs": ("int", "Spelers/TPS verversen (sec, 0 = uit)", 0, 600),
+        "graph_minutes": ("int", "Grafiek-tijdvenster (min)", 1, 180), "java_xms": ("str", "Java min. geheugen (bijv. 1G)"),
+        "java_xmx": ("str", "Java max. geheugen (bijv. 4G)"), "java_extra": ("str", "Extra Java-opties"),
+        "selfupdate_check": ("bool", "Automatisch zoeken naar programma-updates"), "selfupdate_auto": ("bool", "Updates automatisch installeren"),
+        "clean_console": ("bool", "Schone console"), "console_max_lines": ("int", "Maximaal aantal consoleregels", 500, 50000),
+        "temp_enabled": ("bool", "Temperatuur tonen"), "temp_warn": ("int", "Temperatuurwaarschuwing (°C)", 50, 110),
+        "notify_crash": ("bool", "Melding bij crash"), "notify_start": ("bool", "Melding als de server klaar is met starten"),
+        "notify_join": ("bool", "Melding als een speler binnenkomt"), "notify_leave": ("bool", "Melding als een speler weggaat"),
+        "notify_chunky": ("bool", "Melding als genereren klaar is"), "notify_update": ("bool", "Melding bij programma-update"),
+        "notify_ignore": ("str", "Namen zonder melding (komma's)"),
+    }
 
     def __init__(self, app):
         self.app = app
         self.httpd = None
         self.thread = None
-        self.lines = deque(maxlen=400)   # (id, tekst, soort)
+        self.lines = deque(maxlen=400)
         self.lid = 0
+        self.notes = deque(maxlen=100)
+        self.nid = 0
+        self.alog = deque(maxlen=200)
+        self.alid = 0
         self.snap = {"state": "stopped", "stats": {}, "players": [], "graphs": {"cpu": [], "ram": [], "tps": []}}
-        self.actions = queue.Queue()
+        self.rpcs = queue.Queue()
+        self.auto_until = 0.0
+        self.answer = True
         self.sessions = {}
         self.fails = {}
         self.error = ""
         self.lock = threading.Lock()
+        self.results = []
+        self.plans = {}
+        self._shim_done = False
 
-    # --- vanuit de hoofdthread ---
+    # ================= hoofdthread =================
     def push(self, e):
         kind = {"error": "e", "warn": "w", "ok": "o", "cmd": "c"}.get(e.get("tag"), "")
         text = e.get("raw") if e.get("kind") == "own" else (e.get("raw") or "")
@@ -3984,44 +4175,498 @@ class RemoteServer:
             self.lid += 1
             self.lines.append((self.lid, str(text)[:600], kind))
 
+    def push_log(self, text, level):
+        with self.lock:
+            self.alid += 1
+            self.alog.append((self.alid, datetime.now().strftime("%H:%M:%S"), str(text)[:500], level))
+
+    def note(self, text, level="info"):
+        with self.lock:
+            self.nid += 1
+            self.notes.append((self.nid, level, str(text)[:1500]))
+
+    def _install_shim(self):
+        """Vensters van het programma worden automatisch beantwoord als de opdracht van de telefoon komt."""
+        if self._shim_done:
+            return
+        self._shim_done = True
+        me = self
+
+        def msg_of(a, k):
+            return str(a[1] if len(a) > 1 else k.get("message", ""))
+
+        for name in ("askyesno", "askokcancel", "askretrycancel"):
+            orig = getattr(messagebox, name)
+
+            def mk(orig):
+                def f(*a, **k):
+                    if time.time() < me.auto_until:
+                        me.note(msg_of(a, k).strip(), "ask")
+                        return me.answer
+                    return orig(*a, **k)
+                return f
+            setattr(messagebox, name, mk(orig))
+        for name, lvl in (("showinfo", "info"), ("showwarning", "warn"), ("showerror", "error")):
+            orig = getattr(messagebox, name)
+
+            def mk2(orig, lvl):
+                def f(*a, **k):
+                    if time.time() < me.auto_until:
+                        me.note(msg_of(a, k).strip(), lvl)
+                        return "ok"
+                    return orig(*a, **k)
+                return f
+            setattr(messagebox, name, mk2(orig, lvl))
+
+    def call_main(self, fn, timeout=60, auto=False, answer=True):
+        ev, box = threading.Event(), {}
+        self.rpcs.put((fn, ev, box, auto, answer))
+        if not ev.wait(timeout):
+            raise TimeoutError("Het programma reageert niet")
+        if "err" in box:
+            raise box["err"]
+        return box.get("val")
+
+    def pump(self):
+        while True:
+            try:
+                fn, ev, box, auto, answer = self.rpcs.get_nowait()
+            except queue.Empty:
+                return
+            if auto:
+                self.auto_until = time.time() + 60
+                self.answer = answer
+            try:
+                box["val"] = fn()
+            except Exception as e:  # noqa
+                box["err"] = e
+            if auto:
+                self.auto_until = time.time() + 2   # korte nasleep voor vensters die direct na de opdracht komen
+            ev.set()
+
     def update(self):
         a = self.app
         try:
             def series(sk):
                 pts = [v for _t, v in list(sk.data)[-150:]]
                 return pts[::max(1, len(pts) // 60)]
-            snap = {"state": a.srv_state, "stats": {k: a.sv[k].get() for k in ("uptime", "cpu", "ram", "tps", "players")},
-                    "players": sorted(a.players), "graphs": {"cpu": series(a.spark_cpu), "ram": series(a.spark_ram),
-                                                                "tps": series(a.spark_tps)}}
+            pl = []
+            for iid in a.ptree.get_children():
+                v = a.ptree.item(iid, "values")
+                pl.append({"name": iid, "type": v[1] if len(v) > 1 else "", "since": v[2] if len(v) > 2 else ""})
+            g = a.tab_map.gen
+            pb = a.pbar
+            snap = {"state": a.srv_state, "stats": {k: a.sv[k].get() for k in ("uptime", "cpu", "ram", "tps", "players", "temp")},
+                    "players": pl, "graphs": {"cpu": series(a.spark_cpu), "ram": series(a.spark_ram), "tps": series(a.spark_tps)},
+                    "busy": bool(a.busy), "status": a.status_var.get(), "clean": bool(a.clean_var.get()),
+                    "progress": [float(pb.cget("value") or 0), float(pb.cget("maximum") or 1), str(pb.cget("mode"))],
+                    "selfupd": (a._upd or {}).get("version") if getattr(a, "_upd", None) else None,
+                    "gen": {k: (list(g[k]) if isinstance(g.get(k), tuple) else g.get(k)) for k in ("state", "pct", "done", "chunks", "area", "world", "reason", "auto")},
+                    "gen_info": a.tab_map.gen_info.cget("text") if g.get("state") != "idle" else "",
+                    "version": APP_VERSION}
             with self.lock:
                 self.snap = snap
         except Exception:
             pass
 
-    def drain_actions(self):
-        while True:
-            try:
-                kind, arg = self.actions.get_nowait()
-            except queue.Empty:
-                return
-            a = self.app
-            try:
-                if kind == "cmd":
-                    a.srv_send(arg)
-                elif kind == "start" and not a.srv_running():
-                    a.srv_start()
-                elif kind == "stop" and a.srv_running():
-                    a.srv_stop()
-                elif kind == "restart" and a.srv_running():
-                    a.srv_stop(restart=True)
-                a.log(f"Telefoon: {kind}" + (f" {arg}" if arg else ""), "info")
-            except Exception as e:
-                a.log(f"Telefoon-opdracht mislukt: {e}", "warn")
+    def folder(self):
+        return self.call_main(lambda: self.app.folder_var.get().strip())
 
-    # --- start/stop ---
+    # ================= API (draaien in de serverthread) =================
+    def api_state(self, q, body):
+        def n(k):
+            try:
+                return int(q.get(k, ["0"])[0])
+            except ValueError:
+                return 0
+        since, ns, asn = n("since"), n("nsince"), n("asince")
+        with self.lock:
+            snap = dict(self.snap)
+            snap["lines"] = [l for l in self.lines if l[0] > since][-300:]
+            snap["notes"] = [x for x in self.notes if x[0] > ns]
+            snap["alog"] = [x for x in self.alog if x[0] > asn][-100:]
+        return 200, snap
+
+    def api_action(self, q, body):
+        n = body.get("name")
+        a = self.app
+        if n not in ("start", "stop", "restart", "kill"):
+            return 400, {"error": "onbekend"}
+
+        def go():
+            if n == "start":
+                if not a.srv_running():
+                    a.srv_start()
+            elif n == "stop" and a.srv_running():
+                a.srv_stop()
+            elif n == "restart" and a.srv_running():
+                a.srv_stop(restart=True)
+            elif n == "kill" and a.srv_running():
+                a.srv_kill()
+            a.log(f"Telefoon: {n}", "info")
+        self.call_main(go, auto=True)
+        return 200, {"ok": True, "msg": {"start": "Starten…", "stop": "Stoppen…", "restart": "Herstarten…", "kill": "Gestopt (geforceerd)"}[n]}
+
+    def api_cmd(self, q, body):
+        c = str(body.get("cmd", "")).strip()
+        if not c or len(c) > 400 or "\n" in c or "\r" in c:
+            return 400, {"error": "ongeldig commando"}
+        ok = self.call_main(lambda: self.app.srv_send(c))
+        return 200, {"ok": bool(ok), "msg": "" if ok else "De server draait niet"}
+
+    def api_player(self, q, body):
+        name, act, arg = str(body.get("name", "")), body.get("action"), str(body.get("arg", "")).replace("\n", " ").strip()[:200]
+        if not re.fullmatch(r"[\w.\-]{1,40}", name):
+            return 400, {"error": "ongeldige naam"}
+        cmds = {"kick": f"kick {name} {arg}", "ban": f"ban {name} {arg}", "pardon": f"pardon {name}", "op": f"op {name}",
+                "deop": f"deop {name}", "msg": f"msg {name} {arg}", "whitelist_add": f"whitelist add {name}",
+                "whitelist_remove": f"whitelist remove {name}", "gm": f"gamemode {arg if arg in ('survival', 'creative', 'adventure', 'spectator') else 'survival'} {name}",
+                "tp": f"tp {name} {arg}" if re.fullmatch(r"[\w.\-]{1,40}", arg) else ""}
+        c = cmds.get(act, "").strip()
+        if not c:
+            return 400, {"error": "ongeldige actie"}
+        ok = self.call_main(lambda: self.app.srv_send(c))
+        return 200, {"ok": bool(ok), "msg": c if ok else "De server draait niet"}
+
+    def api_clean(self, q, body):
+        self.call_main(lambda: self.app.clean_var.set(bool(body.get("on"))))
+        return 200, {"ok": True}
+
+    def api_ram(self, q, body):
+        v = str(body.get("value", ""))[:10]
+
+        def go():
+            self.app.ram_var.set(v)
+            self.app.ram_apply()
+        self.call_main(go, auto=True, answer=bool(body.get("restart", False)))
+        return 200, {"ok": True}
+
+    # --- plugins ---
+    def _pitem(self, i):
+        return {"file": i["file"], "name": i["name"], "version": i.get("version") or "", "enabled": i["enabled"],
+                "desc": (i.get("desc") or "")[:200], "missing": i.get("missing", []), "needed_by": i.get("needed_by", []),
+                "size": i.get("size", 0)}
+
+    def api_plugins(self, q, body):
+        folder = self.folder()
+        items = scan_plugins(os.path.join(folder, "plugins")) if folder else []
+        return 200, {"items": [self._pitem(i) for i in items], "folder": bool(folder),
+                     "plm": bool(self.call_main(lambda: plugman_name(items)))}
+
+    def _items_for(self, files):
+        t = self.app.tab_plug
+        t.refresh()
+        return [t.items[f] for f in files if f in t.items]
+
+    def api_plugins_toggle(self, q, body):
+        files, enable, force = list(body.get("files") or []), bool(body.get("enable")), bool(body.get("force"))
+        self.call_main(lambda: self.app.tab_plug.refresh())
+        t = self.app.tab_plug
+        sel = [t.items[f] for f in files if f in t.items and t.items[f]["enabled"] != enable]
+        if not sel:
+            return 200, {"ok": True, "msg": "Niets te doen"}
+        warn = ""
+        if not enable:
+            names = {i["name"].lower() for i in sel}
+            broken = sorted({o["name"] for o in t.items.values() if o["enabled"] and o["name"].lower() not in names
+                             and any(d.lower() in names for d in o["depend"])})
+            if broken:
+                warn = f"{', '.join(broken)} heeft deze plugin nodig en start dan niet meer goed."
+        else:
+            missing = sorted({m for i in sel for m in i["missing"]})
+            if missing:
+                warn = f"Deze plugin heeft {', '.join(missing)} nodig, en dat staat niet aan."
+        if warn and not force:
+            return 200, {"confirm": warn + " Toch doorgaan?"}
+        running = self.call_main(lambda: self.app.srv_running())
+        if not enable and running and not body.get("stop_ok"):
+            return 200, {"confirm": "De server draait. Om plugins uit te zetten moet hij even stoppen en daarna weer starten. Doorgaan?",
+                         "needs": "stop_ok"}
+        self.call_main(lambda: t._toggle(enable, only=[t.items[i["file"]] for i in sel]), auto=True, answer=bool(body.get("restart", True)))
+        return 200, {"ok": True, "msg": ("Aangezet" if enable else "Uitgezet") + f": {', '.join(i['name'] for i in sel)}"}
+
+    def api_plugins_remove(self, q, body):
+        files = list(body.get("files") or [])
+        t = self.app.tab_plug
+        self.call_main(lambda: t.refresh())
+        sel = [t.items[f] for f in files if f in t.items]
+        if not sel:
+            return 400, {"error": "niet gevonden"}
+        self.call_main(lambda: t._remove(only=sel), auto=True)
+        return 200, {"ok": True, "msg": f"{len(sel)} plugin(s) verwijderd (naar de map verwijderde_plugins)"}
+
+    def api_plugins_plm(self, q, body):
+        files = [f for f in (body.get("files") or []) if isinstance(f, str) and f.lower().endswith(".jar")]
+        self.call_main(lambda: self.app.tab_plug._plm_load([f[:-4] for f in files]), auto=True)
+        return 200, {"ok": True}
+
+    def api_plugins_search(self, q, body):
+        text = str(body.get("q", "")).strip()[:200]
+        if not text:
+            return 400, {"error": "Typ iets om te zoeken"}
+        t = self.app.tab_plug
+        mc, loaders, names, folder = self.call_main(lambda: (t._mc(), t._loaders(), t._installed_names() or [], self.app.folder_var.get().strip()))
+        if not names and folder:
+            names = [x["name"] for x in scan_plugins(os.path.join(folder, "plugins"))]
+        only = bool(body.get("compat")) and bool(mc)
+        results, info = search_plugins(text, mc, loaders, names, only_compat=only)
+        self.results = results
+        out = []
+        for idx, r in enumerate(results):
+            out.append({"idx": idx, "name": r["name"], "desc": (r.get("desc") or "")[:300], "exact": bool(r.get("exact")),
+                        "compat": r.get("compat"), "installed": bool(r.get("installed")), "downloads": r.get("downloads", 0),
+                        "updated": r["updated"].strftime("%d-%m-%Y") if r.get("updated") else "", "sources": r.get("sources", []),
+                        "why": r.get("why") or "", "page": r.get("page") or "", "versions": (r.get("versions") or [])[-1:]})
+        msg = ("Ik snap dit als: " + " / ".join(info["concepts"]) + ".") if info.get("concepts") else ""
+        return 200, {"results": out, "mc": mc, "info": msg + ((" (let op: " + "; ".join(info["errors"]) + ")") if info.get("errors") else "")}
+
+    def api_plugins_install(self, q, body):
+        t = self.app.tab_plug
+        folder = self.folder()
+        pdir = os.path.join(folder, "plugins")
+        if body.get("plan_id"):
+            plan = self.plans.pop(body["plan_id"], None)
+            if not plan:
+                return 400, {"error": "Plan verlopen, begin opnieuw"}
+            done = install_plan(plan, pdir)
+            self.call_main(lambda: (self.app.log("Geïnstalleerd (telefoon): " + ", ".join(done), "ok"), t.refresh()))
+            run = self.call_main(lambda: self.app.srv_running())
+            if run:
+                self.call_main(lambda: t._apply_changes(done), auto=True, answer=bool(body.get("restart", False)))
+            return 200, {"ok": True, "msg": "Geïnstalleerd: " + ", ".join(done), "running": run}
+        try:
+            r = self.results[int(body.get("idx"))]
+        except (TypeError, ValueError, IndexError):
+            return 400, {"error": "Zoek eerst opnieuw"}
+        mc, loaders, names, unstable = self.call_main(lambda: (t._mc(), t._loaders(), t._installed_names() or [], self.app.unstable_var.get()))
+        plan, notes = plan_install(r, mc, loaders, names, unstable)
+        pid = secrets.token_urlsafe(8)
+        self.plans[pid] = plan
+        lines = []
+        for p in plan:
+            lines.append(f"{p.get('title', r['name'])} {p['version']} [{p['source']}]" + (" (verplichte afhankelijkheid)" if p.get("dep") else "")
+                         + (" ⚠ niet bevestigd voor jouw Minecraft-versie" if mc and not p.get("verified", True) else ""))
+        if any(p.get("vtype") not in (None, "release") for p in plan):
+            lines.append("Let op: er is alleen een bèta/alpha-versie.")
+        return 200, {"plan_id": pid, "lines": lines + notes, "running": self.call_main(lambda: self.app.srv_running())}
+
+    # --- updates ---
+    def api_updates(self, q, body):
+        a = self.app
+
+        def get():
+            rows = []
+            for iid in a.tree.get_children():
+                v = a.tree.item(iid, "values")
+                tag = (a.tree.item(iid, "tags") or [""])[0]
+                rows.append({"id": iid, "name": v[0], "file": v[1], "cur": v[2], "latest": v[3], "source": v[4], "status": v[5], "tag": tag})
+            return {"paper": {"text": a.paper_label.cget("text"), "color": a.paper_label.cget("fg")}, "mc": a.mc_var.get(),
+                    "build": a.build_var.get(), "rows": rows, "unstable": bool(a.unstable_var.get()),
+                    "updfolder": bool(a.updfolder_var.get()), "selfupd": (a._upd or {}).get("version") if getattr(a, "_upd", None) else None,
+                    "version": APP_VERSION}
+        return 200, self.call_main(get)
+
+    def api_updates_check(self, q, body):
+        a = self.app
+        what = body.get("what", "all")
+        fn = {"all": a.on_check_all, "paper": a.on_paper_check, "plugins": a.on_plugins_check}.get(what)
+        if not fn:
+            return 400, {"error": "onbekend"}
+        self.call_main(fn, auto=True)
+        return 200, {"ok": True}
+
+    def api_updates_install(self, q, body):
+        a = self.app
+        what, ids = body.get("what"), list(body.get("ids") or [])
+        if what == "paper":
+            self.call_main(a.on_paper_update, auto=True)
+        elif what == "plugins":
+            def go():
+                if ids:
+                    a.tree.selection_set([i for i in ids if a.tree.exists(i)])
+                    a.on_plugins_update(False)
+                else:
+                    a.on_plugins_update(True)
+            self.call_main(go, auto=True)
+        else:
+            return 400, {"error": "onbekend"}
+        return 200, {"ok": True}
+
+    def api_updates_opt(self, q, body):
+        a = self.app
+
+        def go():
+            if "unstable" in body:
+                a.unstable_var.set(bool(body["unstable"]))
+            if "updfolder" in body:
+                a.updfolder_var.set(bool(body["updfolder"]))
+            a._save_cfg()
+        self.call_main(go)
+        return 200, {"ok": True}
+
+    def api_selfupdate(self, q, body):
+        a = self.app
+        if body.get("action") == "check":
+            self.call_main(lambda: a.selfupdate_check(True), auto=True)
+        elif body.get("action") == "install":
+            self.call_main(a.selfupdate_install, auto=True, answer=True)
+        return 200, {"ok": True}
+
+    # --- bereikbaarheid ---
+    def api_net(self, q, body):
+        a = self.app
+
+        def get():
+            return {"host": a.reach_host_var.get(), "jport": a.reach_port_var.get(), "bed": bool(a.reach_bed_var.get()),
+                    "bport": a.reach_bport_var.get(), "lport": a.reach_lport_var.get(), "auto": bool(a.reach_auto_var.get()),
+                    "status": {"text": a.net_status.cget("text"), "color": a.net_status.cget("fg")},
+                    "motd": a.net_motd.cget("text"), "info": a.net_info.cget("text"), "diag": a.net_diag.cget("text"),
+                    "bedrock": {"text": a.net_bed.cget("text"), "color": a.net_bed.cget("fg")}, "busy": bool(a._net_busy)}
+        return 200, self.call_main(get)
+
+    def api_net_check(self, q, body):
+        a = self.app
+
+        def go():
+            for key, var in (("host", a.reach_host_var), ("jport", a.reach_port_var), ("bport", a.reach_bport_var),
+                             ("lport", a.reach_lport_var)):
+                if key in body:
+                    try:
+                        var.set(str(body[key]).strip() if key == "host" else int(body[key]))
+                    except (ValueError, tk.TclError):
+                        pass
+            if "bed" in body:
+                a.reach_bed_var.set(bool(body["bed"]))
+            if "auto" in body:
+                a.reach_auto_var.set(bool(body["auto"]))
+            a._save_cfg()
+            a.net_check(local_only=bool(body.get("local")))
+        self.call_main(go, auto=True)
+        return 200, {"ok": True}
+
+    # --- beheer ---
+    def api_stats(self, q, body):
+        rows = self.call_main(self.app.tab_beheer._collect_players)
+        return 200, {"rows": [{"name": r["name"], "online": bool(r["online"]), "time": r["time"], "sessions": r["sessions"], "last": r["last"],
+                               "deaths": r["deaths"], "kills": r["kills"], "dist": r["dist"]} for r in rows]}
+
+    def api_tuning(self, q, body):
+        b = self.app.tab_beheer
+
+        def get():
+            b.refresh_tuning()
+            fixes = {k[0] for k in b.tu_fix.values()}
+            out = []
+            for iid in b.tu_tree.get_children():
+                v = b.tu_tree.item(iid, "values")
+                tag = (b.tu_tree.item(iid, "tags") or [""])[0]
+                fx = b.tu_fix.get(iid)
+                out.append({"what": v[0], "now": v[1], "adv": v[2], "warn": tag == "warn", "fix": f"{fx[0]}={fx[1]}" if fx else ""})
+            return out
+        return 200, {"rows": self.call_main(get)}
+
+    def api_tuning_apply(self, q, body):
+        b = self.app.tab_beheer
+        keys = set(body.get("keys") or [])
+
+        def go():
+            b.refresh_tuning()
+            ids = [i for i, fx in b.tu_fix.items() if fx[0] in keys]
+            if not ids:
+                return False
+            b.tu_tree.selection_set(ids)
+            b.apply_tuning()
+            return True
+        ok = self.call_main(go, auto=True)
+        return 200, {"ok": bool(ok), "msg": "Aangepast. Herstart de server om het te laten werken." if ok else "Niets aan te passen"}
+
+    def api_world(self, q, body):
+        folder = self.folder()
+        out, du = measure_world(folder)
+        return 200, {"items": [{"name": n, "size": s, "files": f} for n, s, f in out],
+                     "disk": {"free": du.free, "total": du.total} if du else None}
+
+    def api_world_logs(self, q, body):
+        self.call_main(self.app.tab_beheer.clean_logs, auto=True)
+        return 200, {"ok": True}
+
+    def api_world_trim(self, q, body):
+        try:
+            area = tuple(int(x) for x in body.get("area"))
+            dim = body.get("dim", "overworld")
+            if len(area) != 4 or dim not in ("overworld", "nether", "end"):
+                raise ValueError
+        except (TypeError, ValueError):
+            return 400, {"error": "ongeldig gebied"}
+        b = self.app.tab_beheer
+        running = self.call_main(lambda: self.app.srv_running())
+        if body.get("confirm"):
+            def go():
+                self.app.tab_map.sel = area
+                b.trim_world.set(dim)
+                b.trim_regions()
+            self.call_main(go, auto=True)
+            return 200, {"ok": True}
+        move, keep = b.plan_trim(area, dim)
+        return 200, {"move": len(move), "keep": keep, "size": sum(s for _p, s in move), "running": running}
+
+    # --- instellingen ---
+    def api_settings(self, q, body):
+        a = self.app
+
+        def get():
+            out = []
+            for k, spec in self.SETTINGS.items():
+                out.append({"key": k, "type": spec[0], "label": spec[1], "value": a.cfg.get(k, DEFAULTS.get(k)),
+                            "min": spec[2] if len(spec) > 2 else None, "max": spec[3] if len(spec) > 3 else None})
+            return out
+        return 200, {"items": self.call_main(get)}
+
+    def api_settings_set(self, q, body):
+        a = self.app
+        k, v = body.get("key"), body.get("value")
+        spec = self.SETTINGS.get(k)
+        if not spec:
+            return 400, {"error": "onbekende instelling"}
+        try:
+            if spec[0] == "bool":
+                v = bool(v)
+            elif spec[0] == "int":
+                v = min(max(int(v), spec[2]), spec[3])
+            else:
+                v = str(v).strip()[:300]
+        except (TypeError, ValueError):
+            return 400, {"error": "ongeldige waarde"}
+
+        def go():
+            a.cfg[k] = v
+            if k == "clean_console":
+                a.clean_var.set(v)
+            a._save_cfg()
+            a.apply_settings()
+        self.call_main(go)
+        return 200, {"ok": True}
+
+    # ================= HTTP =================
     def start(self, port):
         self.stop()
         outer = self
+        self._install_shim()
+        routes = {
+            ("GET", "/api/state"): outer.api_state, ("POST", "/api/action"): outer.api_action, ("POST", "/api/cmd"): outer.api_cmd,
+            ("POST", "/api/player"): outer.api_player, ("POST", "/api/clean"): outer.api_clean, ("POST", "/api/ram"): outer.api_ram,
+            ("GET", "/api/plugins"): outer.api_plugins, ("POST", "/api/plugins/toggle"): outer.api_plugins_toggle,
+            ("POST", "/api/plugins/remove"): outer.api_plugins_remove, ("POST", "/api/plugins/plm"): outer.api_plugins_plm,
+            ("POST", "/api/plugins/search"): outer.api_plugins_search, ("POST", "/api/plugins/install"): outer.api_plugins_install,
+            ("GET", "/api/updates"): outer.api_updates, ("POST", "/api/updates/check"): outer.api_updates_check,
+            ("POST", "/api/updates/install"): outer.api_updates_install, ("POST", "/api/updates/opt"): outer.api_updates_opt,
+            ("POST", "/api/selfupdate"): outer.api_selfupdate,
+            ("GET", "/api/net"): outer.api_net, ("POST", "/api/net/check"): outer.api_net_check,
+            ("GET", "/api/stats"): outer.api_stats, ("GET", "/api/tuning"): outer.api_tuning, ("POST", "/api/tuning/apply"): outer.api_tuning_apply,
+            ("GET", "/api/world"): outer.api_world, ("POST", "/api/world/logs"): outer.api_world_logs, ("POST", "/api/world/trim"): outer.api_world_trim,
+            ("GET", "/api/settings"): outer.api_settings, ("POST", "/api/settings"): outer.api_settings_set,
+        }
+        routes.update(outer.extra_routes())
 
         class H(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -4048,7 +4693,7 @@ class RemoteServer:
                 self.send_response(code)
                 self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") or "json" in ctype else ""))
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cache-Control", "no-store" if not ctype.startswith("image/") else "max-age=30")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("X-Frame-Options", "DENY")
                 for k, v in extra:
@@ -4063,74 +4708,75 @@ class RemoteServer:
 
             def _json_body(self):
                 try:
-                    n = min(int(self.headers.get("Content-Length") or 0), 10000)
+                    n = min(int(self.headers.get("Content-Length") or 0), 20000)
                     return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
                 except (ValueError, OSError):
                     return {}
 
-            def do_GET(self):
+            def _dispatch(self, method):
                 if not self._ip_ok():
                     return self._send(403, "Alleen op je eigen netwerk", "text/plain")
-                path = self.path.split("?")[0]
-                if path == "/":
-                    return self._send(200, REMOTE_PAGE, "text/html")
-                if path == "/icon.png":
-                    return self._send(200, app_icon_png(192), "image/png")
-                if path == "/manifest.json":
-                    return self._send(200, {"name": "MC Server Manager", "short_name": "MC Server", "start_url": "/",
-                                            "display": "standalone", "background_color": "#0f172a", "theme_color": "#111827",
-                                            "icons": [{"src": "/icon.png", "sizes": "192x192", "type": "image/png"}]},
-                                      "application/manifest+json")
-                if path == "/api/state":
-                    if not self._authed():
-                        return self._send(401, {"error": "login"})
-                    try:
-                        since = int(re.search(r"since=(\d+)", self.path).group(1))
-                    except (AttributeError, ValueError):
-                        since = 0
-                    with outer.lock:
-                        snap = dict(outer.snap)
-                        lines = [l for l in outer.lines if l[0] > since]
-                    snap["lines"] = lines[-300:]
-                    return self._send(200, snap)
-                self._send(404, {"error": "niet gevonden"})
-
-            def do_POST(self):
-                if not self._ip_ok():
-                    return self._send(403, "Alleen op je eigen netwerk", "text/plain")
-                if self.headers.get("X-MC") != "1":
-                    return self._send(400, {"error": "ongeldig"})
-                path, body = self.path.split("?")[0], self._json_body()
-                if path == "/api/login":
-                    ip = self.client_address[0]
-                    now = time.time()
-                    f = [t for t in outer.fails.get(ip, []) if now - t < 300]
-                    if len(f) >= 5:
-                        return self._send(429, {"ok": False, "error": "Te veel pogingen. Probeer het over 5 minuten opnieuw."})
-                    real = str(outer.app.cfg.get("remote_pass", ""))
-                    if real and hmac.compare_digest(str(body.get("password", "")).encode(), real.encode()):
-                        tok = secrets.token_urlsafe(32)
-                        outer.sessions[tok] = now + 30 * 86400
-                        outer.fails.pop(ip, None)
-                        return self._send(200, {"ok": True}, extra=[("Set-Cookie", f"mcsess={tok}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
-                    f.append(now)
-                    outer.fails[ip] = f
-                    time.sleep(1)
-                    return self._send(200, {"ok": False, "error": "Verkeerd wachtwoord"})
+                u = urllib.parse.urlsplit(self.path)
+                path, query = u.path, urllib.parse.parse_qs(u.query)
+                if method == "POST":
+                    if self.headers.get("X-MC") != "1":
+                        return self._send(400, {"error": "ongeldig"})
+                    body = self._json_body()
+                else:
+                    body = {}
+                if method == "GET":
+                    if path == "/":
+                        return self._send(200, REMOTE_PAGE, "text/html")
+                    if path == "/icon.png":
+                        return self._send(200, app_icon_png(192), "image/png")
+                    if path == "/manifest.json":
+                        return self._send(200, {"name": "MC Server Manager", "short_name": "MC Server", "start_url": "/",
+                                                "display": "standalone", "background_color": "#0f172a", "theme_color": "#111827",
+                                                "icons": [{"src": "/icon.png", "sizes": "192x192", "type": "image/png"}]},
+                                          "application/manifest+json")
+                if method == "POST" and path == "/api/login":
+                    return self._login(body)
+                if not path.startswith("/api/") and not path.startswith("/map/"):
+                    return self._send(404, {"error": "niet gevonden"})
                 if not self._authed():
                     return self._send(401, {"error": "login"})
-                if path == "/api/cmd":
-                    c = str(body.get("cmd", "")).strip()
-                    if c and len(c) < 400 and "\n" not in c and "\r" not in c:
-                        outer.actions.put(("cmd", c))
-                        return self._send(200, {"ok": True})
-                    return self._send(400, {"error": "ongeldig commando"})
-                if path == "/api/action":
-                    n = body.get("name")
-                    if n in ("start", "stop", "restart"):
-                        outer.actions.put((n, None))
-                        return self._send(200, {"ok": True, "msg": {"start": "Starten…", "stop": "Stoppen…", "restart": "Herstarten…"}[n]})
-                return self._send(404, {"error": "niet gevonden"})
+                fn = routes.get((method, path))
+                if not fn:
+                    fn = outer.dynamic_route(method, path)
+                if not fn:
+                    return self._send(404, {"error": "niet gevonden"})
+                try:
+                    res = fn(query, body)
+                except TimeoutError as e:
+                    return self._send(504, {"error": str(e)})
+                except Exception as e:  # noqa
+                    return self._send(500, {"error": f"{type(e).__name__}: {e}"[:300]})
+                if len(res) == 3:
+                    return self._send(res[0], res[2], res[1])
+                return self._send(res[0], res[1])
+
+            def _login(self, body):
+                ip = self.client_address[0]
+                now = time.time()
+                f = [t for t in outer.fails.get(ip, []) if now - t < 300]
+                if len(f) >= 5:
+                    return self._send(429, {"ok": False, "error": "Te veel pogingen. Probeer het over 5 minuten opnieuw."})
+                real = str(outer.app.cfg.get("remote_pass", ""))
+                if real and hmac.compare_digest(str(body.get("password", "")).encode(), real.encode()):
+                    tok = secrets.token_urlsafe(32)
+                    outer.sessions[tok] = now + 30 * 86400
+                    outer.fails.pop(ip, None)
+                    return self._send(200, {"ok": True}, extra=[("Set-Cookie", f"mcsess={tok}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
+                f.append(now)
+                outer.fails[ip] = f
+                time.sleep(1)
+                return self._send(200, {"ok": False, "error": "Verkeerd wachtwoord"})
+
+            def do_GET(self):
+                self._dispatch("GET")
+
+            def do_POST(self):
+                self._dispatch("POST")
 
         try:
             self.httpd = http.server.ThreadingHTTPServer(("0.0.0.0", int(port)), H)
@@ -4142,6 +4788,109 @@ class RemoteServer:
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         return True
+
+    # --- kaart ---
+    def extra_routes(self):
+        return {("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen}
+
+    def dynamic_route(self, method, path):
+        if method == "GET" and path.startswith("/map/tile/"):
+            return lambda q, b: self.map_tile(path[len("/map/tile/"):])
+        return None
+
+    def map_tile(self, rest):
+        m = re.fullmatch(r"([\w.\-]{1,60})/(\d{1,2})/(-?\d{1,6})_(-?\d{1,6})\.png", rest)
+        if not m:
+            return 400, {"error": "ongeldig"}
+        data = self.app.tab_map._get(f"tiles/{m.group(1)}/{m.group(2)}/{m.group(3)}_{m.group(4)}.png")
+        if not data:
+            return 404, "text/plain", b""
+        return 200, "image/png", data
+
+    def api_map_info(self, q, body):
+        mt = self.app.tab_map
+        self.call_main(mt._upd_webdir)
+        raw = mt._get("tiles/settings.json")
+        if not raw:
+            return 200, {"worlds": [], "msg": "Geen kaart gevonden. Start de server met squaremap en laat hem eerst renderen."}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except ValueError:
+            return 200, {"worlds": [], "msg": "Kaartinstellingen onleesbaar"}
+        worlds = []
+        for w in sorted(data.get("worlds") or [], key=lambda w: w.get("order", 0)):
+            try:
+                st = json.loads((mt._get(f"tiles/{w['name']}/settings.json") or b"{}").decode("utf-8"))
+            except ValueError:
+                st = {}
+            z = st.get("zoom") or {}
+            worlds.append({"name": w["name"], "display": w.get("display_name") or w["name"], "type": w.get("type", ""),
+                           "max": int(z.get("max", 3)), "extra": int(z.get("extra", 1)), "def": int(z.get("def", 2)),
+                           "spawn": st.get("spawn") or {"x": 0, "z": 0}})
+        pl = []
+        try:
+            pr = mt._get("tiles/players.json")
+            pl = [p for p in (json.loads(pr.decode("utf-8")).get("players") or []) if "x" in p and "z" in p] if pr else []
+        except ValueError:
+            pass
+        g = mt.gen
+        return 200, {"worlds": worlds, "players": [{"name": p.get("name", "?"), "x": p["x"], "z": p["z"], "world": p.get("world"),
+                                                    "yaw": p.get("yaw")} for p in pl],
+                     "disk": bool(getattr(mt, "_from_disk", False)), "chunky": bool(self.call_main(mt._chunky_installed)),
+                     "gen": {k: (list(v) if isinstance(v, tuple) else v) for k, v in g.items() if k in
+                             ("state", "pct", "done", "chunks", "area", "world", "reason", "auto", "cur")},
+                     "gen_info": self.snap.get("gen_info", ""),
+                     "autopause": bool(mt.autopause_var.get()), "autoresume": bool(mt.autoresume_var.get())}
+
+    def api_map_area(self, q, body):
+        mt = self.app.tab_map
+        try:
+            ar = [int(v) for v in body.get("area")]
+            world = str(body.get("world", ""))
+            if len(ar) != 4 or not re.fullmatch(r"[\w.\-]{1,60}", world):
+                raise ValueError
+        except (TypeError, ValueError):
+            return 400, {"error": "ongeldig gebied"}
+        if mt.gen.get("state") in ("running", "paused", "waiting", "rendering"):
+            return 400, {"error": "Er loopt al een taak. Stop die eerst."}
+
+        def go():
+            r = mt._snap((ar[0], ar[1]), (ar[2], ar[3]))
+            if (r[2] - r[0]) < 32 or (r[3] - r[1]) < 32:
+                return "Gebied is te klein (minimaal 2 × 2 chunks)"
+            if (r[2] - r[0]) > 20000 or (r[3] - r[1]) > 20000:
+                return "Gebied is te groot (maximaal 20.000 blokken)"
+            mt.cur = world
+            mt.sel = r
+            mt.gen = {"state": "ready", "world": world, "area": r, "chunks": ((r[2] - r[0]) // 16) * ((r[3] - r[1]) // 16)}
+            mt._gen_refresh_ui()
+            mt._draw_overlay_only()
+            if body.get("start"):
+                mt.gen_begin()
+            return ""
+        err = self.call_main(go, auto=True)
+        if err:
+            return 400, {"error": err}
+        return 200, {"ok": True}
+
+    def api_map_gen(self, q, body):
+        mt = self.app.tab_map
+        act = body.get("action")
+
+        def go():
+            if act == "start" and mt.gen.get("state") == "ready":
+                mt.gen_begin()
+            elif act == "pause" and mt.gen.get("state") in ("running", "paused"):
+                mt.gen_toggle_pause()
+            elif act == "cancel" and mt.gen.get("state") in ("running", "paused", "waiting"):
+                mt.gen_cancel()
+            elif act == "clear":
+                mt.gen = {"state": "idle"}
+                mt.sel = None
+                mt.gen_hide()
+                mt._draw_overlay_only()
+        self.call_main(go, auto=True)
+        return 200, {"ok": True}
 
     def stop(self):
         if self.httpd:
@@ -4156,6 +4905,31 @@ class RemoteServer:
     @property
     def running(self):
         return self.httpd is not None
+
+
+def measure_world(folder):
+    """Grootte van werelden, kaart, logs en plugins. Geeft (lijst van (naam, bytes, bestanden), schijfgebruik of None)."""
+    out = []
+    try:
+        for root in world_roots(folder):
+            s, n = dir_size(root)
+            out.append((os.path.basename(root), s, n))
+        sqd = os.path.join(folder, "plugins", "squaremap")
+        for label, sub in (("Squaremap-kaart", os.path.join("plugins", "squaremap")), ("Logs", "logs"),
+                           ("Crash-reports", "crash-reports"), ("Plugins", "plugins")):
+            p = os.path.join(folder, sub)
+            if os.path.isdir(p):
+                s, n = dir_size(p)
+                if label == "Plugins" and os.path.isdir(sqd):
+                    s -= dir_size(sqd)[0]
+                out.append((label, s, n))
+        try:
+            du = shutil.disk_usage(folder)
+        except OSError:
+            du = None
+    except Exception:
+        out, du = [], None
+    return out, du
 
 
 # --------------------------------------------------------------------------
@@ -4746,28 +5520,7 @@ class BeheerTab(ttk.Frame):
         folder = self.app.folder_var.get().strip()
 
         def work():
-            out = []
-            try:
-                for root in world_roots(folder):
-                    s, n = dir_size(root)
-                    out.append((os.path.basename(root), s, n))
-                for label, sub in (("Squaremap-kaart", os.path.join("plugins", "squaremap")), ("Logs", "logs"),
-                                   ("Crash-reports", "crash-reports"), ("Plugins", "plugins")):
-                    p = os.path.join(folder, sub)
-                    if os.path.isdir(p):
-                        s, n = dir_size(p)
-                        if label == "Plugins":
-                            sq = dir_size(os.path.join(folder, "plugins", "squaremap"))[0] if os.path.isdir(
-                                os.path.join(folder, "plugins", "squaremap")) else 0
-                            s -= sq
-                        out.append((label, s, n))
-                try:
-                    du = shutil.disk_usage(folder)
-                except OSError:
-                    du = None
-            except Exception:
-                out, du = [], None
-            self.q.put((out, du))
+            self.q.put(measure_world(folder))
 
         threading.Thread(target=work, daemon=True).start()
         self.after(200, self._poll)
@@ -5132,6 +5885,10 @@ class App(tk.Tk):
     def _handle(self, m):
         k = m[0]
         if k == "log":
+            try:
+                self.remote.push_log(m[1], m[2])
+            except Exception:
+                pass
             self.logbox.config(state="normal")
             line = f"[{datetime.now():%H:%M:%S}] {m[1]}\n"
             self.logbox.insert("end", line, m[2])
@@ -5905,9 +6662,11 @@ class App(tk.Tk):
 
     def _remote_tick(self):
         if self.remote.running:
-            self.remote.update()
-            self.remote.drain_actions()
-        self.after(700, self._remote_tick)
+            self.remote.pump()
+            self._rt = getattr(self, "_rt", 0) + 1
+            if self._rt % 7 == 0:
+                self.remote.update()
+        self.after(100, self._remote_tick)
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""

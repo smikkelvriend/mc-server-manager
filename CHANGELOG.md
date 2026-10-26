@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.18
+- De telefoon-webapp heeft nu dezelfde functies als het programma op Windows: Server (grafieken, console, spelers kicken/bannen/op/gamemode, RAM), Plugins (aan/uit/verwijderen, zoeken en installeren), Updates (Paper, plugins, programma), Kaart (inzoomen en slepen, spelers live, gebied kiezen en Chunky starten/pauzeren/stoppen met voortgang en reden van pauze), Beheer (spelersstatistieken, tuning, wereldgrootte, logs opruimen) en Meer (bereikbaarheid, instellingen, logboek).
+- Vensters op de pc die door een opdracht van je telefoon verschijnen, worden automatisch beantwoord (kort tijdvenster), zodat de pc niet blijft wachten.
+- Deze versie vereist een herstart.
+
 ## 2.17
 - Updates zonder herstart: het programma beoordeelt zelf of een update veilig live kan (code-vergelijking plus een vlag per release). Zo ja, dan staat er "(zonder herstart)" bij de updateknop en blijft de server gewoon draaien. Anders herstart het programma zoals voorheen.
 - Chunky pauzeert automatisch zodra er een speler online komt en hervat als iedereen weg is; de reden staat in het Kaart-tabblad (was 2.16.1).
