@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12"
+APP_VERSION = "2.12.1"
 
 CHANGELOG = """
+2.12.1 - Bedrock-check zoekt zelf op welke UDP-poort Geyser echt gebruikt.
 2.12 - Grafieken lopen soepel door; Updates-tabje knippert met aantal bij beschikbare updates.
 2.11.4 - Kaart: geen dunne strepen meer tussen tegels op bepaalde zoomniveaus.
 2.11.3 - Kaart: inzoomen voorbij het diepste niveau geeft geen zwart beeld meer, en renderen gebruikt de juiste wereldnaam (minecraft:overworld).
@@ -887,6 +888,32 @@ def raknet_ping(host, port, timeout=4):
         finally:
             sock.close()
     raise last or OSError("geen antwoord")
+
+
+def java_udp_ports():
+    """UDP-poorten die een java-proces op deze pc open heeft (Windows). Geeft een gesorteerde lijst."""
+    if os.name != "nt":
+        return []
+    ps = ("Get-NetUDPEndpoint -EA SilentlyContinue | ForEach-Object { $p = (Get-Process -Id $_.OwningProcess -EA SilentlyContinue)."
+          "ProcessName; if ($p -like 'java*') { $_.LocalPort } } | Sort-Object -Unique")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=20,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        return sorted({int(x) for x in out.split() if x.isdigit()})
+    except Exception:
+        return []
+
+
+def find_geyser_port(bport):
+    """Zoekt welke UDP-poort van Java echt op een Bedrock-ping antwoordt. Geeft (poort, lijst_geprobeerd) of (None, lijst)."""
+    ports = java_udp_ports()
+    for pt in [pt for pt in ports if pt != bport]:
+        try:
+            raknet_ping("127.0.0.1", pt, timeout=1.5)
+            return pt, ports
+        except Exception:
+            continue
+    return None, ports
 
 
 def describe_net_error(e):
@@ -4615,6 +4642,14 @@ class App(tk.Tk):
                     res["ext_err"] = describe_net_error(e)
                 if bed:
                     try:
+                        raknet_ping("127.0.0.1", bport, timeout=1.5)
+                    except Exception:
+                        found, ports = find_geyser_port(bport)
+                        res["udp_ports"] = ports
+                        if found:
+                            res["bed_found"] = found
+                            bport = res["bport"] = found
+                    try:
                         res["bed"] = ext_status(host, bport, bedrock=True)
                     except Exception as e:
                         res["bed_err"] = describe_net_error(e)
@@ -4698,10 +4733,19 @@ class App(tk.Tk):
             self.net_motd.config(text="Geen server gevonden")
             self.net_info.config(text="")
             self._net_set_icon(None)
+        if res.get("bed_found") and self.reach_bport_var.get() != res["bed_found"]:
+            self.reach_bport_var.set(res["bed_found"])
         bl, bo = res.get("bed_loc"), res.get("bed_own")
         if bed and not bed["online"]:
             tried = ", ".join(f"{n} ({'online' if o else 'offline' if o is not None else 'fout'})" for n, o in bed.get("tried", []))
             lines = [f"Bedrock (Geyser): ✖ de controlediensten zien hem niet op UDP-poort {res['bport']}."]
+            if res.get("bed_found"):
+                lines.append(f"Geyser gevonden op UDP-poort {res['bed_found']} (automatisch ingesteld). "
+                             "Zet in je router de UDP-doorsturing op die poort.")
+            elif res.get("udp_ports") is not None:
+                lines.append("Java heeft geen UDP-poort open die op Bedrock antwoordt" +
+                             (f" (open: {', '.join(map(str, res['udp_ports']))})." if res["udp_ports"] else
+                              " (er is helemaal geen UDP-poort van Java open: draait Geyser wel? Bij lazymc slaapt de server)."))
             lines.append("Lokaal: " + (f"✔ Geyser antwoordt op deze pc ({bl['ms']} ms)." if bl else
                                       f"✖ geen antwoord op 127.0.0.1:{res['bport']} ({res.get('bed_loc_err', '?')}). "
                                       "Draait Geyser en klopt de poort in config.yml?"))
