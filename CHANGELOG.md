@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.2
+- **Kaart veel sneller:** slepen verschuift het beeld in één keer, bij nieuwe spelerposities wordt alleen de spelerslaag opnieuw getekend en het inladen van veel regio's blokkeert het venster niet meer.
+- **Fout opgelost:** bij veel zichtbare regio's verdwenen stukken van de kaart (en op een ander zoomniveau weer andere stukken), doordat plaatjes te vroeg werden weggegooid.
+
 ## 2.8.1
 - Temperatuur: ondersteunt ook LibreHardwareMonitor via de ingebouwde webserver (poort 8085), omdat nieuwere versies geen WMI meer aanbieden.
 

@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.1"
+APP_VERSION = "2.8.2"
 
 CHANGELOG = """
+2.8.2 - Kaart veel sneller en stabieler: soepel slepen en zoomen, geen ontbrekende stukken meer bij ander zoomniveau.
 2.8.1 - Temperatuur wordt nu ook gelezen via de webserver van LibreHardwareMonitor (Options > Remote Web Server).
 2.8 - Kaart wordt bewaard en staat direct klaar; op de achtergrond wordt hij stil bijgewerkt, ook als het tabblad dicht is.
 2.7.1 - Plugin-lijst opgeruimd: geen bestandsnaam, commando's of grootte meer, kleinere tellers en tabbladen.
@@ -2872,7 +2873,8 @@ class MapTab(ttk.Frame):
         self.world, self.winfo_ = {}, {}
         self.scanning, self.visible, self.dirty, self._quiet = False, False, True, True
         self._scan_t, self._swallow_until, self._ticks, self._answers, self._asked = 0.0, 0.0, 0, 0, 0
-        self._drag, self._busy_redraw, self._fit_done = None, False, False
+        self._inuse = set()
+        self._drag, self._busy_redraw, self._fit_done, self._tdirty = None, False, False, True
         c = app.cfg
         self.names_var = tk.BooleanVar(value=bool(c.get("map_names", True)))
         self.trails_var = tk.BooleanVar(value=bool(c.get("map_trails", True)))
@@ -2935,7 +2937,7 @@ class MapTab(ttk.Frame):
         cv.bind("<Configure>", lambda e: self.redraw())
         cv.bind("<ButtonPress-1>", self._press)
         cv.bind("<B1-Motion>", self._motion_drag)
-        cv.bind("<ButtonRelease-1>", lambda e: setattr(self, "_drag", None))
+        cv.bind("<ButtonRelease-1>", self._release)
         cv.bind("<Motion>", self._hover)
         cv.bind("<MouseWheel>", self._wheel)
         cv.bind("<Button-4>", self._wheel)
@@ -3117,11 +3119,11 @@ class MapTab(ttk.Frame):
                 try:
                     cached = None if force else map_cache_load(folder, dim, rx, rz, mt)
                     if cached:
-                        self.q.put(("region", dim, rx, rz, cached[0], 1, cached[1], mt))
+                        self.q.put(("region", dim, rx, rz, self._pstr(cached[0]), 1, cached[1], mt))
                         continue
                     rows, ok, bad = render_region(path, dim)
                     map_cache_save(folder, dim, rx, rz, mt, rows, bad)
-                    self.q.put(("region", dim, rx, rz, rows, ok, bad, mt))
+                    self.q.put(("region", dim, rx, rz, self._pstr(rows), ok, bad, mt))
                     time.sleep(0.05)  # rustig aan: de achtergrondtaak mag de server en de rest van het programma niet storen
                 except Exception as e:
                     self.q.put(("regionerr", dim, rx, rz, str(e), mt))
@@ -3129,6 +3131,10 @@ class MapTab(ttk.Frame):
             self.q.put(("done",))
 
         threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def _pstr(rows):
+        return " ".join("{" + " ".join(r) + "}" for r in rows)
 
     def _status_done(self):
         n = sum(1 for k in self.base if k[0] == self.dim)
@@ -3146,8 +3152,9 @@ class MapTab(ttk.Frame):
         self.dirty = True
 
     def _pump(self):
+        t_end = time.time() + 0.03  # hoogstens 30 ms per ronde aan plaatjes maken, zodat het venster soepel blijft
         try:
-            for _ in range(40):
+            while time.time() < t_end:
                 m = self.q.get_nowait()
                 if m[0] == "region":
                     _k, dim, rx, rz, rows, ok, bad, mt = m
@@ -3158,9 +3165,9 @@ class MapTab(ttk.Frame):
                         del self.imgs[key]
                     if ok:
                         img = tk.PhotoImage(width=MAP_PX, height=MAP_PX)
-                        img.put(" ".join("{" + " ".join(r) + "}" for r in rows), to=(0, 0))
+                        img.put(rows, to=(0, 0))
                         self.base[(dim, rx, rz)] = img
-                        self.dirty = True
+                        self.dirty = self._tdirty = True
                 elif m[0] == "regionerr":
                     self.mtimes[(m[1], m[2], m[3])] = m[5]
                 elif m[0] == "prog" and not self._quiet:
@@ -3169,7 +3176,7 @@ class MapTab(ttk.Frame):
                     self.scanning = False
                     self._status_done()
                     self._first_view()
-                    self.dirty = True
+                    self.dirty = self._tdirty = True
         except queue.Empty:
             pass
         if self.dirty and self.visible:
@@ -3179,8 +3186,9 @@ class MapTab(ttk.Frame):
                 sel = self.tree.selection()
                 if sel and sel[0] in self.pos and "x" in self.pos[sel[0]]:
                     self.cx, self.cz = self.pos[sel[0]]["x"], self.pos[sel[0]]["z"]
-            self.redraw()
-        self.after(150, self._pump)
+                    self._tdirty = True
+            self.redraw(terrain=False)  # alleen de spelers opnieuw tekenen, het terrein blijft staan
+        self.after(60 if not self.q.empty() else 150, self._pump)
 
     # ---------- weergave ----------
     def _scaled(self, key):
@@ -3193,10 +3201,12 @@ class MapTab(ttk.Frame):
             base = self.base[key]
             img = base.zoom(mode[1], mode[1]) if mode[0] == "z" and mode[1] > 1 else (
                 base.subsample(mode[1], mode[1]) if mode[0] == "s" and mode[1] > 1 else base)
-            if len(self.imgs) > 48:
-                for old in list(self.imgs)[:24]:
+            if len(self.imgs) > 600:  # oude formaten opruimen, maar nooit wat nu op het scherm staat (anders wordt het blanco)
+                keep = getattr(self, "_inuse", set())
+                for old in [k for k in self.imgs if k not in keep][:300]:
                     del self.imgs[old]
             self.imgs[ck] = img
+        self._inuse.add(ck)
         return img
 
     def _w2c(self, x, z):
@@ -3205,22 +3215,33 @@ class MapTab(ttk.Frame):
     def _color(self, name):
         return self.COLORS[zlib.crc32(name.encode("utf-8")) % len(self.COLORS)]
 
-    def redraw(self):
+    def redraw(self, terrain=True):
         cv = self.cv
         W, H = cv.winfo_width(), cv.winfo_height()
         if W < 20 or H < 20:
             return
-        cv.delete("all")
+        if terrain or self._tdirty:
+            cv.delete("all")
+            self._draw_terrain(W, H)
+            self._tdirty = False
+        else:
+            cv.delete("o")
+        self._draw_overlay(W, H)
+
+    def _draw_terrain(self, W, H):
+        cv = self.cv
         s = self.scale
         shown = 0
+        self._inuse = set()
         for key in list(self.base):
             if key[0] != self.dim:
                 continue
             x0, y0 = self._w2c(key[1] * 512, key[2] * 512)
             size = 512 * s
-            if x0 > W or y0 > H or x0 + size < 0 or y0 + size < 0:
+            mg = max(W, H) // 2  # ruime marge: bij het slepen is er dan al terrein buiten beeld getekend
+            if x0 > W + mg or y0 > H + mg or x0 + size < -mg or y0 + size < -mg:
                 continue
-            cv.create_image(x0, y0, anchor="nw", image=self._scaled(key))
+            cv.create_image(x0, y0, anchor="nw", image=self._scaled(key), tags="t")
             shown += 1
         if self.grid_var.get():
             self._draw_grid(W, H)
@@ -3229,22 +3250,25 @@ class MapTab(ttk.Frame):
             x1, y1 = self._w2c(b[0] - b[2] / 2, b[1] - b[2] / 2)
             x2, y2 = self._w2c(b[0] + b[2] / 2, b[1] + b[2] / 2)
             if self.dim == "overworld":
-                cv.create_rectangle(x1, y1, x2, y2, outline="#ef4444", width=2, dash=(6, 4))
+                cv.create_rectangle(x1, y1, x2, y2, outline="#ef4444", width=2, dash=(6, 4), tags="t")
         sp = self.winfo_.get("spawn")
         if sp and self.dim == "overworld":
             sx, sy = self._w2c(sp[0], sp[1])
-            cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 16, "bold"))
-            cv.create_text(sx, sy + 16, text="Spawn", fill="#fde047", font=("Segoe UI", 8))
+            cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 16, "bold"), tags="t")
+            cv.create_text(sx, sy + 16, text="Spawn", fill="#fde047", font=("Segoe UI", 8), tags="t")
         if not self.base or not shown:
             msg = ("Kaart wordt ingelezen…" if self.scanning else
                    ("Geen terrein voor deze wereld. Verken eerst iets en sla de wereld op (save-all)."
                     if self.world else "Geen wereldbestanden gevonden."))
-            cv.create_text(W / 2, H / 2, text=msg, fill="#94a3b8", font=("Segoe UI", 12))
+            cv.create_text(W / 2, H / 2, text=msg, fill="#94a3b8", font=("Segoe UI", 12), tags="t")
+
+    def _draw_overlay(self, W, H):
+        cv = self.cv
         if self.trails_var.get():
             for n, tr in self.trails.items():
                 pts = [self._w2c(x, z) for x, z, d in tr if d == self.dim or d == "other"]
                 if len(pts) >= 2:
-                    cv.create_line(*[v for p in pts for v in p], fill=self._color(n), width=2, dash=(3, 2))
+                    cv.create_line(*[v for p in pts for v in p], fill=self._color(n), width=2, dash=(3, 2), tags="o")
         for n in sorted(self.pos):
             p = self.pos[n]
             if "x" not in p or p.get("dim", self.dim) != self.dim:
@@ -3255,12 +3279,12 @@ class MapTab(ttk.Frame):
             col = self._color(n)
             if "yaw" in p:
                 a = math.radians(p["yaw"])
-                cv.create_line(px, py, px - math.sin(a) * 18, py + math.cos(a) * 18, fill="white", width=3, arrow="last")
-            cv.create_oval(px - 7, py - 7, px + 7, py + 7, fill=col, outline="white", width=2)
+                cv.create_line(px, py, px - math.sin(a) * 18, py + math.cos(a) * 18, fill="white", width=3, arrow="last", tags="o")
+            cv.create_oval(px - 7, py - 7, px + 7, py + 7, fill=col, outline="white", width=2, tags="o")
             if self.names_var.get():
-                t = cv.create_text(px, py - 18, text=n, fill="white", font=("Segoe UI", 9, "bold"))
+                t = cv.create_text(px, py - 18, text=n, fill="white", font=("Segoe UI", 9, "bold"), tags="o")
                 bb = cv.bbox(t)
-                r = cv.create_rectangle(bb[0] - 4, bb[1] - 1, bb[2] + 4, bb[3] + 1, fill="#111827", outline=col)
+                r = cv.create_rectangle(bb[0] - 4, bb[1] - 1, bb[2] + 4, bb[3] + 1, fill="#111827", outline=col, tags="o")
                 cv.tag_lower(r, t)
 
     def _draw_grid(self, W, H):
@@ -3272,15 +3296,15 @@ class MapTab(ttk.Frame):
         while k * step <= x_max:
             x = k * step
             sx, _ = self._w2c(x, 0)
-            cv.create_line(sx, 0, sx, H, fill="#e2e8f0" if x == 0 else "#64748b", dash=None if x == 0 else (1, 5))
-            cv.create_text(sx + 3, 10, text=str(x), anchor="w", fill="#cbd5e1", font=("Consolas", 8))
+            cv.create_line(sx, 0, sx, H, fill="#e2e8f0" if x == 0 else "#64748b", dash=None if x == 0 else (1, 5), tags="t")
+            cv.create_text(sx + 3, 10, text=str(x), anchor="w", fill="#cbd5e1", font=("Consolas", 8), tags="t")
             k += 1
         k = math.floor(z_min / step)
         while k * step <= z_max:
             z = k * step
             _, sy = self._w2c(0, z)
-            cv.create_line(0, sy, W, sy, fill="#e2e8f0" if z == 0 else "#64748b", dash=None if z == 0 else (1, 5))
-            cv.create_text(4, sy - 7, text=str(z), anchor="w", fill="#cbd5e1", font=("Consolas", 8))
+            cv.create_line(0, sy, W, sy, fill="#e2e8f0" if z == 0 else "#64748b", dash=None if z == 0 else (1, 5), tags="t")
+            cv.create_text(4, sy - 7, text=str(z), anchor="w", fill="#cbd5e1", font=("Consolas", 8), tags="t")
             k += 1
 
     # ---------- bediening ----------
@@ -3307,21 +3331,25 @@ class MapTab(ttk.Frame):
         self._zoom(d, ev.x, ev.y)
 
     def _press(self, ev):
-        self._drag = (ev.x, ev.y, self.cx, self.cz)
+        self._drag = [ev.x, ev.y]
 
     def _motion_drag(self, ev):
         if not self._drag:
             return
-        x0, y0, cx0, cz0 = self._drag
-        self.cx, self.cz = cx0 - (ev.x - x0) / self.scale, cz0 - (ev.y - y0) / self.scale
-        self.follow_var.set(False)
-        if not self._busy_redraw:
-            self._busy_redraw = True
-            self.after(30, self._drag_redraw)
+        dx, dy = ev.x - self._drag[0], ev.y - self._drag[1]
+        self._drag = [ev.x, ev.y]
+        if dx or dy:
+            self.cx -= dx / self.scale
+            self.cz -= dy / self.scale
+            self.cv.move("all", dx, dy)  # alles in één keer verschuiven in plaats van opnieuw tekenen: veel sneller
+            self._moved = True
+            self.follow_var.set(False)
 
-    def _drag_redraw(self):
-        self._busy_redraw = False
-        self.redraw()
+    def _release(self, ev):
+        self._drag = None
+        if getattr(self, "_moved", False):
+            self._moved = False
+            self.redraw()  # nu pas de randen (nieuw zichtbare regio's en het raster) bijwerken
 
     def _hover(self, ev):
         W, H = self.cv.winfo_width(), self.cv.winfo_height()
