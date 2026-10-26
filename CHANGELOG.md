@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.12.7
+- Kaart: de regel onderin toont bij de muis welke tegel het is en of die geladen is of op de server niet bestaat.
+
 ## 2.12.6
 - Bedrock (NetherNet): bij een werkende poort alleen nog één korte groene regel.
 

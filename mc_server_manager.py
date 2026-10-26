@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.6"
+APP_VERSION = "2.12.7"
 
 CHANGELOG = """
+2.12.7 - Kaart: onderin staat per tegel of hij geladen is of niet bestaat op de server (voor diagnose).
 2.12.6 - Bedrock (NetherNet): korte groene melding als alles werkt.
 2.12.5 - Bedrock-check begrijpt Geyser NetherNet: test TCP-poort in plaats van RakNet-ping.
 2.12.4 - Bedrock: als Java de UDP-poort open heeft maar niet op de ping antwoordt, oranje waarschuwing in plaats van rood kruis.
@@ -3215,6 +3216,10 @@ class MapTab(ttk.Frame):
         W, H = self.cv.winfo_width(), self.cv.winfo_height()
         wx, wz = self.cx + (ev.x - W / 2) / s, self.cz + (ev.y - H / 2) / s
         txt = f"X {wx:7.0f}   Z {wz:7.0f}     zoom {self.zl}/{self._max_zoom()}"
+        native, span, _s = self._geometry()
+        tk_ = (self.cur, native, math.floor(wx / span), math.floor(wz / span))
+        st = "geen antwoord" if tk_ not in self.imgs else ("bestaat niet op de server (404)" if self.imgs[tk_] is None else "geladen")
+        txt += f"     tegel {native}/{tk_[2]}_{tk_[3]}: {st}"
         for p in self.players:
             if p.get("world") == self.cur:
                 px, py = self._w2c(p["x"], p["z"])
