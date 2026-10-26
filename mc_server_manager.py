@@ -55,7 +55,7 @@ APP_NAME = "MC Server Manager"
 APP_VERSION = "2.18.1"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
-HOT_SAFE = False
+HOT_SAFE = True
 
 CHANGELOG = """
 2.18.1 - Plugins die up-to-date zijn tonen overal gewoon "Up-to-date".
