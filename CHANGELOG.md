@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.4.2
+- Resultaten en geïnstalleerde plugins zijn te sorteren door op een kolomnaam te klikken (nogmaals klikken draait om).
+  "Relevantie" zet de slimme volgorde terug.
+
 ## 2.4.1
 - Zoeken: woorden die Modrinth niet kent (zoals "waardoor", "omhakken", "1x") blokkeerden alle resultaten. Die laat het programma nu
   weg zodra de rest vertaald kan worden, en korte Engelse zoekopdrachten worden altijd erbij gedaan.

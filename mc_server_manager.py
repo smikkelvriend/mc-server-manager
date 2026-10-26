@@ -44,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.4.1"
+APP_VERSION = "2.4.2"
 
 CHANGELOG = """
+2.4.2 - Plugins sorteren door op een kolomnaam te klikken (downloads, datum, naam, enz.).
 2.4.1 - Slimmer zoeken: Nederlandse restwoorden blokkeren Modrinth niet meer, en bomen omhakken wordt herkend.
 2.4 - Nieuw tabblad Plugins: beheren (aan/uit/verwijderen), slim zoeken op naam of beschrijving en installeren, met optioneel /plm load. Tab-aanvulling in de console.
 2.3.1 - Programma-update haalt het bestand nu op via de exacte laatste commit, zodat een verouderde cache niets meer uitmaakt.
@@ -1793,9 +1794,11 @@ class PluginsTab(ttk.Frame):
         wrap = ttk.Frame(f)
         wrap.pack(fill="both", expand=True, pady=(8, 4))
         self.tree = ttk.Treeview(wrap, columns=cols, show="headings", selectmode="extended")
+        self.i_heads = {}
         for c, t, w in (("state", "Status", 90), ("name", "Plugin", 190), ("version", "Versie", 110),
                         ("needs", "Heeft nodig", 190), ("file", "Bestand", 240), ("size", "Grootte", 80)):
-            self.tree.heading(c, text=t)
+            self.i_heads[c] = t
+            self.tree.heading(c, text=t, command=lambda c=c: self._sort_installed(c))
             self.tree.column(c, width=w, anchor="w")
         sb = ttk.Scrollbar(wrap, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -1818,7 +1821,7 @@ class PluginsTab(ttk.Frame):
         self.btn_search = ttk.Button(row, text="Zoeken", command=self.search, style="Big.TButton")
         self.btn_search.grid(row=0, column=1, padx=(8, 0))
         ttk.Label(f, foreground="#6b7280", wraplength=900, justify="left",
-                  text="Typ een naam (bijv. “worldedit”, “luckperms”) of beschrijf wat je zoekt (bijv. “een plugin die de nacht "
+                  text="Klik op een kolomnaam om te sorteren. Typ een naam (bijv. “worldedit”, “luckperms”) of beschrijf wat je zoekt (bijv. “een plugin die de nacht "
                        "overslaat als 1 speler slaapt”, “spelers kunnen land claimen”). Nederlands en Engels werken allebei."
                   ).pack(anchor="w", pady=(4, 2))
         self.interp_lbl = ttk.Label(f, text="", foreground="#2563eb", wraplength=900, justify="left")
@@ -1827,10 +1830,12 @@ class PluginsTab(ttk.Frame):
         wrap.pack(fill="both", expand=True, pady=(6, 4))
         cols = ("name", "desc", "dl", "upd", "mc", "src", "state")
         self.rtree = ttk.Treeview(wrap, columns=cols, show="headings", selectmode="browse")
+        self.r_heads, self._rsort = {}, ("state", True)
         for c, t, w, a in (("name", "Plugin", 160, "w"), ("desc", "Wat doet het", 380, "w"), ("dl", "Downloads", 80, "e"),
                            ("upd", "Bijgewerkt", 90, "w"), ("mc", "Jouw MC-versie", 110, "w"), ("src", "Bron", 80, "w"),
-                           ("state", "", 100, "w")):
-            self.rtree.heading(c, text=t)
+                           ("state", "Relevantie", 110, "w")):
+            self.r_heads[c] = t
+            self.rtree.heading(c, text=t, command=lambda c=c: self._sort_results(c))
             self.rtree.column(c, width=w, anchor=a)
         sb = ttk.Scrollbar(wrap, orient="vertical", command=self.rtree.yview)
         self.rtree.configure(yscrollcommand=sb.set)
@@ -1870,6 +1875,38 @@ class PluginsTab(ttk.Frame):
             names += [i["name"], i["file"].split(".jar")[0]]
         return names
 
+    # ---------- sorteren op kolom ----------
+    @staticmethod
+    def _sort_rows(tree, data, keyf, desc):
+        for idx, iid in enumerate(sorted(data, key=lambda i: keyf(data[i]), reverse=desc)):
+            tree.move(iid, "", idx)
+
+    @staticmethod
+    def _arrows(tree, heads, col, desc):
+        for c, t in heads.items():
+            tree.heading(c, text=t + ((" ▼" if desc else " ▲") if c == col else ""))
+
+    def _sort_results(self, col):
+        keys = {"name": lambda r: r["name"].lower(), "desc": lambda r: r["desc"].lower(),
+                "dl": lambda r: r["downloads"], "upd": lambda r: r["updated"] or datetime.min,
+                "mc": lambda r: {True: 2, None: 1, False: 0}[r["compat"]], "src": lambda r: " + ".join(r["sources"]),
+                "state": lambda r: r["score"]}
+        prev_col, prev_desc = self._rsort
+        desc = (not prev_desc) if col == prev_col else col in ("dl", "upd", "mc", "state")
+        self._rsort = (col, desc)
+        self._sort_rows(self.rtree, self.results, keys[col], desc)
+        self._arrows(self.rtree, self.r_heads, col, desc)
+
+    def _sort_installed(self, col):
+        keys = {"state": lambda i: (i["enabled"], bool(i["missing"])), "name": lambda i: i["name"].lower(),
+                "version": lambda i: (ver_nums(i["version"] or "") or (0,), i["version"] or ""),
+                "needs": lambda i: len(i["depend"]), "file": lambda i: i["file"].lower(), "size": lambda i: i["size"]}
+        prev = getattr(self, "_isort", None)
+        desc = (not prev[1]) if prev and prev[0] == col else col in ("size", "state")
+        self._isort = (col, desc)
+        self._sort_rows(self.tree, self.items, keys[col], desc)
+        self._arrows(self.tree, self.i_heads, col, desc)
+
     # ---------- geïnstalleerde plugins ----------
     def refresh(self):
         self.tree.delete(*self.tree.get_children())
@@ -1890,6 +1927,10 @@ class PluginsTab(ttk.Frame):
                              values=(st, it["name"], it["version"] or "?", needs, it["file"], fmt_size(it["size"])))
         on = sum(1 for i in self.items.values() if i["enabled"])
         self.count_lbl.config(text=f"{on} aan, {len(self.items) - on} uit")
+        if getattr(self, "_isort", None):  # gekozen sortering behouden na vernieuwen
+            col, desc = self._isort
+            self._isort = (col, not desc)
+            self._sort_installed(col)
         self._show_installed_info()
         self.app._plug_cache = None
 
@@ -2087,6 +2128,8 @@ class PluginsTab(ttk.Frame):
         if info.get("errors"):
             msg += "   (let op: " + "; ".join(info["errors"]) + ")"
         self.interp_lbl.config(text=msg)
+        self._rsort = ("state", True)
+        self._arrows(self.rtree, self.r_heads, "state", True)
         mc = self._mc()
         for n, r in enumerate(results):
             iid = f"r{n}"
