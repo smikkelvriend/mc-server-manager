@@ -44,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.4.2"
+APP_VERSION = "2.5"
 
 CHANGELOG = """
+2.5 - Vinkje bij Plugins zoeken: alleen plugins tonen die zeker werken met jouw Minecraft-versie.
 2.4.2 - Plugins sorteren door op een kolomnaam te klikken (downloads, datum, naam, enz.).
 2.4.1 - Slimmer zoeken: Nederlandse restwoorden blokkeren Modrinth niet meer, en bomen omhakken wordt herkend.
 2.4 - Nieuw tabblad Plugins: beheren (aan/uit/verwijderen), slim zoeken op naam of beschrijving en installeren, met optioneel /plm load. Tab-aanvulling in de console.
@@ -131,7 +132,7 @@ DEFAULTS = {
     "stop_timeout": 60, "poll_secs": 30, "auto_restart": False, "console_max_lines": 5000, "console_font": 10,
     "graph_minutes": 5, "graph_zoom": True, "stats_secs": 2,
     "show_player_activity": True,
-    "plm_load": False, "plm_ack": False,
+    "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
     "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
     "reach_host": "", "reach_port": 25565, "reach_check_bedrock": False, "reach_bedrock_port": 19132,
@@ -1364,9 +1365,9 @@ def _age_days(dt):
     return (datetime.utcnow() - dt).days if dt else None
 
 
-def modrinth_search(query, loaders, limit=15):
+def modrinth_search(query, loaders, limit=15, mc=None):
     cats = [f"categories:{x}" for x in (loaders or ALL_LOADERS)]
-    facets = json.dumps([cats])
+    facets = json.dumps([cats] + ([[f"versions:{mc}"]] if mc else []))
     d = http_json(f"{MODRINTH}/search?" + urllib.parse.urlencode(
         {"query": query, "limit": limit, "facets": facets}), timeout=20, retries=1)
     out = []
@@ -1393,7 +1394,14 @@ def hangar_search(query, limit=10):
     return out
 
 
-def search_plugins(text, mc, loaders, installed=(), log=None):
+def hangar_supports(slug, mc):
+    """Heeft deze Hangar-plugin een versie voor jouw Minecraft-versie op Paper?"""
+    d = http_json(f"{HANGAR}/projects/{urllib.parse.quote(slug)}/versions?" + urllib.parse.urlencode(
+        {"limit": 1, "platform": "PAPER", "platformVersion": mc}), timeout=20, retries=1)
+    return bool(d.get("result"))
+
+
+def search_plugins(text, mc, loaders, installed=(), log=None, only_compat=False):
     """Slim zoeken: begrijpt een naam ('worldedit') én een beschrijving ('als 1 iemand slaapt wordt het dag').
     Draait meerdere zoekopdrachten tegelijk op Modrinth en Hangar, voegt de resultaten samen en rangschikt ze."""
     info = interpret_query(text)
@@ -1401,7 +1409,7 @@ def search_plugins(text, mc, loaders, installed=(), log=None):
         return [], info
     jobs = []
     for q, w in info["queries"]:
-        jobs.append((q, w, "Modrinth", lambda q=q: modrinth_search(q, loaders)))
+        jobs.append((q, w, "Modrinth", lambda q=q: modrinth_search(q, loaders, mc=mc if only_compat else None)))
         jobs.append((q, w, "Hangar", lambda q=q: hangar_search(q)))
     hits, errors = [], []
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
@@ -1471,6 +1479,22 @@ def search_plugins(text, mc, loaders, installed=(), log=None):
                  installed=key in inst or norm_name(m["slug"]) in inst)
         out.append(m)
     out.sort(key=lambda r: r["score"], reverse=True)
+    if mc:  # Hangar vermeldt geen versies in de zoekresultaten: voor de beste resultaten apart navragen
+        todo = [r for r in out if r["compat"] is None and r["source"] == "Hangar" and r["slug"]][:15]
+        if todo:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                futs = {ex.submit(hangar_supports, r["slug"], mc): r for r in todo}
+                try:
+                    for f in concurrent.futures.as_completed(futs, timeout=25):
+                        try:
+                            futs[f]["compat"] = bool(f.result())
+                        except Exception:
+                            pass
+                except concurrent.futures.TimeoutError:
+                    pass
+    if only_compat and mc:
+        out = [r for r in out if r["compat"] is True]
+    info["only_compat"] = bool(only_compat and mc)
     return out[:40], info
 
 
@@ -1763,6 +1787,7 @@ class PluginsTab(ttk.Frame):
         self.items, self.results, self.busy = {}, {}, False
         self.plm_var = tk.BooleanVar(value=bool(app.cfg.get("plm_load", False)))
         self.query_var = tk.StringVar()
+        self.compat_var = tk.BooleanVar(value=bool(app.cfg.get("plugins_only_compat", False)))
         self.status_var = tk.StringVar(value="")
         self.sub = ttk.Notebook(self)
         self.sub.pack(fill="both", expand=True)
@@ -1820,6 +1845,9 @@ class PluginsTab(ttk.Frame):
         e.bind("<Return>", lambda ev: self.search())
         self.btn_search = ttk.Button(row, text="Zoeken", command=self.search, style="Big.TButton")
         self.btn_search.grid(row=0, column=1, padx=(8, 0))
+        self.compat_chk = ttk.Checkbutton(f, text="Alleen plugins die zeker werken met mijn Minecraft-versie",
+                                          variable=self.compat_var, command=self._compat_toggled)
+        self.compat_chk.pack(anchor="w", pady=(4, 0))
         ttk.Label(f, foreground="#6b7280", wraplength=900, justify="left",
                   text="Klik op een kolomnaam om te sorteren. Typ een naam (bijv. “worldedit”, “luckperms”) of beschrijf wat je zoekt (bijv. “een plugin die de nacht "
                        "overslaat als 1 speler slaapt”, “spelers kunnen land claimen”). Nederlands en Engels werken allebei."
@@ -2101,6 +2129,10 @@ class PluginsTab(ttk.Frame):
         self.btn_search.config(state="disabled")
         self._note("Bezig met zoeken op Modrinth en Hangar…")
         names, mc, loaders = self._installed_names(), self._mc(), self._loaders()
+        only = bool(self.compat_var.get())
+        if only and not mc:
+            only = False
+            self._note("Je Minecraft-versie is nog niet ingevuld (tabblad Updates), dus het filter staat niet aan.")
         if not self.items:
             try:
                 names = [x["name"] for x in scan_plugins(self.pdir())]
@@ -2109,11 +2141,17 @@ class PluginsTab(ttk.Frame):
 
         def work():
             try:
-                self.q.put(("results", *search_plugins(text, mc, loaders, names)))
+                self.q.put(("results", *search_plugins(text, mc, loaders, names, only_compat=only)))
             except Exception as e:
                 self.q.put(("error", f"Zoeken mislukt: {describe_net_error(e)}"))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _compat_toggled(self):
+        self.app.cfg["plugins_only_compat"] = bool(self.compat_var.get())
+        save_config(self.app.cfg)
+        if self.query_var.get().strip():
+            self.search()
 
     def _show_results(self, results, info):
         self.rtree.delete(*self.rtree.get_children())
@@ -2125,6 +2163,8 @@ class PluginsTab(ttk.Frame):
         else:
             msg = "Ik zoek op: " + ", ".join(info["translated"][:6]) + "."
         msg += "  Gezocht op: " + ", ".join(q for q, _w in info["queries"][:6])
+        if info.get("only_compat"):
+            msg += f"   Filter aan: alleen plugins met een versie voor Minecraft {self._mc()}."
         if info.get("errors"):
             msg += "   (let op: " + "; ".join(info["errors"]) + ")"
         self.interp_lbl.config(text=msg)
@@ -2149,7 +2189,8 @@ class PluginsTab(ttk.Frame):
             self.rtree.selection_set("r0")
             self._note(f"{len(results)} resultaten.")
         else:
-            self._note("Niets gevonden. Probeer andere woorden, of beschrijf het in het Engels.")
+            self._note("Niets gevonden. Probeer andere woorden, of beschrijf het in het Engels."
+                       + (" Of zet het filter voor jouw Minecraft-versie uit." if info.get("only_compat") else ""))
             self._set_detail("Niets gevonden.\n\nTips: gebruik de naam van de plugin, of beschrijf wat hij moet doen met een paar "
                              "kernwoorden (bijv. “claim land”, “night skip”, “custom enchants”).")
 
@@ -4497,7 +4538,7 @@ class SettingsDialog(tk.Toplevel):
         for k, default in DEFAULTS.items():
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
-                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack"):
+                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))

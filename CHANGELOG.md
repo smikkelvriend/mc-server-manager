@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.5
+- **Compatibiliteitsfilter** bij Plugins zoeken: met het vinkje "Alleen plugins die zeker werken met mijn Minecraft-versie" blijven
+  alleen plugins over die een versie voor jouw Minecraft-versie hebben. Bij Modrinth gebeurt dat al bij het zoeken (er komen dus
+  meer passende resultaten, niet minder); bij Hangar vraagt het programma voor de beste resultaten apart na. De kolom
+  "Jouw MC-versie" is nu ook voor Hangar-resultaten ingevuld. Het vinkje wordt onthouden.
+
 ## 2.4.2
 - Resultaten en geïnstalleerde plugins zijn te sorteren door op een kolomnaam te klikken (nogmaals klikken draait om).
   "Relevantie" zet de slimme volgorde terug.
