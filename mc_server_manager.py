@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.45"
+APP_VERSION = "2.46"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.46 - Nieuwe interface: de grafiek Belasting loopt nu soepel door (de lijn schuift continu mee in plaats van per meting te springen) en bij Plugins staat nu duidelijk welke plugins aan en uit staan. Rechtsonder staat niets meer over het programma zelf (dat staat bij Updates).
 2.45 - Nieuwe interface: de tegels Processor en Geheugen zijn vervangen door de waarden in de grafiek Belasting, met een tegel Spelers ervoor in de plaats. De console is groter.
 2.44 - De nieuwe interface is nu het hoofdscherm: hij opent bij het starten van het programma (uit te zetten bij Instellingen) en het klassieke scherm blijft op de taakbalk. Nieuw tabblad Updates voor het programma zelf, met wat er nieuw is en de instellingen voor automatisch bijwerken. Knop Klassiek scherm in de zijbalk.
 2.43 - Nieuw: knop "Nieuwe interface" bovenin. Opent een moderner scherm in een eigen venster (Overzicht met processor, temperatuur en spelersskins, Console met logboek doorzoeken, Spelers met whitelist en bans, Plugins en updates samen, Kaart, Backups, Instellingen). Het oude scherm blijft werken. Het nieuwe scherm is alleen bereikbaar vanaf deze computer.
@@ -5572,10 +5573,15 @@ const num=s=>{const m=String(s==null?'':s).replace(',','.').match(/-?\d+(\.\d+)?
 function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth||100,h=c.clientHeight||32,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let l=lo!=null?lo:Math.min(...d),hh=hi!=null?hi:Math.max(...d);if(hh-l<1e-6){hh=l+1}
  x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-2-(Math.min(Math.max(v,l),hh)-l)/(hh-l)*(h-4);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+const CH={t:0,tc:0,dt:2000,cpu:[],ram:[],xmx:0,N:150};
+function chartLoop(){if(tab!='ov'||!$('cBig'))return;const now=performance.now();if(now-(CH.last||0)>30){CH.last=now;const f=Math.min(1,(now-CH.tc)/CH.dt);
+ const rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);bigChart('cBig',[[smoothTail(rp,f),'#6ea8fe'],[smoothTail(CH.cpu,f),'#f5a524']])}requestAnimationFrame(chartLoop)}
+/* de lijn schuift continu: het laatste stuk loopt van de vorige naar de nieuwste meting */
+function smoothTail(d,f){const n=d.length;if(n<3)return null;const N=CH.N,pts=[];for(let i=0;i<=n-2;i++)pts.push([1-(n-2+f-i)/(N-1),d[i]]);pts.push([1,d[n-2]+(d[n-1]-d[n-2])*f]);return pts}
 function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
  x.fillStyle='#6b7684';x.font='11px sans-serif';[100,66,33,0].forEach((v,i)=>x.fillText(v+'%',4,10+i*(h-20)/3-3));
- for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}}
+ x.save();x.beginPath();x.rect(0,0,w,h);x.clip();for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();let first=1;for(const [px,v] of d){const X=px*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);if(X<-5)continue;first?x.moveTo(X,Y):x.lineTo(X,Y);first=0}x.stroke()}x.restore()}
 function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();im.src=hd(n,t);im.alt='';im.onerror=()=>{im.remove();d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase()};d.appendChild(im);return d}
 function skinHtml(n,t,cls){return `<span class="skin ${cls||''}"><img src="${hd(n,t)}" alt="" onerror="this.remove();"></span>`}
 function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
@@ -5592,7 +5598,7 @@ V.ov=()=>{$('view').innerHTML=`<section class="tiles">
  <section class="low"><div class="con"><div class="bar"><b>Console</b><span class="mut" style="font-size:12px" id="cleanTx"></span><div class="sp"></div></div><div class="log" id="con"></div>
  <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div>
  <div class="card"><h3>Aandacht</h3><div id="att"></div></div></section>`;
- LOG.forEach(addLine);cur.bk=null;attBackup();cur.t=setInterval(attBackup,60000);cur.stop=()=>clearInterval(cur.t)};
+ LOG.forEach(addLine);cur.bk=null;requestAnimationFrame(chartLoop);attBackup();cur.t=setInterval(attBackup,60000);cur.stop=()=>clearInterval(cur.t)};
 async function attBackup(){const j=await go('/api/backuper');if(!j||!$('att'))return;cur.bkInfo=j.backups&&j.backups.length?{ago:ago(j.backups[0].mtime),size:fb2(j.backups[0].size)}:(j.jar?{none:1}:null);drawAtt()}
 function att(cls,icon,text,right,btn){return `<div class="att"><span class="ic ${cls}">${icon}</span><span class="tx">${text}</span>${btn||''}${right?`<span class="rt">${right}</span>`:''}</div>`}
 function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
@@ -5681,8 +5687,7 @@ async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))retu
  <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>`;
  const n=j.rows.filter(r=>r.tag=='update').length;
  $('u2').innerHTML=`<h3>Plugins <span>${n?`<button class="sm go" onclick="uInst('plugins')">Alle ${n} updaten</button>`:''}</span></h3>`+j.rows.map(r=>`<div class="li"><div><b>${esc(r.name)}</b><small>${esc(r.cur)} → ${esc(r.latest)} • ${esc(r.source)}</small></div><span class="${r.tag=='update'?'yel':r.tag=='ok'?'ok':r.tag=='error'?'err':'mut'}" style="font-size:12px;max-width:40%;text-align:right">${esc(r.status)}</span></div>`).join('')+
- `<div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('plugins')">Plugins controleren</button></div>
- <h3 style="margin-top:16px">Dit programma (versie ${esc(j.version)})</h3>${j.selfupd?`<div>Nieuwe versie ${esc(j.selfupd)} beschikbaar.</div><div class="row" style="margin-top:8px"><button class="go" onclick="selfUpd()">Installeren</button></div>`:'<div class="mut">Je hebt de nieuwste versie (voor zover bekend).</div><div class="row" style="margin-top:8px"><button class="sm" onclick="go(\'/api/selfupdate\',{action:\'check\'},\'Zoeken…\')">Zoek updates</button></div>'}`}
+ `<div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('plugins')">Plugins controleren</button></div>`}
 async function uCheck(w){await go('/api/updates/check',{what:w},'Controleren…');setTimeout(updRender,4000)}
 async function uInst(w){if(!await ask(w=='paper'?'Paper updaten? De server wordt veilig gestopt en weer gestart.':'Alle plugin-updates installeren? De server wordt zo nodig veilig gestopt en weer gestart.'))return;await go('/api/updates/install',{what:w},'Bezig…')}
 async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'},'Bezig…')}
@@ -5779,6 +5784,12 @@ async function behW(){const j=await go('/api/world');if(!j||!$('bw'))return;cons
  `<div class="row" style="margin-top:10px"><button onclick="behLogs()">Oude logs opruimen</button></div><div class="mut" style="font-size:12px;margin-top:8px">Regio's buiten een gebied wegzetten: kies op de kaart een gebied en gebruik dat op de pc (de server moet uit staan).</div>`}
 async function behLogs(){if(!await ask('Logs ouder dan 7 dagen en crash-reports ouder dan 14 dagen verwijderen?'))return;await go('/api/world/logs',{},'Opgeruimd');setTimeout(behW,1500)}
 
+/* plugins: duidelijk aan of uit (later in het bestand, dus deze versie wint) */
+function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name,'nl',{sensitivity:'base'}));const on=items.filter(i=>i.enabled).length;
+ const row=i=>`<label class="li" style="${i.enabled?'':'opacity:.55'}"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b>${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div>
+  <span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span></label>`;
+ $('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
+  <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.'}
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
 /* ---------- Programma-updates ---------- */
@@ -5838,7 +5849,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
   const pc=num(j.stats.players),pm=String(j.stats.players||'').split('/')[1];$('vPl').innerHTML=pc==null?'-':pc+(pm?` <small>/ ${esc(pm.trim())}</small>`:'');
   $('vTmp').innerHTML=tmp==null?'<small>niet beschikbaar</small>':Math.round(tmp)+' <small>°C</small>';
   spark('sTps',g.tps,'#3ddc97',0,20);spark('sTmp',g.temp,'#f87171',null,null);
-  const ramPct=(g.ram||[]).map(v=>j.xmx?v/j.xmx*100:v);bigChart('cBig',[[ramPct,'#6ea8fe'],[g.cpu,'#f5a524']]);
+  if(j.gd&&j.gd.t!=CH.t){CH.t=j.gd.t;CH.tc=performance.now();CH.dt=j.gd.dt*1000}if(j.gd){CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.xmx=j.xmx}
   const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
@@ -6246,6 +6257,9 @@ class RemoteServer:
                     "gen_info": a.tab_map.gen_info.cget("text") if g.get("state") != "idle" else "",
                     "version": APP_VERSION}
             snap["graphs"]["temp"] = series(a.spark_temp)
+            d = list(a.spark_cpu.data)
+            snap["gd"] = {"t": d[-1][0] if d else 0, "dt": min(10.0, max(0.5, d[-1][0] - d[-2][0])) if len(d) > 1 else 2.0,
+                          "cpu": [v for _t, v in d[-150:] if v is not None], "ram": [v for _t, v in list(a.spark_ram.data)[-150:] if v is not None]}
             snap["stats"]["sleep"] = a.sv["sleep"].get()
             try:
                 free = shutil.disk_usage(a.folder_var.get().strip() or ".").free / 1e9

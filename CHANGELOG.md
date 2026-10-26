@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.46
+- Nieuwe interface: de grafiek Belasting loopt nu soepel door. De lijn schuift continu mee in plaats van per meting te springen (met 30 beelden per seconde, alleen zolang het Overzicht open staat) en gebruikt de volledige reeks metingen.
+- Plugins: elke plugin heeft nu een duidelijk label **Aan** of **Uit**, uitgeschakelde plugins staan gedimd onderaan, en bovenaan staat hoeveel er aan en uit staan.
+- Plugins: rechtsonder staat niets meer over het programma zelf; dat staat op het tabblad Updates.
+- Deze versie vereist een herstart.
+
 ## 2.45
 - Nieuwe interface, Overzicht: de losse tegels Processor en Geheugen zijn vervangen door de huidige waarden in de legenda van de grafiek Belasting (de TPS-lijn is uit de grafiek gehaald, TPS heeft zijn eigen tegel). Daarvoor in de plaats staat er een tegel Spelers. De console is groter.
 - Deze versie vereist een herstart.

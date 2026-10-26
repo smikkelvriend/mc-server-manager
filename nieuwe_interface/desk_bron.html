@@ -124,10 +124,15 @@ const num=s=>{const m=String(s==null?'':s).replace(',','.').match(/-?\d+(\.\d+)?
 function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth||100,h=c.clientHeight||32,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  d=(d||[]).filter(v=>v!=null);if(d.length<2)return;let l=lo!=null?lo:Math.min(...d),hh=hi!=null?hi:Math.max(...d);if(hh-l<1e-6){hh=l+1}
  x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-2-(Math.min(Math.max(v,l),hh)-l)/(hh-l)*(h-4);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+const CH={t:0,tc:0,dt:2000,cpu:[],ram:[],xmx:0,N:150};
+function chartLoop(){if(tab!='ov'||!$('cBig'))return;const now=performance.now();if(now-(CH.last||0)>30){CH.last=now;const f=Math.min(1,(now-CH.tc)/CH.dt);
+ const rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);bigChart('cBig',[[smoothTail(rp,f),'#6ea8fe'],[smoothTail(CH.cpu,f),'#f5a524']])}requestAnimationFrame(chartLoop)}
+/* de lijn schuift continu: het laatste stuk loopt van de vorige naar de nieuwste meting */
+function smoothTail(d,f){const n=d.length;if(n<3)return null;const N=CH.N,pts=[];for(let i=0;i<=n-2;i++)pts.push([1-(n-2+f-i)/(N-1),d[i]]);pts.push([1,d[n-2]+(d[n-1]-d[n-2])*f]);return pts}
 function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
  x.fillStyle='#6b7684';x.font='11px sans-serif';[100,66,33,0].forEach((v,i)=>x.fillText(v+'%',4,10+i*(h-20)/3-3));
- for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}}
+ x.save();x.beginPath();x.rect(0,0,w,h);x.clip();for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();let first=1;for(const [px,v] of d){const X=px*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);if(X<-5)continue;first?x.moveTo(X,Y):x.lineTo(X,Y);first=0}x.stroke()}x.restore()}
 function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();im.src=hd(n,t);im.alt='';im.onerror=()=>{im.remove();d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase()};d.appendChild(im);return d}
 function skinHtml(n,t,cls){return `<span class="skin ${cls||''}"><img src="${hd(n,t)}" alt="" onerror="this.remove();"></span>`}
 function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
@@ -144,7 +149,7 @@ V.ov=()=>{$('view').innerHTML=`<section class="tiles">
  <section class="low"><div class="con"><div class="bar"><b>Console</b><span class="mut" style="font-size:12px" id="cleanTx"></span><div class="sp"></div></div><div class="log" id="con"></div>
  <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div>
  <div class="card"><h3>Aandacht</h3><div id="att"></div></div></section>`;
- LOG.forEach(addLine);cur.bk=null;attBackup();cur.t=setInterval(attBackup,60000);cur.stop=()=>clearInterval(cur.t)};
+ LOG.forEach(addLine);cur.bk=null;requestAnimationFrame(chartLoop);attBackup();cur.t=setInterval(attBackup,60000);cur.stop=()=>clearInterval(cur.t)};
 async function attBackup(){const j=await go('/api/backuper');if(!j||!$('att'))return;cur.bkInfo=j.backups&&j.backups.length?{ago:ago(j.backups[0].mtime),size:fb2(j.backups[0].size)}:(j.jar?{none:1}:null);drawAtt()}
 function att(cls,icon,text,right,btn){return `<div class="att"><span class="ic ${cls}">${icon}</span><span class="tx">${text}</span>${btn||''}${right?`<span class="rt">${right}</span>`:''}</div>`}
 function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
@@ -212,6 +217,12 @@ V.plug=async()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;
  cur.t=setInterval(updRender,5000);cur.stop=()=>clearInterval(cur.t);updRender();
  const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
 //@@KOPIE_BEHEER@@
+/* plugins: duidelijk aan of uit (later in het bestand, dus deze versie wint) */
+function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name,'nl',{sensitivity:'base'}));const on=items.filter(i=>i.enabled).length;
+ const row=i=>`<label class="li" style="${i.enabled?'':'opacity:.55'}"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b>${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div>
+  <span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span></label>`;
+ $('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
+  <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.'}
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
 /* ---------- Programma-updates ---------- */
@@ -271,7 +282,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
   const pc=num(j.stats.players),pm=String(j.stats.players||'').split('/')[1];$('vPl').innerHTML=pc==null?'-':pc+(pm?` <small>/ ${esc(pm.trim())}</small>`:'');
   $('vTmp').innerHTML=tmp==null?'<small>niet beschikbaar</small>':Math.round(tmp)+' <small>°C</small>';
   spark('sTps',g.tps,'#3ddc97',0,20);spark('sTmp',g.temp,'#f87171',null,null);
-  const ramPct=(g.ram||[]).map(v=>j.xmx?v/j.xmx*100:v);bigChart('cBig',[[ramPct,'#6ea8fe'],[g.cpu,'#f5a524']]);
+  if(j.gd&&j.gd.t!=CH.t){CH.t=j.gd.t;CH.tc=performance.now();CH.dt=j.gd.dt*1000}if(j.gd){CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.xmx=j.xmx}
   const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}

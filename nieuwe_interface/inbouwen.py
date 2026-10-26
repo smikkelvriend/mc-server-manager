@@ -7,6 +7,8 @@ a = s.index('REMOTE_PAGE = r"""') + len('REMOTE_PAGE = r"""')
 phone = s[a:s.index('"""', a)]
 p1 = phone[phone.index("/* ---------- Plugins ---------- */"):phone.index("/* ---------- Beheer ---------- */")]
 p1 = p1.replace("$('main')", "$('view')")
+p1, n = re.subn(r"\n <h3 style=\"margin-top:16px\">Dit programma.*?`\}\n", "`}\n", p1, count=1, flags=re.S)  # programma-update staat op het tabblad Updates
+assert n == 1, "programma-blok niet gevonden"
 p2 = phone[phone.index("async function behB()"):phone.index("/* ---------- Meer ---------- */")]
 p2 = re.sub(r"const dur=.*?\n", "", p2, count=1)
 p2 = re.sub(r"async function behP\(\).*?\n(?=async function behT)", "", p2, count=1, flags=re.S)
