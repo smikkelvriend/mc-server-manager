@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.8"
+APP_VERSION = "2.8.9"
 
 CHANGELOG = """
+2.8.9 - Kaart: lege chunks (leegte zonder blokken) worden nu als vlak getoond in plaats van als niet-ingelezen.
 2.8.8 - Kaart begint gecentreerd op de spawn in plaats van op 0,0.
 2.8.7 - Kaart-diagnose: toont de reden waarom een chunk niet getekend kan worden en de gebruikte wereldmap.
 2.8.6 - Kaart laadt veel sneller bij het opstarten (bewaarde kaart als PNG).
@@ -2519,6 +2520,7 @@ class PluginsTab(ttk.Frame):
 # ======================================================================================
 MAP_RE = re.compile(r"^(\S+) has the following entity data: (.*)$")
 MAP_PX = 128            # pixels per regiobestand (512 blokken): 1 pixel = 4x4 blokken
+MAP_VOID = (30, 41, 72)  # chunk bestaat maar is helemaal leeg
 MAP_BG = "#0f172a"      # kleur van nog niet verkend gebied
 DIM_KEYS = {"minecraft:overworld": "overworld", "minecraft:the_nether": "nether", "minecraft:the_end": "end"}
 DIM_NAMES = {"overworld": "Overworld", "nether": "Nether", "end": "The End"}
@@ -2706,9 +2708,10 @@ def sample_chunk(root, dim):
         data = bs.get("data")
         S[s.get("Y", 0)] = (pal, 0, None) if (len(pal) == 1 or not data) else (pal, max(4, (len(pal) - 1).bit_length()), data)
     if not S:
-        if not secs:
-            sample_chunk.why = "geen secties (sleutels: " + ",".join(list(lvl)[:8]) + ")"
-        return None
+        if sample_chunk.why == "oud formaat":
+            return None
+        # chunk is klaar maar bevat helemaal geen blokken (alleen lichtgegevens): een lege chunk, bijvoorbeeld een leegte
+        return [(MAP_VOID, None)] * 16
     hm = lvl.get("Heightmaps") if isinstance(lvl.get("Heightmaps"), dict) else {}
     ws, of = hm.get("WORLD_SURFACE") or hm.get("MOTION_BLOCKING"), hm.get("OCEAN_FLOOR")
     bits = _hm_bits(len(ws) // 8) if ws else 9
@@ -2877,7 +2880,7 @@ def map_cache_load(folder, dim, rx, rz, mt):
         hd = json.loads(head.decode("ascii"))
         if float(hd["mt"]) != mt or not png.startswith(b"\x89PNG"):
             return None
-        if "full" in (hd.get("skip") or {}):
+        if any(k.startswith("full") for k in (hd.get("skip") or {})):
             return None  # oude bewaarde regio zonder uitleg waarom chunks overgeslagen zijn: opnieuw tekenen
         return png, int(hd["bad"]), hd.get("skip") or {}
     except Exception:

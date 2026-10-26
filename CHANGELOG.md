@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.9
+- Kaart: chunks die wel bestaan maar helemaal leeg zijn (geen enkel blok, bijvoorbeeld een leegte) worden nu als vlak, iets lichter dan de achtergrond getoond. Zo zie je het verschil tussen 'nooit gegenereerd' en 'leeg'.
+
 ## 2.8.8
 - Kaart begint nu gecentreerd op de spawn van je wereld (met de wereld uit level.dat) in plaats van op 0,0. Is de spawn onbekend, dan het midden van het getekende gebied.
 
