@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.41"
+APP_VERSION = "2.42"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.42 - Plugins: nieuwe knop "PLM uitladen" (/plm unload) naast "PLM laden", ook op de telefoon. De namen van de PLM-knoppen en het vinkje zijn korter gemaakt.
 2.41 - Het tabblad Updates is samengevoegd met Plugins: onder Plugins staan nu drie subtabs (Geïnstalleerd, Updates, Zoeken en toevoegen). Het tabblad Plugins knippert met het aantal beschikbare updates.
 2.40 - De grafieken (CPU, geheugen, TPS) zakken naar 0 zolang de server uit staat of slaapt, in plaats van te stoppen. Kan zonder herstart worden toegepast.
 2.39 - Het vinkje voor de slaapstand op het tabblad Server heet nu "Auto slaapstand".
@@ -2712,7 +2713,7 @@ class PluginsTab(ttk.Frame):
         self._build_find()
         box = ttk.Frame(self)
         box.pack(fill="x", pady=(8, 0))
-        ttk.Checkbutton(box, text="⚠ Plugins direct laden met /plm load, zonder herstart (op eigen risico)",
+        ttk.Checkbutton(box, text="⚠ Direct laden via PLM, zonder herstart (eigen risico)",
                         variable=self.plm_var, command=self._plm_toggled).pack(anchor="w")
         ttk.Label(box, textvariable=self.status_var, foreground="#6b7280").pack(anchor="w", pady=(2, 0))
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
@@ -2762,7 +2763,8 @@ class PluginsTab(ttk.Frame):
         for text, cmd, bg, fg in (("▶  Aanzetten", lambda: self._toggle(True), "#16a34a", "white"),
                                   ("⏸  Uitzetten", lambda: self._toggle(False), "#d97706", "white"),
                                   ("🗑  Verwijderen…", self._remove, "#dc2626", "white"),
-                                  ("⚡  Nu laden (/plm load)", self._load_selected, "#7c3aed", "white"),
+                                  ("⚡  PLM laden", self._load_selected, "#7c3aed", "white"),
+                                  ("⏏  PLM uitladen", self._unload_selected, "#7c3aed", "white"),
                                   ("☑  Alles selecteren", self._select_all, "#e5e7eb", "#111827"),
                                   ("📂  Map openen", self._open_dir, "#e5e7eb", "#111827"),
                                   ("↻  Vernieuwen", self.refresh, "#e5e7eb", "#111827")):
@@ -3206,6 +3208,34 @@ class PluginsTab(ttk.Frame):
             self.app.cfg["plm_ack"] = True
         self.app.cfg["plm_load"] = bool(self.plm_var.get())
         save_config(self.app.cfg)
+
+    def _plm_unload(self, names):
+        """Stuurt /plm unload voor elke plugin (op pluginnaam) naar de server."""
+        pm = plugman_name(self.items.values()) if self.items else plugman_name(scan_plugins(self.pdir()))
+        if not self._server_running():
+            messagebox.showinfo(APP_NAME, "De server draait niet, dus er is niets om uit te laden.")
+            return False
+        if not pm:
+            messagebox.showinfo(APP_NAME, "PlugManX staat niet aan op je server, dus /plm bestaat niet.\n\n"
+                                          "Zoek en installeer “PlugManX” op het tabblad Zoeken en herstart daarna één keer.")
+            return False
+        for n in names:
+            self.app.srv_send(f"plm unload {n}")
+        self.app.log("Direct uitladen: " + ", ".join(f"/plm unload {n}" for n in names) + ". Kijk in de console of het gelukt is.", "warn")
+        self.after(4000, self.refresh)
+        return True
+
+    def _unload_selected(self):
+        sel = [i for i in self._selected() if i["enabled"] and not norm_name(i["name"]).startswith("plugman")]
+        if not sel:
+            messagebox.showinfo(APP_NAME, "Selecteer eerst plugins die aan staan (PlugManX zelf kan niet worden uitgeladen).")
+            return
+        if not messagebox.askyesno(APP_NAME, "Direct uitladen op eigen risico, zonder herstart.\n\n" +
+                                             "\n".join("/plm unload " + i["name"] for i in sel) +
+                                             "\n\nDe plugin blijft in de map staan en wordt bij de volgende herstart weer geladen. "
+                                             "Plugins die door andere plugins nodig zijn kunnen problemen geven. Doorgaan?"):
+            return
+        self._plm_unload([i["name"] for i in sel])
 
     def _plm_load(self, bases):
         """Stuurt /plm load voor elk bestand (zonder .jar) naar de server."""
@@ -5419,7 +5449,7 @@ V.plug=async()=>{$('main').innerHTML=`<div class="card"><h3>Plugins <button clas
 <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
 <label class="row mut" style="margin-top:8px;gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres" style="margin-top:8px"></div></div>`;
  const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
-function renderPl(j){const items=j.items;$('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">Laden (/plm)</button>':''}</div>`+
+function renderPl(j){const items=j.items;$('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>`+
  items.map(i=>`<label class="li"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b class="${i.enabled?'':'mut'}">${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.enabled?'':'<span class="tag">uit</span>'}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div></label>`).join(''):'Geen plugins gevonden.'}
 function plSel(f,on){on?cur.sel.add(f):cur.sel.delete(f)}
 async function plAct(en,force,stop_ok){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');
@@ -5427,7 +5457,7 @@ async function plAct(en,force,stop_ok){const files=[...cur.sel];if(!files.length
  if(j.confirm){if(await ask(j.confirm))return plAct(en,true,true);return}setTimeout(V.plug,1500)}
 async function plRm(){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');if(!await ask(files.length+' plugin(s) verwijderen?\nZe gaan naar een aparte map en kunnen worden teruggezet. Een draaiende server wordt eerst veilig gestopt en daarna weer gestart.'))return;
  await go('/api/plugins/remove',{files});setTimeout(V.plug,2000)}
-async function plLoad(){await go('/api/plugins/plm',{files:[...cur.sel]},'Verstuurd')}
+async function plLoad(u){await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u},'Verstuurd')}
 async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres').innerHTML='<span class="mut">Zoeken…</span>';
  const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
  $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
@@ -5842,7 +5872,16 @@ class RemoteServer:
 
     def api_plugins_plm(self, q, body):
         files = [f for f in (body.get("files") or []) if isinstance(f, str) and f.lower().endswith(".jar")]
-        self.call_main(lambda: self.app.tab_plug._plm_load([f[:-4] for f in files]), auto=True)
+        if body.get("unload"):
+            def un():
+                t = self.app.tab_plug
+                names = [t.items[f]["name"] for f in files if f in t.items and t.items[f]["enabled"]
+                         and not norm_name(t.items[f]["name"]).startswith("plugman")]
+                if names:
+                    t._plm_unload(names)
+            self.call_main(un, auto=True)
+        else:
+            self.call_main(lambda: self.app.tab_plug._plm_load([f[:-4] for f in files]), auto=True)
         return 200, {"ok": True}
 
     def api_plugins_search(self, q, body):

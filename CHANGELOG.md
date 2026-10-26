@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.42
+- Plugins: nieuwe knop **PLM uitladen** (`/plm unload`) naast **PLM laden**, ook in de telefoon-app. PlugManX zelf wordt nooit uitgeladen. De plugin blijft in de map staan en wordt bij de volgende herstart weer geladen.
+- De namen van de PLM-knoppen en van het vinkje eronder zijn korter gemaakt.
+- Deze versie vereist een herstart.
+
 ## 2.41
 - Het tabblad Updates is samengevoegd met Plugins. Onder Plugins staan nu drie subtabs: Geïnstalleerd, Updates en Zoeken en toevoegen. Bij beschikbare updates knippert het tabblad Plugins met het aantal.
 - Deze versie vereist een herstart.
