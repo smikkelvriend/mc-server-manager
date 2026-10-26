@@ -14,6 +14,7 @@ Bouwen naar .exe:  pyinstaller --onefile --windowed --name MCServerManager mc_se
 import hashlib
 import importlib
 import json
+import math
 import os
 import base64
 import concurrent.futures
@@ -43,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.4"
 
 CHANGELOG = """
+2.4 - Nieuw tabblad Plugins: beheren (aan/uit/verwijderen), slim zoeken op naam of beschrijving en installeren, met optioneel /plm load. Tab-aanvulling in de console.
 2.3.1 - Programma-update haalt het bestand nu op via de exacte laatste commit, zodat een verouderde cache niets meer uitmaakt.
 2.3 - Bedrock-controle laat nu zien wat er misgaat: eigen UDP-ping lokaal en via je domein, plus wat elke dienst zegt.
 2.2 - Temperatuur van je laptop (met grafiek en waarschuwing) en automatische programma-update via een link.
@@ -127,6 +129,7 @@ DEFAULTS = {
     "stop_timeout": 60, "poll_secs": 30, "auto_restart": False, "console_max_lines": 5000, "console_font": 10,
     "graph_minutes": 5, "graph_zoom": True, "stats_secs": 2,
     "show_player_activity": True,
+    "plm_load": False, "plm_ack": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
     "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
     "reach_host": "", "reach_port": 25565, "reach_check_bedrock": False, "reach_bedrock_port": 19132,
@@ -1132,6 +1135,1081 @@ class Spark(tk.Canvas):
 load_psutil()
 
 
+# ======================================================================================
+#  Plugins beheren en zoeken
+# ======================================================================================
+STOPWORDS = set("""de het een en of dat die dit deze als dan ervoor zorgt zorg zorgen plugin plugins ik wil willen zou kan kun kunnen
+mijn mij je jij jouw we wij zoek zoeken zoekt graag iets wat welke er zodat zodra is zijn ben heb hebben geef geven om te naar bij
+ook nog wel niet geen voor met van in op aan uit door dan toe the a an that which makes make so when if i want looking for find me
+one who how to is are of and or on in it be do does my our need needs plugin plugins something called named hebt heeft wordt worden
+wordt werd moet moeten laat laten zodat dus maar want toch al alle alles elke iedereen iemand""".split())
+
+# Nederlandse stam -> Engelse zoekterm (voor beschrijvingen die in geen enkel 'concept' passen)
+NL_EN = {
+    "slaap": "sleep", "slap": "sleep", "nacht": "night", "dag": "day", "overslaan": "skip", "geslagen": "skip",
+    "speler": "player", "thuis": "home", "huis": "home", "teleport": "teleport", "beschermen": "protect",
+    "bescherming": "protection", "kist": "chest", "deur": "door", "geld": "money", "munt": "coins", "winkel": "shop",
+    "verkoop": "sell", "verkopen": "sell", "kopen": "buy", "vlieg": "fly", "vecht": "fight", "gevecht": "combat",
+    "dood": "death", "doden": "kill", "leven": "lives", "bouw": "build", "wereld": "world", "kaart": "map",
+    "regen": "rain", "onweer": "thunder", "weer": "weather", "tijd": "time", "snel": "fast", "dieren": "animals",
+    "dier": "animal", "monster": "monsters", "zwaard": "sword", "bericht": "message", "welkom": "welcome",
+    "kleur": "color", "naam": "name", "rang": "rank", "rechten": "permissions", "groep": "group", "beloning": "reward",
+    "stem": "vote", "boom": "tree", "bomen": "trees", "hout": "wood", "erts": "ore", "mijnen": "mining",
+    "automatisch": "automatic", "terugdraai": "rollback", "verberg": "hide", "onzichtbaar": "invisible",
+    "wachtwoord": "password", "inlog": "login", "vriend": "friends", "gilde": "guild", "taal": "language",
+    "vertaal": "translate", "bijnaam": "nickname", "titel": "title", "zijbalk": "sidebar", "inventaris": "inventory",
+    "sorteer": "sort", "uitschakel": "disable", "aanpass": "customize", "instell": "configure", "beperk": "limit",
+    "limiet": "limit", "grens": "border", "explosie": "explosion", "brand": "fire", "vuur": "fire", "vis": "fish",
+    "boer": "farming", "plant": "plants", "gewas": "crops", "oogst": "harvest", "dorpeling": "villager",
+    "paard": "horse", "huisdier": "pet", "ride": "ride", "hoed": "hat", "deeltjes": "particles", "geluid": "sound",
+    "muziek": "music", "spel": "game", "wedstrijd": "match", "missie": "quest", "verhaal": "story",
+    "afstand": "distance", "zichtbaar": "visible", "zicht": "view", "rand": "border", "melding": "notification",
+    "waarschuw": "warning", "straf": "punishment", "verban": "ban", "mute": "mute", "scherm": "screen",
+    "wapen": "weapon", "pantser": "armor", "gereedschap": "tools", "pijl": "arrow", "boog": "bow", "lava": "lava",
+    "water": "water", "grot": "cave", "gebied": "region", "regio": "region", "stuk": "plot", "grond": "land",
+    "hoofd": "heads", "kop": "heads", "skin": "skin", "cape": "cape", "rugzak": "backpack", "tas": "backpack",
+    "ender": "ender", "portaal": "portal", "nether": "nether", "end": "end", "levels": "levels", "ervaring": "experience",
+    "xp": "xp", "vliegen": "fly", "rennen": "sprint", "zwem": "swim", "klim": "climb", "ladder": "ladder",
+}
+
+# (label, trigger-regex, zoektermen, kernwoorden)
+CONCEPTS = [
+    ("slapen / nacht overslaan", r"slaap|slap|sleep|\bbed\b|bedden|nacht\w*\s+over|night\s*skip|nacht|night",
+     ["sleep", "night skip", "skip night", "one player sleep", "single player sleep", "sleep voting"],
+     ["sleep", "night", "skip", "bed", "vote", "percentage"]),
+    ("thuis / teleporteren", r"teleport|\btp\b|thuis|\bhomes?\b|warps?|sethome|terugkeren",
+     ["homes", "teleport", "warps", "sethome", "tpa"], ["home", "teleport", "warp", "tpa"]),
+    ("land beschermen / claims", r"claim|beschermen|bescherming|griefing|grief|\bplots?\b|stuk land|protect|land\b",
+     ["land claim", "grief protection", "claims", "protection plots"], ["claim", "protect", "grief", "land", "plot"]),
+    ("economie / winkels", r"econom|geld|munten|coins?|money|winkel|shop|verkopen|handel|bank\b|currency",
+     ["economy", "shop", "chest shop", "vault economy", "money"], ["economy", "shop", "money", "currency", "vault"]),
+    ("rechten / rangen", r"rank|rangen|rechten|permissie|permission|groepen|rollen|\bgroups?\b",
+     ["permissions", "luckperms", "ranks", "groups"], ["permission", "rank", "group", "luckperms"]),
+    ("chat / opmaak", r"\bchat|prefix|opmaak|chatkleur|format|bericht\w* opmaken",
+     ["chat format", "chat prefix", "chat colors", "chat management"], ["chat", "prefix", "format", "color"]),
+    ("anti-cheat", r"cheat|hack|fly hack|xray|x-ray|valsspel|anticheat|anti-cheat",
+     ["anticheat", "cheat detection", "anti xray", "anti-cheat"], ["anticheat", "cheat", "xray", "hack", "detect"]),
+    ("back-ups", r"back-?up|reservekopie|wereld bewaren|automatisch opslaan",
+     ["backup", "world backup", "automatic backup"], ["backup", "restore", "world"]),
+    ("kaart op website", r"dynmap|bluemap|live ?map|webkaart|kaart.*(website|browser|online)|web ?map",
+     ["dynmap", "live map", "web map", "bluemap"], ["map", "web", "live", "dynmap", "bluemap"]),
+    ("bouwen / worldedit", r"bouwen|build|worldedit|schematic|bouwtool|selecteren|kopi[eë]ren|\bwand\b",
+     ["worldedit", "build tools", "schematic", "world edit"], ["build", "worldedit", "schematic", "edit", "brush"]),
+    ("prestaties / lag", r"\blag|performance|optimali|vertraging|prestatie|zwaar|\btps\b|lagg",
+     ["performance", "optimization", "lag", "clearlag", "entity limit"], ["lag", "performance", "optimi", "entity", "tps"]),
+    ("mobs / monsters", r"\bmobs?\b|monsters?|creeper|dieren spawn|spawnen|mob spawn",
+     ["mob spawn", "mob control", "mob drops", "custom mobs", "mob stacker"], ["mob", "spawn", "monster", "drops"]),
+    ("minigames", r"minigame|bedwars|skywars|parkour|hunger ?games|spleef|\bspelletjes",
+     ["minigames", "bedwars", "skywars", "parkour", "hunger games"], ["minigame", "game", "arena", "bedwars", "parkour"]),
+    ("welkom- / join-berichten", r"welkom|welcome|join ?(bericht|message)|leave ?message|motd|toetreden",
+     ["join message", "welcome message", "motd", "join leave messages"], ["join", "welcome", "message", "motd"]),
+    ("tab / scoreboard", r"\btab\b|tablist|scoreboard|zijbalk|sidebar|bossbar|nametag|header",
+     ["tab list", "scoreboard", "tablist", "sidebar", "nametags"], ["tab", "scoreboard", "sidebar", "nametag", "bossbar"]),
+    ("kits", r"\bkits?\b|startpakket|starter ?kit|beginnerspakket",
+     ["kits", "starter kit", "kit commands"], ["kit", "starter", "items"]),
+    ("jobs / skills", r"\bjobs?\b|beroepen|\bbaan\b|geld verdienen|skills|mcmmo|levelen",
+     ["jobs", "job rewards", "mcmmo", "skills"], ["job", "skill", "level", "reward", "mcmmo"]),
+    ("veiling / markt", r"veiling|auction|marktplaats|marketplace",
+     ["auction house", "marketplace", "auction"], ["auction", "market", "bid", "sell"]),
+    ("stemmen / votes", r"\bvote|stemmen|votifier|stem ?beloning",
+     ["votifier", "vote rewards", "voting"], ["vote", "votifier", "reward"]),
+    ("discord", r"discord",
+     ["discord", "discordsrv", "discord bridge"], ["discord", "bridge", "chat"]),
+    ("bedrock / crossplay", r"bedrock|geyser|floodgate|mobiel|pocket|crossplay|playstation|\bps[45]\b|xbox|switch",
+     ["geyser", "floodgate", "bedrock crossplay"], ["bedrock", "geyser", "floodgate", "crossplay"]),
+    ("enchants", r"enchant|betoverin",
+     ["custom enchantments", "enchants", "enchant"], ["enchant", "enchantment"]),
+    ("dood / graf / inventaris", r"graf\b|grave|death ?chest|items kwijt|keepinventory|keep inventory|na (de )?dood",
+     ["grave", "death chest", "keep inventory", "corpse"], ["grave", "death", "chest", "inventory", "items"]),
+    ("weer / tijd", r"weer\b|weather|regen|onweer|altijd dag|\bdag\b|time ?control|tijd\b|storm",
+     ["weather", "time control", "always day", "weather control"], ["weather", "time", "day", "rain", "storm"]),
+    ("moderatie / admin", r"essentials|moderat|\bban\b|kick|\bmute\b|straffen|admin ?tools|banhammer|commando",
+     ["essentials", "moderation", "ban", "punishments", "admin tools"], ["essentials", "moderat", "ban", "mute", "kick", "punish"]),
+    ("hologrammen / npc", r"hologram|\bnpc|quest|dialoog|figuur",
+     ["holograms", "npc", "citizens", "quests"], ["hologram", "npc", "citizens", "quest"]),
+    ("meerdere werelden", r"multiworld|multi-world|meerdere werelden|nieuwe wereld|dimensie|worldgen|terrein|biome|multiverse",
+     ["multiworld", "world management", "multiverse", "world generator"], ["world", "multiverse", "dimension", "generator"]),
+    ("pvp / gevechten", r"pvp|vechten|combat|duel|gevecht|arena|combatlog",
+     ["pvp", "combat", "duels", "combat log"], ["pvp", "combat", "duel", "arena"]),
+    ("menu's / gui", r"\bmenu|\bgui\b|server ?selector|compass|inventaris ?menu",
+     ["gui menu", "deluxemenus", "server selector", "custom menu"], ["menu", "gui", "selector", "inventory"]),
+    ("placeholders", r"placeholder|variabele",
+     ["placeholderapi"], ["placeholder"]),
+    ("lobby / hub", r"lobby|\bhub\b|wachtkamer",
+     ["lobby", "hub", "server hub"], ["lobby", "hub"]),
+    ("afk", r"\bafk\b|inactief|idle",
+     ["afk", "afk kick", "afk detection"], ["afk", "idle", "inactive"]),
+    ("willekeurig teleporteren", r"random teleport|\brtp\b|willekeurig|\bwild\b",
+     ["random teleport", "rtp", "wild"], ["random", "teleport", "rtp", "wild"]),
+    ("farmen / bomen kappen", r"\bfarm|gewas|crops|oogst|harvest|replant|boomstam|tree ?feller|timber|vein ?miner|automatisch hakken|bomen kappen",
+     ["farming", "replant", "harvest", "tree feller", "vein miner", "timber"], ["farm", "replant", "harvest", "tree", "timber", "vein"]),
+    ("kisten sorteren / opslag", r"sorteer|\bsort|kist.*sort|chest ?sort|opslag|storage",
+     ["chest sort", "inventory sort", "storage"], ["sort", "chest", "inventory", "storage"]),
+    ("kisten / deuren vergrendelen", r"vergrendel|\block|slot\b|deur.*beveilig|kist.*beveilig|chest ?lock",
+     ["chest lock", "lock", "protect chests", "lockette"], ["lock", "chest", "door", "protect"]),
+    ("loggen / terugdraaien", r"rollback|terugdraai|coreprotect|loggen|blocklog|logging|wie heeft|geschiedenis|griefer",
+     ["coreprotect", "block logging", "rollback", "logging"], ["log", "rollback", "coreprotect", "history", "restore"]),
+    ("inloggen / whitelist", r"whitelist|inloggen|login|wachtwoord|password|registreer|authme|cracked|offline",
+     ["authme", "login", "whitelist", "password"], ["login", "password", "auth", "whitelist", "register"]),
+    ("cosmetics / hoeden", r"cosmetic|hoed|\bhats?\b|particles|deeltjes|trail|effecten|cape",
+     ["cosmetics", "hats", "particles", "trails"], ["cosmetic", "hat", "particle", "trail"]),
+    ("vliegen", r"vliegen|\bfly\b|flight|\belytra",
+     ["fly", "flight", "fly commands"], ["fly", "flight", "elytra"]),
+    ("levens / hardcore", r"levens|\blives\b|hardcore|doodstraf",
+     ["lives", "hardcore", "death penalty"], ["lives", "life", "hardcore", "death"]),
+    ("onzichtbaar / vanish", r"vanish|onzichtbaar|invisible|\bspy\b",
+     ["vanish", "invisible admin"], ["vanish", "invisible", "hide"]),
+    ("eigen recepten / items", r"recept|recipe|crafting|\bcraft\b|nieuwe items|custom items|itemsadder|eigen items",
+     ["custom recipes", "custom items", "crafting", "itemsadder"], ["recipe", "craft", "item", "custom"]),
+    ("hoofden", r"\bheads?\b|hoofden|player ?heads?|\bskulls?\b",
+     ["player heads", "head database"], ["head", "skull"]),
+    ("statistieken / ranglijst", r"statistiek|\bstats\b|leaderboard|ranglijst|speeltijd|playtime|top ?lijst",
+     ["leaderboard", "statistics", "playtime", "stats"], ["leaderboard", "stats", "playtime", "top"]),
+    ("resource packs", r"resource ?pack|texture|texturepack",
+     ["resource pack", "resource pack manager"], ["resource", "pack", "texture"]),
+    ("crates / beloningen", r"crate|loot|lootbox|sleutel|\bkeys?\b|gacha",
+     ["crates", "loot crates", "crate keys"], ["crate", "loot", "key", "reward"]),
+    ("huisdieren / rijden", r"huisdier|\bpets?\b|\bmount|paard|\bhorse|rijden",
+     ["pets", "mount", "horse", "pet"], ["pet", "mount", "horse", "ride"]),
+    ("dorpelingen / handel", r"dorpeling|villager|trades?\b|handelaar",
+     ["villager", "trading", "villager trades"], ["villager", "trade", "trading"]),
+]
+
+_ACC = str.maketrans("éèêëáàâäíìîïóòôöúùûü", "eeeeaaaaiiiioooouuuu")
+
+
+def norm_text(s):
+    return (s or "").lower().translate(_ACC)
+
+
+def norm_name(s):
+    return re.sub(r"[^a-z0-9]", "", norm_text(s))
+
+
+def tokenize(text):
+    return [t for t in re.findall(r"[a-z0-9\+\-\.]+", norm_text(text)) if t]
+
+
+def _translate_token(tok):
+    if tok in NL_EN:
+        return NL_EN[tok]
+    for stem, en in NL_EN.items():
+        if len(stem) >= 4 and tok.startswith(stem):
+            return en
+    return None
+
+
+def interpret_query(text):
+    """Zet een vrije zin om in zoekopdrachten. Geeft dict(name_like, queries, keywords, concepts, plain)."""
+    raw = (text or "").strip()
+    low = norm_text(raw)
+    toks = tokenize(raw)
+    content = [t for t in toks if t not in STOPWORDS and not t.isdigit()]
+    concepts = [c for c in CONCEPTS if re.search(c[1], low)]
+    name_like = 0 < len(content) <= 3 and len(toks) <= 4 and (len(content) == 1 or not concepts) and not any(
+        w in toks for w in ("als", "dat", "die", "zodat", "wanneer", "that", "which", "when", "if", "ervoor", "zorgt"))
+    queries, kw = [], []
+    if raw:
+        queries.append((raw, 1.0))
+    if name_like and len(content) > 1:
+        queries.append(("".join(content), 0.9))  # 'world edit' -> 'worldedit'
+    for label, _rx, qs, keys in concepts[:3]:
+        for i, q in enumerate(qs[:5]):
+            queries.append((q, 0.9 - 0.08 * i))
+        kw += keys
+    translated = []
+    for t in content:
+        e = _translate_token(t)
+        translated.append(e or t)
+    translated = [w for w in dict.fromkeys(translated) if w not in STOPWORDS]
+    if translated and (not concepts or not name_like):
+        queries.append((" ".join(translated[:5]), 0.7))
+        if len(translated) > 2:
+            queries.append((" ".join(translated[:2]), 0.5))
+    if not concepts:
+        kw += translated
+    seen, out = set(), []
+    for q, w in queries:
+        k = q.lower()
+        if k and k not in seen:
+            seen.add(k)
+            out.append((q, w))
+    return dict(name_like=name_like, queries=out[:9], keywords=list(dict.fromkeys(kw)),
+                concepts=[c[0] for c in concepts[:3]], translated=translated, content=content)
+
+
+def _parse_iso(s):
+    try:
+        return datetime.strptime((s or "")[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _age_days(dt):
+    return (datetime.utcnow() - dt).days if dt else None
+
+
+def modrinth_search(query, loaders, limit=15):
+    cats = [f"categories:{x}" for x in (loaders or ALL_LOADERS)]
+    facets = json.dumps([cats])
+    d = http_json(f"{MODRINTH}/search?" + urllib.parse.urlencode(
+        {"query": query, "limit": limit, "facets": facets}), timeout=20, retries=1)
+    out = []
+    for h in d.get("hits", []):
+        out.append(dict(source="Modrinth", id=h.get("project_id"), slug=h.get("slug") or "", name=h.get("title") or "",
+                        desc=h.get("description") or "", downloads=int(h.get("downloads") or 0),
+                        updated=_parse_iso(h.get("date_modified")), versions=list(h.get("versions") or []),
+                        cats=list(h.get("categories") or []), author=h.get("author") or "",
+                        page=f"https://modrinth.com/plugin/{h.get('slug')}" if h.get("slug") else ""))
+    return out
+
+
+def hangar_search(query, limit=10):
+    d = http_json(f"{HANGAR}/projects?" + urllib.parse.urlencode({"q": query, "limit": limit}), timeout=20, retries=1)
+    out = []
+    for p in d.get("result", []):
+        ns = p.get("namespace") or {}
+        st = p.get("stats") or {}
+        out.append(dict(source="Hangar", id=None, slug=ns.get("slug") or p.get("name") or "", name=p.get("name") or "",
+                        desc=p.get("description") or "", downloads=int(st.get("downloads") or 0),
+                        updated=_parse_iso(p.get("lastUpdated")), versions=[], cats=[p.get("category") or ""],
+                        author=ns.get("owner") or "",
+                        page=f"https://hangar.papermc.io/{ns.get('owner')}/{ns.get('slug')}" if ns.get("owner") else ""))
+    return out
+
+
+def search_plugins(text, mc, loaders, installed=(), log=None):
+    """Slim zoeken: begrijpt een naam ('worldedit') én een beschrijving ('als 1 iemand slaapt wordt het dag').
+    Draait meerdere zoekopdrachten tegelijk op Modrinth en Hangar, voegt de resultaten samen en rangschikt ze."""
+    info = interpret_query(text)
+    if not info["queries"]:
+        return [], info
+    jobs = []
+    for q, w in info["queries"]:
+        jobs.append((q, w, "Modrinth", lambda q=q: modrinth_search(q, loaders)))
+        jobs.append((q, w, "Hangar", lambda q=q: hangar_search(q)))
+    hits, errors = [], []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
+        futs = {ex.submit(fn): (q, w, src) for q, w, src, fn in jobs}
+        try:
+            for f in concurrent.futures.as_completed(futs, timeout=45):
+                q, w, src = futs[f]
+                try:
+                    for rank, r in enumerate(f.result()):
+                        hits.append((q, w, rank, r))
+                except Exception as e:
+                    errors.append(f"{src}: {describe_net_error(e)}")
+        except concurrent.futures.TimeoutError:
+            errors.append("time-out bij sommige zoekopdrachten")
+    if not hits and errors:
+        raise RuntimeError("; ".join(sorted(set(errors))))
+    info["errors"] = sorted(set(errors))
+    nq = norm_name(" ".join(info["content"])) or norm_name(text)
+    merged = {}
+    for q, w, rank, r in hits:
+        key = norm_name(r["name"]) or norm_name(r["slug"])
+        m = merged.get(key)
+        if m is None:
+            m = merged[key] = dict(r, sources=[r["source"]], score=0.0, queries=set(), pages={r["source"]: r["page"]},
+                                   alt=[r])
+        elif r["source"] not in m["sources"]:
+            m["sources"].append(r["source"])
+            m["pages"][r["source"]] = r["page"]
+            m["alt"].append(r)
+            if r["source"] == "Modrinth":  # Modrinth heeft de beste gegevens (versies, id)
+                for k in ("id", "versions", "cats", "page"):
+                    m[k] = r[k]
+                m["source"] = "Modrinth"
+            m["downloads"] = max(m["downloads"], r["downloads"])
+        m["score"] += w / (rank + 3)
+        m["queries"].add(q)
+    kws = [k.lower() for k in info["keywords"]]
+    inst = {norm_name(x) for x in installed}
+    out = []
+    for key, m in merged.items():
+        title, desc = norm_text(m["name"]), norm_text(m["desc"])
+        why = []
+        s = m["score"] * 6
+        hit_t = [k for k in kws if k in title]
+        hit_d = [k for k in kws if k in desc and k not in hit_t]
+        s += 3 * len(hit_t) + 1.2 * len(hit_d)
+        if hit_t or hit_d:
+            why.append("noemt: " + ", ".join((hit_t + hit_d)[:4]))
+        if len(m["queries"]) > 1:
+            s += 0.8 * (len(m["queries"]) - 1)
+        exact = bool(nq) and (norm_name(m["name"]) == nq or norm_name(m["slug"]) == nq)
+        if exact:
+            s += 100
+            why.insert(0, "exacte naam")
+        elif info["name_like"] and nq and (norm_name(m["name"]).startswith(nq) and len(nq) >= 4):
+            s += 6
+            why.insert(0, "begint met jouw zoekterm")
+        s += math.log10(max(m["downloads"], 1)) * 0.6
+        compat = None
+        if m["versions"] and mc:
+            compat = mc in m["versions"]
+            s += 1.5 if compat else -0.5
+        age = _age_days(m["updated"])
+        if age is not None:
+            s += 0.6 if age < 365 else (-0.8 if age > 900 else 0)
+        m.update(score=s, why="; ".join(why), exact=exact, compat=compat,
+                 installed=key in inst or norm_name(m["slug"]) in inst)
+        out.append(m)
+    out.sort(key=lambda r: r["score"], reverse=True)
+    return out[:40], info
+
+
+def read_plugin_yml(path):
+    """Leest naam, versie, omschrijving en afhankelijkheden uit plugin.yml / paper-plugin.yml."""
+    res = dict(name=None, version=None, desc="", website=None, depend=[], soft=[], authors="", commands=[])
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            for n in ("paper-plugin.yml", "plugin.yml"):
+                if n not in names:
+                    continue
+                txt = z.read(n).decode("utf-8", "replace")
+
+                def val(key):
+                    m = re.search(r"^" + key + r":\s*['\"]?([^'\"\r\n#]+)", txt, re.M)
+                    return m.group(1).strip() if m else None
+
+                def lst(key):
+                    m = re.search(r"^" + key + r":[ \t]*(.*)$", txt, re.M)
+                    if not m:
+                        return []
+                    v = m.group(1).strip()
+                    if v.startswith("["):
+                        return [x.strip(" '\"") for x in v.strip("[]").split(",") if x.strip(" '\"")]
+                    if v:
+                        return [v.strip("'\"")]
+                    rest = txt[m.end():].splitlines()
+                    out = []
+                    for line in rest:
+                        mm = re.match(r"^\s+-\s*['\"]?([^'\"#\s][^'\"#]*)", line)
+                        if mm:
+                            out.append(mm.group(1).strip())
+                        elif line.strip() and not line.startswith(" "):
+                            break
+                    return out
+
+                res["name"], res["website"] = val("name"), val("website") or val("url")
+                v = val("version")
+                res["version"] = v if v and "${" not in v else None
+                res["desc"] = val("description") or ""
+                res["authors"] = ", ".join(lst("authors")) or (val("author") or "")
+                if n == "plugin.yml":
+                    res["depend"], res["soft"] = lst("depend"), lst("softdepend")
+                    cm = re.search(r"^commands:[ \t]*\n((?:[ \t]+.*\n?|\n)*)", txt, re.M)
+                    if cm:
+                        first = re.search(r"^([ \t]+)\S", cm.group(1), re.M)
+                        if first:
+                            res["commands"] = re.findall(r"^" + first.group(1) + r"['\"]?([\w:.\-]+)['\"]?:", cm.group(1), re.M)
+                else:  # paper-plugin.yml: dependencies -> server -> Naam -> required
+                    sec = re.search(r"^dependencies:\s*\n((?:[ \t]+.*\n?|\n)*)", txt, re.M)
+                    if sec:
+                        srv = re.search(r"^[ \t]+server:\s*\n((?:[ \t]{4,}.*\n?)*)", sec.group(1), re.M)
+                        if srv:
+                            for blk in re.finditer(r"^[ \t]+([\w.\-]+):\s*\n((?:[ \t]{6,}.*\n?)*)", srv.group(1), re.M):
+                                req = re.search(r"required:\s*(\w+)", blk.group(2))
+                                (res["soft"] if req and req.group(1).lower() == "false" else res["depend"]).append(blk.group(1))
+                break
+    except Exception:
+        pass
+    return res
+
+
+def scan_plugins(pdir):
+    """Alle plugins in de map, aan (.jar) en uit (.jar.disabled), met afhankelijkheden."""
+    items = []
+    try:
+        files = sorted(os.listdir(pdir), key=str.lower)
+    except OSError:
+        return items
+    for fn in files:
+        low = fn.lower()
+        path = os.path.join(pdir, fn)
+        if not os.path.isfile(path) or not (low.endswith(".jar") or low.endswith(".jar.disabled")):
+            continue
+        enabled = low.endswith(".jar")
+        meta = read_plugin_yml(path)
+        base = fn[:-4] if enabled else fn[:-13]
+        meta.update(file=fn, path=path, enabled=enabled, name=meta["name"] or base, size=os.path.getsize(path))
+        items.append(meta)
+    names_on = {i["name"].lower(): i for i in items if i["enabled"]}
+    for i in items:
+        i["needed_by"] = sorted(o["name"] for o in items if o["enabled"] and o is not i
+                                and i["name"].lower() in [d.lower() for d in o["depend"]])
+        i["missing"] = [d for d in i["depend"] if d.lower() not in names_on]
+    return items
+
+
+def toggle_plugin(item, enable):
+    """Hernoemt x.jar <-> x.jar.disabled. Paper laadt alleen .jar-bestanden."""
+    src = item["path"]
+    dst = src[:-9] if enable else src + ".disabled"
+    if os.path.exists(dst):
+        raise FileExistsError(f"{os.path.basename(dst)} bestaat al.")
+    os.rename(src, dst)
+    return dst
+
+
+def remove_plugin(item, trash_dir):
+    os.makedirs(trash_dir, exist_ok=True)
+    dst = os.path.join(trash_dir, item["file"])
+    if os.path.exists(dst):
+        dst = os.path.join(trash_dir, datetime.now().strftime("%H%M%S_") + item["file"])
+    shutil.move(item["path"], dst)
+    return dst
+
+
+def _safe_jar_name(name, fallback):
+    n = os.path.basename((name or "").replace("\\", "/")) or fallback
+    n = re.sub(r"[^\w.\-+()]", "_", n)
+    return n if n.lower().endswith(".jar") else n + ".jar"
+
+
+def modrinth_resolve(pid, mc, loaders, unstable=False):
+    """Zoekt de beste downloadbare versie van een Modrinth-project voor jouw server."""
+    base = f"{MODRINTH}/project/{pid}/version?"
+    loaders = loaders or ALL_LOADERS
+    params = {"loaders": json.dumps(loaders)}
+    verified = True
+    vers = []
+    if mc:
+        vers = http_json(base + urllib.parse.urlencode(dict(params, game_versions=json.dumps([mc]))), retries=2)
+    if not vers:
+        verified = not mc and True or False
+        vers = http_json(base + urllib.parse.urlencode(params), retries=2)
+    if not vers:
+        return None
+    pick = next((v for v in vers if v.get("version_type") == "release"), None) or (vers[0] if unstable else None)
+    pick = pick or vers[0]
+    files = [f for f in pick.get("files", []) if str(f.get("filename", "")).lower().endswith(".jar")] or pick.get("files", [])
+    if not files:
+        return None
+    f = next((x for x in files if x.get("primary")), files[0])
+    hs = f.get("hashes") or {}
+    algo = "sha512" if hs.get("sha512") else ("sha1" if hs.get("sha1") else None)
+    deps = [d["project_id"] for d in pick.get("dependencies", [])
+            if d.get("dependency_type") == "required" and d.get("project_id")]
+    return dict(source="Modrinth", pid=pid, version=pick.get("version_number") or "?", url=f["url"],
+                filename=_safe_jar_name(f.get("filename"), pid + ".jar"), algo=algo, hash=hs.get(algo) if algo else None,
+                verified=verified, vtype=pick.get("version_type"), mc=list(pick.get("game_versions") or []), deps=deps)
+
+
+def plan_install(result, mc, loaders, installed, unstable=False):
+    """Maakt een installatieplan: de plugin zelf plus verplichte afhankelijkheden die nog niet aanwezig zijn."""
+    inst = {norm_name(x) for x in installed}
+    plan, notes = [], []
+    if result["source"] == "Modrinth" and result.get("id"):
+        r = modrinth_resolve(result["id"], mc, loaders, unstable)
+        if not r:
+            raise RuntimeError("Geen downloadbare versie voor jouw serversoftware gevonden op Modrinth.")
+        r.update(title=result["name"], page=result["page"])
+        plan.append(r)
+        todo = list(r["deps"])
+        seen = {result["id"]}
+        while todo and len(plan) < 8:
+            pid = todo.pop(0)
+            if pid in seen:
+                continue
+            seen.add(pid)
+            try:
+                pj = http_json(f"{MODRINTH}/project/{pid}", retries=1)
+            except Exception:
+                notes.append(f"Afhankelijkheid {pid} kon niet worden opgezocht.")
+                continue
+            if norm_name(pj.get("title")) in inst or norm_name(pj.get("slug")) in inst:
+                continue
+            d = modrinth_resolve(pid, mc, loaders, unstable)
+            if not d:
+                notes.append(f"Verplichte afhankelijkheid '{pj.get('title')}' heeft geen passende versie: installeer die zelf.")
+                continue
+            d.update(title=pj.get("title") or pid, page=f"https://modrinth.com/plugin/{pj.get('slug')}", dep=True)
+            plan.append(d)
+            todo += [x for x in d["deps"] if x not in seen]
+    else:
+        h = hangar_lookup(result["name"], mc, unstable)
+        if not h:
+            raise RuntimeError("Geen downloadbare versie voor Paper gevonden op Hangar.")
+        h = dict(h, filename=_safe_jar_name(h.get("filename"), result["name"] + ".jar"), pid=None, mc=[], deps=[],
+                 vtype="release")
+        plan.append(h)
+        notes.append("Bij Hangar kan ik afhankelijkheden niet automatisch zien: lees de pagina van de plugin.")
+    return plan, notes
+
+
+def install_plan(plan, pdir, progress=None):
+    """Downloadt en controleert alle bestanden uit het plan. Geeft de lijst met nieuwe bestandsnamen."""
+    done = []
+    os.makedirs(pdir, exist_ok=True)
+    for step in plan:
+        dest = os.path.join(pdir, step["filename"])
+        if os.path.exists(dest) or os.path.exists(dest + ".disabled"):
+            raise FileExistsError(f"{step['filename']} staat al in de plugins-map.")
+    for step in plan:
+        dest = os.path.join(pdir, step["filename"])
+        tmp = dest + ".part"
+        expected = (step["algo"], step["hash"]) if step.get("algo") and step.get("hash") else None
+        try:
+            download(step["url"], tmp, progress=progress, expected=expected)
+            os.replace(tmp, dest)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        done.append(step["filename"])
+    return done
+
+
+VANILLA_CMDS = """advancement attribute ban ban-ip banlist bossbar clear clone damage data datapack debug defaultgamemode deop
+difficulty effect enchant execute experience xp fill fillbiome forceload function gamemode gamerule give help item kick kill list
+locate loot me msg op pardon pardon-ip particle plugins pl reload recipe ride save-all save-off save-on say schedule scoreboard seed
+setblock setidletimeout setworldspawn spawnpoint spectate spreadplayers stop stopsound summon tag team teammsg tell tellraw
+teleport tp time title tm trigger w weather whitelist worldborder version ver tps mspt paper spark timings restart plm plugman""".split()
+PLAYER_CMDS = {"ban", "pardon", "kick", "op", "deop", "msg", "tell", "w", "give", "kill", "clear", "spectate", "tp", "teleport",
+               "spawnpoint", "tellraw", "xp", "experience", "effect", "enchant", "advancement", "attribute", "damage"}
+TAB_SUBS = {
+    ("whitelist", 0): ["add", "remove", "list", "on", "off", "reload"],
+    ("gamemode", 0): ["survival", "creative", "adventure", "spectator"],
+    ("defaultgamemode", 0): ["survival", "creative", "adventure", "spectator"],
+    ("time", 0): ["set", "add", "query"],
+    ("weather", 0): ["clear", "rain", "thunder"],
+    ("difficulty", 0): ["peaceful", "easy", "normal", "hard"],
+    ("gamerule", 0): ["keepInventory", "doDaylightCycle", "doWeatherCycle", "doMobSpawning", "mobGriefing", "playersSleepingPercentage",
+                      "doFireTick", "commandBlockOutput", "announceAdvancements", "naturalRegeneration", "pvp", "randomTickSpeed"],
+    ("effect", 0): ["give", "clear"],
+    ("worldborder", 0): ["add", "set", "center", "damage", "get", "warning"],
+    ("plm", 0): ["load", "unload", "reload", "enable", "disable", "restart", "info", "list", "lookup", "help", "dump", "vault"],
+    ("plugman", 0): ["load", "unload", "reload", "enable", "disable", "restart", "info", "list", "lookup", "help", "dump", "vault"],
+    ("timings", 0): ["on", "off", "report", "reset", "paste"],
+    ("paper", 0): ["reload", "version", "heap", "dumpitem", "mobcaps", "entity", "chunk"],
+    ("spark", 0): ["profiler", "tps", "healthreport", "gc", "heapsummary", "ping", "tickmonitor"],
+    ("save-all", 0): ["flush"],
+}
+PLM_PLUGIN_SUBS = {"load", "unload", "reload", "enable", "disable", "restart", "info", "lookup"}
+
+
+def complete_command(text, commands, players, plugins):
+    """Tab-aanvulling voor het commandoveld. Geeft alle volledige mogelijke vervangingen van de ingevoerde tekst."""
+    slash = text.startswith("/")
+    body = text[1:] if slash else text
+    parts = body.split(" ")
+    last = parts[-1]
+    pre = ("/" if slash else "") + (" ".join(parts[:-1]) + " " if len(parts) > 1 else "")
+    if len(parts) == 1:
+        pool = commands
+    else:
+        cmd, idx = parts[0].lower(), len(parts) - 2
+        sub = parts[1].lower() if len(parts) > 2 else ""
+        pool = TAB_SUBS.get((cmd, idx))
+        if cmd == "time" and idx == 1 and sub == "set":
+            pool = ["day", "night", "noon", "midnight"]
+        elif cmd in ("plm", "plugman") and idx == 1 and sub in PLM_PLUGIN_SUBS:
+            pool = plugins
+        elif cmd == "whitelist" and idx == 1 and sub in ("add", "remove"):
+            pool = players
+        elif cmd == "gamemode" and idx == 1:
+            pool = players
+        elif cmd in ("tp", "teleport") and idx <= 1:
+            pool = players
+        elif cmd in PLAYER_CMDS and idx == 0:
+            pool = players
+        if pool is None:
+            pool = players
+    low = last.lower()
+    return [pre + c for c in sorted({c for c in pool if c.lower().startswith(low)}, key=str.lower)]
+
+
+def fmt_count(n):
+    n = int(n or 0)
+    if n >= 1000000:
+        return f"{n / 1000000:.1f}M"
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(n)
+
+
+def plugman_name(items):
+    """Naam van de PlugMan(X)-plugin als die aanstaat (nodig voor /plm load)."""
+    return next((i["name"] for i in items if i["enabled"] and norm_name(i["name"]).startswith("plugman")), None)
+
+
+class PluginsTab(ttk.Frame):
+    """Tabblad Plugins: beheren (aan/uit/verwijderen) en slim zoeken + installeren."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent, padding=10)
+        self.app = app
+        self.q = queue.Queue()
+        self.items, self.results, self.busy = {}, {}, False
+        self.plm_var = tk.BooleanVar(value=bool(app.cfg.get("plm_load", False)))
+        self.query_var = tk.StringVar()
+        self.status_var = tk.StringVar(value="")
+        self.sub = ttk.Notebook(self)
+        self.sub.pack(fill="both", expand=True)
+        self.pg_inst = ttk.Frame(self.sub, padding=8)
+        self.pg_find = ttk.Frame(self.sub, padding=8)
+        self.sub.add(self.pg_inst, text="  Geïnstalleerd  ")
+        self.sub.add(self.pg_find, text="  🔍 Zoeken en toevoegen  ")
+        self._build_installed()
+        self._build_find()
+        box = ttk.Frame(self)
+        box.pack(fill="x", pady=(8, 0))
+        ttk.Checkbutton(box, text="⚠ Plugins direct laden met /plm load, zonder herstart (op eigen risico)",
+                        variable=self.plm_var, command=self._plm_toggled).pack(anchor="w")
+        ttk.Label(box, textvariable=self.status_var, foreground="#6b7280").pack(anchor="w", pady=(2, 0))
+        self.after(120, self._poll)
+
+    # ---------- opbouw ----------
+    def _build_installed(self):
+        f = self.pg_inst
+        bar = ttk.Frame(f)
+        bar.pack(fill="x")
+        for text, cmd in (("↻  Vernieuwen", self.refresh), ("⏸  Uitzetten", lambda: self._toggle(False)),
+                          ("▶  Aanzetten", lambda: self._toggle(True)), ("🗑  Verwijderen…", self._remove),
+                          ("⚡  Nu laden (/plm load)", self._load_selected), ("📂  Map openen", self._open_dir)):
+            ttk.Button(bar, text=text, command=cmd).pack(side="left", padx=(0, 6))
+        self.count_lbl = ttk.Label(bar, text="")
+        self.count_lbl.pack(side="right")
+        cols = ("state", "name", "version", "needs", "file", "size")
+        wrap = ttk.Frame(f)
+        wrap.pack(fill="both", expand=True, pady=(8, 4))
+        self.tree = ttk.Treeview(wrap, columns=cols, show="headings", selectmode="extended")
+        for c, t, w in (("state", "Status", 90), ("name", "Plugin", 190), ("version", "Versie", 110),
+                        ("needs", "Heeft nodig", 190), ("file", "Bestand", 240), ("size", "Grootte", 80)):
+            self.tree.heading(c, text=t)
+            self.tree.column(c, width=w, anchor="w")
+        sb = ttk.Scrollbar(wrap, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.tree.tag_configure("off", foreground="#9ca3af")
+        self.tree.tag_configure("warn", foreground="#b45309")
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self._show_installed_info())
+        self.info_lbl = ttk.Label(f, text="", wraplength=900, justify="left", foreground="#374151")
+        self.info_lbl.pack(fill="x")
+
+    def _build_find(self):
+        f = self.pg_find
+        row = ttk.Frame(f)
+        row.pack(fill="x")
+        row.columnconfigure(0, weight=1)
+        e = ttk.Entry(row, textvariable=self.query_var, font=("Segoe UI", 11))
+        e.grid(row=0, column=0, sticky="ew")
+        e.bind("<Return>", lambda ev: self.search())
+        self.btn_search = ttk.Button(row, text="Zoeken", command=self.search, style="Big.TButton")
+        self.btn_search.grid(row=0, column=1, padx=(8, 0))
+        ttk.Label(f, foreground="#6b7280", wraplength=900, justify="left",
+                  text="Typ een naam (bijv. “worldedit”, “luckperms”) of beschrijf wat je zoekt (bijv. “een plugin die de nacht "
+                       "overslaat als 1 speler slaapt”, “spelers kunnen land claimen”). Nederlands en Engels werken allebei."
+                  ).pack(anchor="w", pady=(4, 2))
+        self.interp_lbl = ttk.Label(f, text="", foreground="#2563eb", wraplength=900, justify="left")
+        self.interp_lbl.pack(anchor="w")
+        wrap = ttk.Frame(f)
+        wrap.pack(fill="both", expand=True, pady=(6, 4))
+        cols = ("name", "desc", "dl", "upd", "mc", "src", "state")
+        self.rtree = ttk.Treeview(wrap, columns=cols, show="headings", selectmode="browse")
+        for c, t, w, a in (("name", "Plugin", 160, "w"), ("desc", "Wat doet het", 380, "w"), ("dl", "Downloads", 80, "e"),
+                           ("upd", "Bijgewerkt", 90, "w"), ("mc", "Jouw MC-versie", 110, "w"), ("src", "Bron", 80, "w"),
+                           ("state", "", 100, "w")):
+            self.rtree.heading(c, text=t)
+            self.rtree.column(c, width=w, anchor=a)
+        sb = ttk.Scrollbar(wrap, orient="vertical", command=self.rtree.yview)
+        self.rtree.configure(yscrollcommand=sb.set)
+        self.rtree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.rtree.tag_configure("exact", background="#dcfce7")
+        self.rtree.tag_configure("have", foreground="#9ca3af")
+        self.rtree.bind("<<TreeviewSelect>>", lambda e: self._show_result())
+        self.rtree.bind("<Double-1>", lambda e: self.install())
+        self.detail = tk.Text(f, height=7, wrap="word", font=("Segoe UI", 10), relief="flat", bg="#f3f4f6", state="disabled")
+        self.detail.pack(fill="x", pady=(2, 6))
+        bar = ttk.Frame(f)
+        bar.pack(fill="x")
+        self.btn_install = ttk.Button(bar, text="⬇  Installeren", command=self.install, style="Big.TButton")
+        self.btn_install.pack(side="left")
+        ttk.Button(bar, text="🌐  Pagina openen", command=self._open_page).pack(side="left", padx=8)
+
+    # ---------- hulpjes ----------
+    def pdir(self):
+        return os.path.join(self.app.folder_var.get().strip(), "plugins")
+
+    def _mc(self):
+        return self.app.mc_var.get().strip()
+
+    def _loaders(self):
+        return list(self.app.cfg.get("loaders") or LOADERS)
+
+    def _note(self, text):
+        self.status_var.set(text)
+
+    def on_show(self):
+        self.refresh()
+
+    def _installed_names(self):
+        names = []
+        for i in self.items.values():
+            names += [i["name"], i["file"].split(".jar")[0]]
+        return names
+
+    # ---------- geïnstalleerde plugins ----------
+    def refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        self.items = {}
+        pdir = self.pdir()
+        if not self.app.folder_var.get().strip() or not os.path.isdir(pdir):
+            self.count_lbl.config(text="Kies eerst je servermap (tabblad Updates).")
+            return
+        for it in scan_plugins(pdir):
+            self.items[it["file"]] = it
+            needs = ", ".join(it["depend"]) or "-"
+            tag = "off" if not it["enabled"] else ("warn" if it["missing"] else "")
+            st = "● aan" if it["enabled"] else "⏸ uit"
+            if it["enabled"] and it["missing"]:
+                st = "⚠ aan"
+                needs += f"   (mist: {', '.join(it['missing'])})"
+            self.tree.insert("", "end", iid=it["file"], tags=(tag,),
+                             values=(st, it["name"], it["version"] or "?", needs, it["file"], fmt_size(it["size"])))
+        on = sum(1 for i in self.items.values() if i["enabled"])
+        self.count_lbl.config(text=f"{on} aan, {len(self.items) - on} uit")
+        self._show_installed_info()
+        self.app._plug_cache = None
+
+    def _selected(self):
+        return [self.items[i] for i in self.tree.selection() if i in self.items]
+
+    def _show_installed_info(self):
+        sel = self._selected()
+        if len(sel) != 1:
+            self.info_lbl.config(text="Selecteer een plugin voor meer informatie." if not sel else f"{len(sel)} plugins geselecteerd.")
+            return
+        i = sel[0]
+        parts = [i["desc"] or "(geen omschrijving)"]
+        if i["authors"]:
+            parts.append(f"Door: {i['authors']}")
+        if i["needed_by"]:
+            parts.append(f"Nodig voor: {', '.join(i['needed_by'])}")
+        if i["soft"]:
+            parts.append(f"Werkt beter met: {', '.join(i['soft'])}")
+        if i["commands"]:
+            parts.append("Commando's: " + ", ".join("/" + c for c in i["commands"][:12]) + (" …" if len(i["commands"]) > 12 else ""))
+        self.info_lbl.config(text="\n".join(parts))
+
+    def _server_running(self):
+        return self.app.srv_running()
+
+    def _with_server_stopped(self, what, action):
+        """Bestanden van geladen plugins zijn op Windows vergrendeld: eerst de server veilig stoppen, dan wijzigen, dan starten."""
+        if not self._server_running():
+            action()
+            self.refresh()
+            return
+        if not messagebox.askyesno(APP_NAME, f"De server draait. Voor '{what}' moet hij even stoppen "
+                                             "(Windows vergrendelt de bestanden van geladen plugins).\n\n"
+                                             "Veilig stoppen, wijzigen en daarna weer starten?"):
+            return
+
+        def go():
+            try:
+                action()
+            except Exception as e:
+                messagebox.showerror(APP_NAME, f"Mislukt: {e}")
+            self.refresh()
+            self.app.srv_start()
+
+        self.app.srv_stop(after=go)
+
+    def _toggle(self, enable):
+        sel = [i for i in self._selected() if i["enabled"] != enable]
+        if not sel:
+            messagebox.showinfo(APP_NAME, "Selecteer eerst plugins die " + ("uit" if enable else "aan") + " staan.")
+            return
+        if not enable:
+            names = {i["name"].lower() for i in sel}
+            broken = sorted({o["name"] for o in self.items.values() if o["enabled"] and o["name"].lower() not in names
+                             and any(d.lower() in names for d in o["depend"])})
+            if broken and not messagebox.askyesno(
+                    APP_NAME, f"Let op: {', '.join(broken)} heeft deze plugin nodig en start dan niet meer goed.\n\nToch uitzetten?"):
+                return
+        else:
+            missing = sorted({m for i in sel for m in i["missing"]})
+            if missing and not messagebox.askyesno(
+                    APP_NAME, f"Deze plugin heeft {', '.join(missing)} nodig, en dat staat niet aan.\n\nToch aanzetten?"):
+                return
+
+        def act():
+            for i in sel:
+                toggle_plugin(i, enable)
+            self.app.log(("Aangezet: " if enable else "Uitgezet: ") + ", ".join(i["name"] for i in sel), "ok")
+
+        if enable:
+            try:
+                act()
+            except OSError as e:
+                messagebox.showerror(APP_NAME, f"Aanzetten mislukt: {e}")
+                return
+            self.refresh()
+            self._apply_changes([i["file"][:-9] if i["file"].lower().endswith(".disabled") else i["file"] for i in sel])
+        else:
+            self._with_server_stopped(f"{len(sel)} plugin(s) uitzetten", act)
+
+    def _remove(self):
+        sel = self._selected()
+        if not sel:
+            return
+        if not messagebox.askyesno(APP_NAME, f"{len(sel)} plugin(s) verwijderen?\n\n" + "\n".join(i["file"] for i in sel) +
+                                             "\n\nDe bestanden gaan naar een aparte map, dus je kunt ze terugzetten. "
+                                             "De instellingen van de plugin (map in plugins/) blijven staan."):
+            return
+        trash = os.path.join(self.app.backup_root(), "verwijderde_plugins", datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+        def act():
+            for i in sel:
+                remove_plugin(i, trash)
+            self.app.log(f"Verwijderd (verplaatst naar {trash}): " + ", ".join(i["name"] for i in sel), "ok")
+
+        self._with_server_stopped(f"{len(sel)} plugin(s) verwijderen", act)
+
+    def _open_dir(self):
+        d = self.pdir()
+        if os.path.isdir(d):
+            try:
+                os.startfile(d)
+            except AttributeError:
+                webbrowser.open(d)
+
+    # ---------- direct laden met /plm load ----------
+    def _plm_toggled(self):
+        if self.plm_var.get() and not self.app.cfg.get("plm_ack"):
+            if not messagebox.askyesno(
+                    APP_NAME, "Op eigen risico.\n\nMet PlugMan(X) kun je een plugin laden terwijl de server draait "
+                              "(/plm load <plugin>). Dat werkt niet altijd goed:\n"
+                              "• plugins die andere plugins of een herstart nodig hebben kunnen vastlopen of half laden;\n"
+                              "• bij uitladen en herladen kan geheugen blijven hangen;\n"
+                              "• een herstart blijft de enige betrouwbare manier.\n\n"
+                              "Je hebt de plugin PlugManX op de server nodig. Doorgaan?"):
+                self.plm_var.set(False)
+                return
+            self.app.cfg["plm_ack"] = True
+        self.app.cfg["plm_load"] = bool(self.plm_var.get())
+        save_config(self.app.cfg)
+
+    def _plm_load(self, bases):
+        """Stuurt /plm load voor elk bestand (zonder .jar) naar de server."""
+        pm = plugman_name(self.items.values()) if self.items else plugman_name(scan_plugins(self.pdir()))
+        if not self._server_running():
+            messagebox.showinfo(APP_NAME, "De server draait niet. Start hem: dan worden alle plugins vanzelf geladen.")
+            return False
+        if not pm:
+            messagebox.showinfo(APP_NAME, "PlugManX staat niet aan op je server, dus /plm bestaat niet.\n\n"
+                                          "Zoek en installeer “PlugManX” op het tabblad Zoeken en herstart daarna één keer.")
+            return False
+        for b in bases:
+            self.app.srv_send(f"plm load {b}")
+        self.app.log("Direct laden: " + ", ".join(f"/plm load {b}" for b in bases) + ". Kijk in de console of het gelukt is.", "warn")
+        self.after(4000, self.refresh)
+        return True
+
+    def _load_selected(self):
+        sel = [i for i in self._selected() if i["enabled"]]
+        if not sel:
+            messagebox.showinfo(APP_NAME, "Selecteer eerst plugins die aan staan.")
+            return
+        if not messagebox.askyesno(APP_NAME, "Direct laden op eigen risico, zonder herstart.\n\n" +
+                                             "\n".join("/plm load " + i["file"][:-4] for i in sel) +
+                                             "\n\nAlleen voor plugins die nog niet geladen zijn. Doorgaan?"):
+            return
+        self._plm_load([i["file"][:-4] for i in sel])
+
+    def _apply_changes(self, files):
+        """Nieuwe of aangezette plugins worden pas door de server gebruikt na laden: herstart of /plm load."""
+        if not self._server_running():
+            self._note("Klaar. De plugin wordt geladen als je de server start.")
+            return
+        bases = [f[:-4] if f.lower().endswith(".jar") else f for f in files]
+        if self.plm_var.get():
+            if self._plm_load(bases):
+                return
+        if messagebox.askyesno(APP_NAME, "De server draait. Een nieuwe plugin wordt pas geladen na een herstart.\n\nNu herstarten?"):
+            self.app.srv_stop(restart=True)
+
+    # ---------- zoeken ----------
+    def search(self):
+        text = self.query_var.get().strip()
+        if not text or self.busy:
+            return
+        self.busy = True
+        self.btn_search.config(state="disabled")
+        self._note("Bezig met zoeken op Modrinth en Hangar…")
+        names, mc, loaders = self._installed_names(), self._mc(), self._loaders()
+        if not self.items:
+            try:
+                names = [x["name"] for x in scan_plugins(self.pdir())]
+            except Exception:
+                names = []
+
+        def work():
+            try:
+                self.q.put(("results", *search_plugins(text, mc, loaders, names)))
+            except Exception as e:
+                self.q.put(("error", f"Zoeken mislukt: {describe_net_error(e)}"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_results(self, results, info):
+        self.rtree.delete(*self.rtree.get_children())
+        self.results = {}
+        if info["concepts"]:
+            msg = "Ik snap dit als: " + " / ".join(info["concepts"]) + "."
+        elif info["name_like"]:
+            msg = "Ik zoek op de naam."
+        else:
+            msg = "Ik zoek op: " + ", ".join(info["translated"][:6]) + "."
+        msg += "  Gezocht op: " + ", ".join(q for q, _w in info["queries"][:6])
+        if info.get("errors"):
+            msg += "   (let op: " + "; ".join(info["errors"]) + ")"
+        self.interp_lbl.config(text=msg)
+        mc = self._mc()
+        for n, r in enumerate(results):
+            iid = f"r{n}"
+            self.results[iid] = r
+            if r["compat"] is True:
+                mcs = f"✔ {mc}"
+            elif r["compat"] is False:
+                mcs = f"tot {r['versions'][-1]}" if r["versions"] else "?"
+            else:
+                mcs = "onbekend"
+            upd = r["updated"].strftime("%d-%m-%Y") if r["updated"] else "?"
+            state = "✔ geïnstalleerd" if r["installed"] else ("★ beste match" if r["exact"] else "")
+            tags = ("exact",) if r["exact"] else (("have",) if r["installed"] else ())
+            self.rtree.insert("", "end", iid=iid, tags=tags,
+                              values=(r["name"], r["desc"][:140], fmt_count(r["downloads"]), upd, mcs, " + ".join(r["sources"]), state))
+        if results:
+            self.rtree.selection_set("r0")
+            self._note(f"{len(results)} resultaten.")
+        else:
+            self._note("Niets gevonden. Probeer andere woorden, of beschrijf het in het Engels.")
+            self._set_detail("Niets gevonden.\n\nTips: gebruik de naam van de plugin, of beschrijf wat hij moet doen met een paar "
+                             "kernwoorden (bijv. “claim land”, “night skip”, “custom enchants”).")
+
+    def _set_detail(self, text):
+        self.detail.config(state="normal")
+        self.detail.delete("1.0", "end")
+        self.detail.insert("1.0", text)
+        self.detail.config(state="disabled")
+
+    def _current_result(self):
+        sel = self.rtree.selection()
+        return self.results.get(sel[0]) if sel else None
+
+    def _show_result(self):
+        r = self._current_result()
+        if not r:
+            return
+        lines = [f"{r['name']}" + (f"  — door {r['author']}" if r["author"] else ""), r["desc"], ""]
+        if r["why"]:
+            lines.append(f"Waarom hier: {r['why']}")
+        mc = self._mc()
+        if r["compat"] is True:
+            lines.append(f"Ondersteunt Minecraft {mc}.")
+        elif r["compat"] is False:
+            lines.append(f"Vermeldt Minecraft {mc} niet (laatste: {r['versions'][-1] if r['versions'] else '?'}). "
+                         "Vaak werkt het toch, maar probeer het eerst op een testserver.")
+        lines.append(f"Downloads: {r['downloads']:,}".replace(",", ".") + f"   Bron: {' + '.join(r['sources'])}")
+        self._set_detail("\n".join(lines))
+
+    def _open_page(self):
+        r = self._current_result()
+        if r:
+            page = r["pages"].get("Modrinth") or next(iter(r["pages"].values()), "")
+            if page:
+                webbrowser.open(page)
+
+    # ---------- installeren ----------
+    def install(self):
+        r = self._current_result()
+        if not r or self.busy:
+            return
+        if not self.app.folder_var.get().strip() or not os.path.isdir(self.pdir()):
+            messagebox.showinfo(APP_NAME, "Kies eerst je servermap (tabblad Updates).")
+            return
+        if r["installed"] and not messagebox.askyesno(APP_NAME, f"{r['name']} lijkt al geïnstalleerd. Toch opnieuw proberen?"):
+            return
+        self.busy = True
+        self.btn_install.config(state="disabled")
+        self._note(f"Versie zoeken voor {r['name']}…")
+        names, mc, loaders, unstable = self._installed_names(), self._mc(), self._loaders(), self.app.unstable_var.get()
+
+        def work():
+            try:
+                plan, notes = plan_install(r, mc, loaders, names, unstable)
+                self.q.put(("plan", r, plan, notes))
+            except Exception as e:
+                self.q.put(("error", f"Installeren niet mogelijk: {describe_net_error(e)}"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _confirm_plan(self, r, plan, notes):
+        mc = self._mc()
+        lines = ["Dit wordt gedownload naar de map plugins:", ""]
+        for p in plan:
+            extra = " (verplichte afhankelijkheid)" if p.get("dep") else ""
+            warn = "   ⚠ niet bevestigd voor jouw Minecraft-versie" if mc and not p.get("verified", True) else ""
+            lines.append(f"• {p.get('title', r['name'])} {p['version']}  [{p['source']}]{extra}\n   {p['filename']}{warn}")
+        if any(p.get("vtype") not in (None, "release") for p in plan):
+            lines += ["", "Let op: er is alleen een bèta/alpha-versie."]
+        if notes:
+            lines += [""] + notes
+        lines += ["", "Doorgaan?"]
+        if not messagebox.askyesno(APP_NAME, "\n".join(lines)):
+            self.busy = False
+            self.btn_install.config(state="normal")
+            self._note("Geannuleerd.")
+            return
+        self._note("Downloaden…")
+        pdir = self.pdir()
+
+        def work():
+            try:
+                self.q.put(("done", install_plan(plan, pdir), plan))
+            except Exception as e:
+                self.q.put(("error", f"Downloaden mislukt: {describe_net_error(e)}"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # ---------- berichten van achtergrondtaken ----------
+    def _poll(self):
+        try:
+            while True:
+                m = self.q.get_nowait()
+                if m[0] == "results":
+                    self.busy = False
+                    self.btn_search.config(state="normal")
+                    self._show_results(m[1], m[2])
+                elif m[0] == "plan":
+                    self._confirm_plan(m[1], m[2], m[3])
+                elif m[0] == "done":
+                    self.busy = False
+                    self.btn_install.config(state="normal")
+                    self.app.log("Geïnstalleerd: " + ", ".join(m[1]), "ok")
+                    self.refresh()
+                    self._note("Geïnstalleerd: " + ", ".join(m[1]))
+                    self._apply_changes(m[1])
+                elif m[0] == "error":
+                    self.busy = False
+                    self.btn_search.config(state="normal")
+                    self.btn_install.config(state="normal")
+                    self._note(m[1])
+                    self.app.log(m[1], "warn")
+        except queue.Empty:
+            pass
+        self.after(120, self._poll)
+
+
 class App(tk.Tk):
     COLS = (("plugin", "Plugin", 190), ("file", "Bestand", 220), ("current", "Huidige versie", 130),
             ("latest", "Nieuwste versie", 130), ("source", "Bron", 80), ("status", "Status", 290))
@@ -1178,6 +2256,7 @@ class App(tk.Tk):
         self.search_var, self.cmd_var, self.hidden_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
         self.players_only_var = tk.BooleanVar(value=False)
         self.player_names, self._names_dirty, self._name_rx_c = set(), True, None
+        self._tab_state, self._plug_cache = None, None
         self.reach_host_var = tk.StringVar(value=str(c.get("reach_host", "")))
         self.reach_port_var = tk.IntVar(value=int(c.get("reach_port", 25565)))
         self.reach_bed_var = tk.BooleanVar(value=bool(c.get("reach_check_bedrock", False)))
@@ -1240,11 +2319,14 @@ class App(tk.Tk):
         body = ttk.Frame(self.nb, padding=10)
         self.tab_srv = ttk.Frame(self.nb, padding=10)
         self.tab_net = ttk.Frame(self.nb, padding=10)
+        self.tab_plug = PluginsTab(self.nb, self)
         self.nb.add(self.tab_srv, text="   🖥  Server   ")
+        self.nb.add(self.tab_plug, text="   🧩  Plugins   ")
         self.nb.add(body, text="   🔧  Updates   ")
         self.nb.add(self.tab_net, text="   🌐  Bereikbaarheid   ")
         self._build_server_tab(self.tab_srv)
         self._build_net_tab(self.tab_net)
+        self.nb.bind("<<NotebookTabChanged>>", self._tab_changed)
 
         # --- Server ---
         f1 = ttk.LabelFrame(body, text=" Server ", padding=8)
@@ -1634,6 +2716,9 @@ class App(tk.Tk):
         self.cmd_entry.bind("<Return>", lambda e: self.on_send())
         self.cmd_entry.bind("<Up>", self._hist_up)
         self.cmd_entry.bind("<Down>", self._hist_down)
+        self.cmd_entry.bind("<Tab>", lambda e: self._tab_complete(1))
+        self.cmd_entry.bind("<Shift-Tab>", lambda e: self._tab_complete(-1))
+        self.cmd_entry.bind("<ISO_Left_Tab>", lambda e: self._tab_complete(-1))
         self.btn_send = ttk.Button(inp, text="Verstuur", command=self.on_send)
         self.btn_send.grid(row=0, column=2, padx=6)
         self.quick_btns = []
@@ -2039,6 +3124,59 @@ class App(tk.Tk):
         else:
             self._console_add("De server draait niet.", own=True)
         self.cmd_var.set("")
+
+    # ---------- Tab-aanvulling in het commandoveld ----------
+    def _plugin_cmds(self):
+        """(commando's, pluginnamen) uit de plugins-map; 2 minuten bewaard."""
+        pdir = os.path.join(self.folder_var.get().strip(), "plugins")
+        c = self._plug_cache
+        if c and c[0] == pdir and time.time() - c[1] < 120:
+            return c[2], c[3]
+        cmds, names = [], []
+        try:
+            for it in scan_plugins(pdir):
+                if it["enabled"]:
+                    cmds += it["commands"]
+                    names += [it["name"]]
+                names.append(it["file"].split(".jar")[0])
+        except Exception:
+            pass
+        self._plug_cache = (pdir, time.time(), sorted(set(cmds)), sorted(set(names), key=str.lower))
+        return self._plug_cache[2], self._plug_cache[3]
+
+    def _tab_complete(self, direction=1):
+        text = self.cmd_var.get()
+        st = self._tab_state
+        if st and text == st["cur"]:
+            st["i"] = (st["i"] + direction) % len(st["cands"])
+        else:
+            cmds, plugs = self._plugin_cmds()
+            cands = complete_command(text, sorted(set(VANILLA_CMDS) | set(cmds)),
+                                     sorted(self.player_names, key=str.lower), plugs)
+            if not cands:
+                return "break"
+            st = self._tab_state = {"cands": cands, "i": 0 if direction > 0 else len(cands) - 1, "cur": None}
+            if len(cands) > 1:
+                shown = ", ".join(c.split(" ")[-1] for c in cands[:40]) + (" …" if len(cands) > 40 else "")
+                self._console_add(f"Mogelijkheden: {shown}", own=True)
+                cp = os.path.commonprefix(cands)
+                if len(cp) > len(text):  # eerst aanvullen tot het gemeenschappelijke stuk
+                    st["cur"], st["i"] = cp, -1 if direction > 0 else 0
+                    self.cmd_var.set(cp)
+                    self.cmd_entry.icursor("end")
+                    return "break"
+        new = st["cands"][st["i"]]
+        st["cur"] = new
+        self.cmd_var.set(new)
+        self.cmd_entry.icursor("end")
+        return "break"
+
+    def _tab_changed(self, _e=None):
+        try:
+            if self.nb.select() == str(self.tab_plug):
+                self.tab_plug.on_show()
+        except tk.TclError:
+            pass
 
     def _hist_up(self, _e):
         if self.cmd_hist and self.hist_idx > 0:
@@ -3302,7 +4440,7 @@ class SettingsDialog(tk.Toplevel):
         for k, default in DEFAULTS.items():
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
-                     "reach_bedrock_port", "reach_auto"):
+                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))

@@ -2,6 +2,21 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.4
+- **Nieuw tabblad Plugins.**
+  - *Geïnstalleerd:* alle plugins in één lijst, aan en uit te zetten (een uitgezette plugin krijgt de extensie `.jar.disabled`,
+    die Paper negeert), te verwijderen (naar een map in de back-ups, dus terug te zetten), met waarschuwing als een andere plugin
+    de plugin nodig heeft of er een afhankelijkheid mist. Omschrijving, auteur, commando's en afhankelijkheden zijn te zien.
+  - *Zoeken en toevoegen:* zoek op naam ("worldedit") of beschrijf wat je zoekt ("als 1 speler slaapt wordt het dag"), in het
+    Nederlands of Engels. Het programma herkent ruim 45 onderwerpen, zoekt tegelijk op Modrinth en Hangar, voegt de resultaten
+    samen en rangschikt ze op naam, beschrijving, populariteit, recente updates en of ze jouw Minecraft-versie ondersteunen.
+    Een exacte naam komt altijd bovenaan. Installeren downloadt met controle van de checksum en haalt verplichte
+    afhankelijkheden (Modrinth) mee.
+  - *Optioneel, op eigen risico:* na installeren of aanzetten de plugin direct laden met `/plm load` (PlugManX), zonder herstart.
+- **Tab-aanvulling in de console:** Tab vult commando's aan (vanilla, Paper en de commando's van je plugins), subcommando's
+  (bijv. `whitelist add`, `time set`, `plm load`), spelersnamen en pluginnamen. Meerdere keren Tab bladert door de mogelijkheden,
+  Shift+Tab gaat terug.
+
 ## 2.3.1
 - Programma-update haalt het bestand op via de exacte laatste commit van GitHub, zodat een oude cache de update niet kan
   verbergen.
