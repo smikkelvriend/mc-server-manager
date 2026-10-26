@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.44"
+APP_VERSION = "2.45"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.45 - Nieuwe interface: de tegels Processor en Geheugen zijn vervangen door de waarden in de grafiek Belasting, met een tegel Spelers ervoor in de plaats. De console is groter.
 2.44 - De nieuwe interface is nu het hoofdscherm: hij opent bij het starten van het programma (uit te zetten bij Instellingen) en het klassieke scherm blijft op de taakbalk. Nieuw tabblad Updates voor het programma zelf, met wat er nieuw is en de instellingen voor automatisch bijwerken. Knop Klassiek scherm in de zijbalk.
 2.43 - Nieuw: knop "Nieuwe interface" bovenin. Opent een moderner scherm in een eigen venster (Overzicht met processor, temperatuur en spelersskins, Console met logboek doorzoeken, Spelers met whitelist en bans, Plugins en updates samen, Kaart, Backups, Instellingen). Het oude scherm blijft werken. Het nieuwe scherm is alleen bereikbaar vanaf deze computer.
 2.42 - Plugins: nieuwe knop "PLM uitladen" (/plm unload) naast "PLM laden", ook op de telefoon. De namen van de PLM-knoppen en het vinkje zijn korter gemaakt.
@@ -5483,12 +5484,12 @@ input:focus,select:focus{outline:2px solid #2d4f8f;border-color:transparent}
 input[type=checkbox]{width:18px;height:18px;accent-color:var(--a);padding:0;flex:none}
 .card{padding:16px 18px;border-radius:14px;background:var(--card);border:1px solid var(--b);display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
 .card>h3{margin:0 0 4px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}.card>h3 .sp{flex:1}
-.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;flex:none}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;flex:none}
 .tile{gap:6px}.tile .k{font-size:12px;color:var(--m);font-weight:500;text-transform:uppercase;letter-spacing:.06em}
 .tile .v{font-size:28px;font-weight:600;letter-spacing:-.02em}.tile .v small{font-size:16px;color:var(--m);font-weight:500}
 .tile canvas{width:100%;height:32px;display:block}.meter{height:8px;border-radius:99px;background:#222a34;margin-top:10px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bl);transition:width .5s}
-.mid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;height:230px;flex:none}
-.low{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;flex:1;min-height:280px}
+.mid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;height:210px;flex:none}
+.low{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:14px;flex:1;min-height:440px}
 .two{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
 .leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--m2);font-weight:400}.leg i{width:10px;height:3px;border-radius:2px}
 canvas.big{flex:1;min-height:0;width:100%;display:block}
@@ -5584,10 +5585,9 @@ const OKI='<svg class="i" viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 
 /* ---------- Overzicht ---------- */
 V.ov=()=>{$('view').innerHTML=`<section class="tiles">
  <div class="card tile"><span class="k">TPS</span><span class="v" id="vTps">-</span><canvas id="sTps"></canvas></div>
- <div class="card tile"><span class="k">Processor</span><span class="v" id="vCpu">-</span><canvas id="sCpu"></canvas></div>
- <div class="card tile"><span class="k">Geheugen</span><span class="v" id="vRam">-</span><div class="meter"><i id="mRam" style="width:0"></i></div></div>
+ <div class="card tile"><span class="k">Spelers</span><span class="v" id="vPl">-</span></div>
  <div class="card tile"><span class="k">Temperatuur</span><span class="v" id="vTmp">-</span><canvas id="sTmp"></canvas></div></section>
- <section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen</span><span class="leg"><i style="background:#f5a524"></i>Processor</span><span class="leg"><i style="background:#3ddc97"></i>TPS</span></h3><canvas class="big" id="cBig"></canvas></div>
+ <section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen <b id="lgRam" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f5a524"></i>Processor <b id="lgCpu" style="color:var(--t)"></b></span></h3><canvas class="big" id="cBig"></canvas></div>
  <div class="card"><h3>Spelers online <span class="sp"></span><a class="mut" style="cursor:pointer;font-size:13px;color:var(--bl)" onclick="setTab('pl')">Alles beheren</a></h3><div id="ovPl" style="overflow:auto"></div></div></section>
  <section class="low"><div class="con"><div class="bar"><b>Console</b><span class="mut" style="font-size:12px" id="cleanTx"></span><div class="sp"></div></div><div class="log" id="con"></div>
  <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div>
@@ -5833,11 +5833,11 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
  const g=j.graphs||{};
  if($('vTps')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
   $('vTps').textContent=j.stats.tps&&j.stats.tps!='-'?j.stats.tps:'-';
-  $('vCpu').innerHTML=cpu==null?'-':Math.round(cpu)+' <small>%</small>';
-  const rg=ram==null?null:ram/1024;$('vRam').innerHTML=rg==null?'-':rg.toFixed(1).replace('.',',')+(j.xmx?` <small>/ ${(j.xmx/1024).toFixed(0)} GB</small>`:' <small>GB</small>');
-  $('mRam').style.width=(ram!=null&&j.xmx?Math.min(100,ram/j.xmx*100):0)+'%';
+  $('lgRam').textContent=ram==null?'':(ram/1024).toFixed(1).replace('.',',')+(j.xmx?' / '+(j.xmx/1024).toFixed(0):'')+' GB';
+  $('lgCpu').textContent=cpu==null?'':Math.round(cpu)+'%';
+  const pc=num(j.stats.players),pm=String(j.stats.players||'').split('/')[1];$('vPl').innerHTML=pc==null?'-':pc+(pm?` <small>/ ${esc(pm.trim())}</small>`:'');
   $('vTmp').innerHTML=tmp==null?'<small>niet beschikbaar</small>':Math.round(tmp)+' <small>°C</small>';
-  spark('sTps',g.tps,'#3ddc97',0,20);spark('sCpu',g.cpu,'#f5a524',0,100);spark('sTmp',g.temp,'#f87171',null,null);
+  spark('sTps',g.tps,'#3ddc97',0,20);spark('sTmp',g.temp,'#f87171',null,null);
   const ramPct=(g.ram||[]).map(v=>j.xmx?v/j.xmx*100:v);bigChart('cBig',[[ramPct,'#6ea8fe'],[g.cpu,'#f5a524']]);
   const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}

@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.45
+- Nieuwe interface, Overzicht: de losse tegels Processor en Geheugen zijn vervangen door de huidige waarden in de legenda van de grafiek Belasting (de TPS-lijn is uit de grafiek gehaald, TPS heeft zijn eigen tegel). Daarvoor in de plaats staat er een tegel Spelers. De console is groter.
+- Deze versie vereist een herstart.
+
 ## 2.44
 - De nieuwe interface is nu het **hoofdscherm**: hij opent bij het starten van het programma en het klassieke scherm blijft op de taakbalk. Uitzetten kan bij Instellingen ("Nieuwe interface als hoofdscherm"). In de zijbalk staat een knop **Klassiek scherm** om het oude venster terug te halen.
 - Nieuw tabblad **Updates** in de nieuwe interface voor het programma zelf: versie, wat er nieuw is, nu installeren, zoeken naar updates en de instellingen voor automatisch bijwerken. Het getal bij Plugins telt alleen nog plugin- en Paper-updates.
