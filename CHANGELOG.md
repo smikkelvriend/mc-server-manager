@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.6.1
+- Scrollen met het muiswiel of de touchpad werkt nu in de hele plugin-lijst, ook als de muis boven een kaart of knop staat.
+
 ## 2.6
 - **Plugins-tabblad in kaartvorm:** teller-tegels bovenaan (totaal, aan, uit, aandacht), per plugin een kaart met status, versie,
   omschrijving, afhankelijkheden en eigen aan/uit-knop, plus filter op naam, filter op status en sortering.

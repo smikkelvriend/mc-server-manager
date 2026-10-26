@@ -44,9 +44,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.6"
+APP_VERSION = "2.6.1"
 
 CHANGELOG = """
+2.6.1 - Scrollen in de plugin-lijsten werkt nu ook als de muis boven een kaart staat.
 2.6 - Plugins-tabblad in kaartvorm: aantrekkelijker, met filter, sortering, aan/uit per plugin en installeren per zoekresultaat.
 2.5 - Vinkje bij Plugins zoeken: alleen plugins tonen die zeker werken met jouw Minecraft-versie.
 2.4.2 - Plugins sorteren door op een kolomnaam te klikken (downloads, datum, naam, enz.).
@@ -1803,6 +1804,8 @@ class PluginsTab(ttk.Frame):
         ttk.Checkbutton(box, text="⚠ Plugins direct laden met /plm load, zonder herstart (op eigen risico)",
                         variable=self.plm_var, command=self._plm_toggled).pack(anchor="w")
         ttk.Label(box, textvariable=self.status_var, foreground="#6b7280").pack(anchor="w", pady=(2, 0))
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind_all(seq, self._on_wheel, add="+")
         self.after(120, self._poll)
 
     # ---------- opbouw ----------
@@ -1858,7 +1861,7 @@ class PluginsTab(ttk.Frame):
         # --- scrollbare lijst met kaarten ---
         wrap = tk.Frame(f, bg=self.BG)
         wrap.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(wrap, bg=self.BG, highlightthickness=0)
+        self.canvas = tk.Canvas(wrap, bg=self.BG, highlightthickness=0, yscrollincrement=30)
         sb = ttk.Scrollbar(wrap, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
@@ -1867,9 +1870,6 @@ class PluginsTab(ttk.Frame):
         self._win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", lambda ev: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", self._canvas_resized)
-        for w in (self.canvas, self.inner):
-            w.bind("<Enter>", self._bind_wheel)
-            w.bind("<Leave>", self._unbind_wheel)
 
     @property
     def BG(self):
@@ -1892,18 +1892,28 @@ class PluginsTab(ttk.Frame):
             except Exception:
                 pass
 
-    def _bind_wheel(self, _e=None):
-        self.canvas.bind_all("<MouseWheel>", self._wheel)
-        self.canvas.bind_all("<Button-4>", lambda ev: self.canvas.yview_scroll(-3, "units"))
-        self.canvas.bind_all("<Button-5>", lambda ev: self.canvas.yview_scroll(3, "units"))
-
-    def _unbind_wheel(self, _e=None):
-        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            self.canvas.unbind_all(seq)
-
-    def _wheel(self, ev):
-        if self.inner.winfo_height() > self.canvas.winfo_height():
-            self.canvas.yview_scroll(int(-ev.delta / 120) * 3 or (-3 if ev.delta > 0 else 3), "units")
+    def _on_wheel(self, ev):
+        """Muiswiel/touchpad: scrolt de lijst waar de muis boven staat, ook boven een kaart of knop."""
+        try:
+            w = self.winfo_containing(ev.x_root, ev.y_root)
+        except (KeyError, tk.TclError):
+            return
+        c = None
+        while w is not None:
+            if w is self.canvas or w is self.rcanvas:
+                c = w
+                break
+            w = getattr(w, "master", None)
+        if c is None:
+            return
+        if getattr(ev, "num", 0) == 4:
+            n = -3
+        elif getattr(ev, "num", 0) == 5:
+            n = 3
+        else:
+            d = ev.delta or 0
+            n = int(-d / 40) or (-1 if d > 0 else 1)
+        c.yview_scroll(n, "units")
 
     def _flip_sort(self):
         self.s_desc = not self.s_desc
@@ -2038,7 +2048,7 @@ class PluginsTab(ttk.Frame):
         self.interp_lbl.pack(fill="x", pady=(0, 4))
         wrap = tk.Frame(f, bg=self.BG)
         wrap.pack(fill="both", expand=True)
-        self.rcanvas = tk.Canvas(wrap, bg=self.BG, highlightthickness=0)
+        self.rcanvas = tk.Canvas(wrap, bg=self.BG, highlightthickness=0, yscrollincrement=30)
         sb = ttk.Scrollbar(wrap, orient="vertical", command=self.rcanvas.yview)
         self.rcanvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
@@ -2059,18 +2069,6 @@ class PluginsTab(ttk.Frame):
         self.rcanvas.bind("<Configure>", resized)
         self._rresize = resized
 
-        def bind(_e=None):
-            self.rcanvas.bind_all("<MouseWheel>", lambda ev: self.rcanvas.yview_scroll(-3 if ev.delta > 0 else 3, "units"))
-            self.rcanvas.bind_all("<Button-4>", lambda ev: self.rcanvas.yview_scroll(-3, "units"))
-            self.rcanvas.bind_all("<Button-5>", lambda ev: self.rcanvas.yview_scroll(3, "units"))
-
-        def unbind(_e=None):
-            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-                self.rcanvas.unbind_all(seq)
-
-        for w in (self.rcanvas, self.rinner):
-            w.bind("<Enter>", bind)
-            w.bind("<Leave>", unbind)
         self._render_results()
 
     def _flip_rsort(self):
