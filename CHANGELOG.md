@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.28
+- Opgeschoonde en modernere interface: een vlak, rustig kleurenschema voor licht én donker, dat er op elk systeem hetzelfde uitziet (dus niet meer afhankelijk van het Windows-thema).
+- Knoppen hebben nu vaste betekenis: blauw = hoofdactie, groen = starten/aanzetten, rood = verwijderen of wissen, grijs = de rest (geen regenboog meer). Uitgeschakelde knoppen blijven zichtbaar.
+- Duidelijkere tabbladen en titels: "Bereikbaarheid" heet nu "Netwerk"; bovenaan de tabbladen Updates en Netwerk staat korte uitleg; de console begint met een welkomsttekst.
+- Instellingen: begint bij "Algemeen" en de tabbladen zijn logischer gesorteerd en hernoemd (Starten & Java, Zoeken naar updates, Dit programma).
+- Deze versie vereist een herstart.
+
 ## 2.27
 - Pijltje omhoog/omlaag in het commandovak haalt ook commando's terug die de server afkeurde, zodat je ze kunt verbeteren. Alleen de Tab-aanvulling slaat afgekeurde commando's over. De volgorde van de geschiedenis blijft kloppen na een herstart.
 - Deze versie vereist een herstart.

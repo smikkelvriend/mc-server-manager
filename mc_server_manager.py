@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.27"
+APP_VERSION = "2.28"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.28 - Opgeschoonde, modernere interface: één vlak kleurenschema (licht en donker), rustiger knoppen (blauw = hoofdactie, groen = starten/aanzetten, rood = verwijderen, de rest grijs), duidelijkere tabbladen, uitleg bovenaan tabbladen, welkomsttekst in de console en een logischere volgorde in Instellingen.
 2.27 - Pijltje omhoog/omlaag haalt ook commando's terug die de server afkeurde (om ze te verbeteren); alleen de Tab-aanvulling slaat die over. Volgorde van de geschiedenis blijft kloppen na herstart.
 2.26 - Fout hersteld: het Instellingen-venster toonde alleen het tabblad Backups (een dubbele functienaam brak het opbouwen), en de uptime/online-tijd had een ander formaat gekregen.
 2.25 - De grafieken (CPU, geheugen, TPS, temperatuur) blijven bewaard bij een herstart van de server of het programma en lopen gewoon door; een onderbreking wordt als gat getoond.
@@ -2276,44 +2277,99 @@ def install_dark(root):
         root.option_add(pat, val)
 
 
-def dark_style(style):
-    D = DARK
+LIGHT = dict(bg="#f0f0f0", card="#ffffff", field="#ffffff", border="#d1d5db", fg="#111827", muted="#6b7280", acc="#2563eb",
+             btn="#e5e7eb", hover="#d1d5db", tab="#e5e7eb", head="#e5e7eb", accfg="#2563eb")
+DARK.update(btn="#374151", hover="#4b5563", tab="#222833", head="#374151", accfg="#60a5fa")
+
+
+def flat_style(style, P):
+    """Een rustig, vlak uiterlijk voor alle knoppen, tabbladen en lijsten (licht en donker, op elk besturingssysteem hetzelfde)."""
     try:
         style.theme_use("clam")
     except tk.TclError:
         pass
-    style.configure(".", background=D["bg"], foreground=D["fg"], fieldbackground=D["field"], bordercolor=D["border"],
-                    lightcolor=D["bg"], darkcolor=D["bg"], troughcolor=D["field"], selectbackground=D["acc"],
-                    selectforeground="white", insertcolor=D["fg"], focuscolor=D["bg"])
-    style.configure("TFrame", background=D["bg"])
-    style.configure("TLabel", background=D["bg"], foreground=D["fg"])
-    style.configure("TLabelframe", background=D["bg"], bordercolor=D["border"])
-    style.configure("TLabelframe.Label", background=D["bg"], foreground=D["fg"])
-    style.configure("TButton", background=D["border"], foreground=D["fg"], bordercolor=D["border"], padding=4)
-    style.map("TButton", background=[("active", "#4b5563"), ("disabled", D["card"])], foreground=[("disabled", D["muted"])])
-    style.configure("TCheckbutton", background=D["bg"], foreground=D["fg"], indicatorbackground=D["field"], indicatorforeground=D["fg"])
-    style.map("TCheckbutton", background=[("active", D["bg"])], indicatorbackground=[("selected", D["acc"]), ("active", D["border"])])
-    style.configure("TRadiobutton", background=D["bg"], foreground=D["fg"], indicatorbackground=D["field"])
-    style.map("TRadiobutton", background=[("active", D["bg"])], indicatorbackground=[("selected", D["acc"])])
+    F = "Segoe UI"
+    style.configure(".", background=P["bg"], foreground=P["fg"], fieldbackground=P["field"], bordercolor=P["border"],
+                    lightcolor=P["bg"], darkcolor=P["bg"], troughcolor=P["field"], selectbackground=P["acc"],
+                    selectforeground="white", insertcolor=P["fg"], focuscolor=P["bg"], font=(F, 10))
+    style.configure("TFrame", background=P["bg"])
+    style.configure("TLabel", background=P["bg"], foreground=P["fg"])
+    style.configure("TLabelframe", background=P["bg"], bordercolor=P["border"], relief="solid", borderwidth=1)
+    style.configure("TLabelframe.Label", background=P["bg"], foreground=P["muted"], font=(F, 9, "bold"))
+    style.configure("TButton", background=P["btn"], foreground=P["fg"], bordercolor=P["btn"], lightcolor=P["btn"],
+                    darkcolor=P["btn"], padding=(12, 5), relief="flat", focusthickness=0)
+    style.map("TButton", background=[("disabled", P["btn"]), ("pressed", P["hover"]), ("active", P["hover"])],
+              foreground=[("disabled", P["muted"])], bordercolor=[("disabled", P["border"]), ("active", P["hover"])],
+              lightcolor=[("active", P["hover"])], darkcolor=[("active", P["hover"])])
+    for name, col, hov in (("Big.TButton", P["acc"], "#1d4ed8"), ("Accent.TButton", P["acc"], "#1d4ed8"),
+                           ("Danger.TButton", "#dc2626", "#b91c1c"), ("Good.TButton", "#059669", "#047857")):
+        style.configure(name, background=col, foreground="white", bordercolor=col, lightcolor=col, darkcolor=col,
+                        font=(F, 10, "bold"), padding=(14, 6), relief="flat")
+        style.map(name, background=[("disabled", P["btn"]), ("pressed", hov), ("active", hov)],
+                  foreground=[("disabled", P["muted"])], bordercolor=[("disabled", P["btn"]), ("active", hov)],
+                  lightcolor=[("active", hov)], darkcolor=[("active", hov)])
+    style.configure("TCheckbutton", background=P["bg"], foreground=P["fg"], indicatorbackground=P["field"],
+                    indicatorforeground="white", indicatorcolor=P["field"], padding=2)
+    style.map("TCheckbutton", background=[("active", P["bg"])],
+              indicatorcolor=[("selected", P["acc"]), ("active", P["hover"])],
+              indicatorbackground=[("selected", P["acc"]), ("active", P["hover"])])
+    style.configure("TRadiobutton", background=P["bg"], foreground=P["fg"], indicatorbackground=P["field"],
+                    indicatorcolor=P["field"], padding=2)
+    style.map("TRadiobutton", background=[("active", P["bg"])], indicatorcolor=[("selected", P["acc"])],
+              indicatorbackground=[("selected", P["acc"])])
     for w in ("TEntry", "TSpinbox", "TCombobox"):
-        style.configure(w, fieldbackground=D["field"], foreground=D["fg"], background=D["border"], insertcolor=D["fg"],
-                        arrowcolor=D["fg"], bordercolor=D["border"])
-    style.map("TCombobox", fieldbackground=[("readonly", D["field"])], foreground=[("readonly", D["fg"])],
-              selectbackground=[("readonly", D["field"])], selectforeground=[("readonly", D["fg"])])
-    style.configure("TNotebook", background=D["bg"], bordercolor=D["border"])
-    style.configure("TNotebook.Tab", background=D["card"], foreground=D["muted"], padding=(10, 3), bordercolor=D["border"])
-    style.map("TNotebook.Tab", background=[("selected", D["bg"]), ("active", D["border"])],
-              foreground=[("selected", "white"), ("active", D["fg"])])
-    style.configure("Treeview", background=D["card"], fieldbackground=D["card"], foreground=D["fg"], bordercolor=D["border"])
-    style.map("Treeview", background=[("selected", D["acc"])], foreground=[("selected", "white")])
-    style.configure("Treeview.Heading", background=D["border"], foreground=D["fg"], bordercolor=D["bg"])
-    style.map("Treeview.Heading", background=[("active", "#4b5563")])
-    style.configure("TScrollbar", background=D["border"], troughcolor=D["bg"], arrowcolor=D["fg"], bordercolor=D["bg"])
-    style.map("TScrollbar", background=[("active", "#4b5563")])
-    style.configure("TProgressbar", background=D["acc"], troughcolor=D["field"], bordercolor=D["border"])
-    style.configure("TSeparator", background=D["border"])
-    style.configure("TMenubutton", background=D["border"], foreground=D["fg"])
-    style.configure("Big.TButton", font=("Segoe UI", 10, "bold"), padding=6)
+        style.configure(w, fieldbackground=P["field"], foreground=P["fg"], background=P["btn"], insertcolor=P["fg"],
+                        arrowcolor=P["muted"], bordercolor=P["border"], lightcolor=P["border"], darkcolor=P["border"], padding=4)
+    style.map("TEntry", bordercolor=[("focus", P["acc"])], lightcolor=[("focus", P["acc"])], darkcolor=[("focus", P["acc"])])
+    style.map("TCombobox", fieldbackground=[("readonly", P["field"])], foreground=[("readonly", P["fg"])],
+              selectbackground=[("readonly", P["field"])], selectforeground=[("readonly", P["fg"])],
+              bordercolor=[("focus", P["acc"])])
+    style.configure("TNotebook", background=P["bg"], bordercolor=P["border"], tabmargins=(8, 6, 8, 0))
+    style.configure("TNotebook.Tab", background=P["tab"], foreground=P["muted"], padding=(14, 6), bordercolor=P["border"],
+                    font=(F, 10))
+    style.map("TNotebook.Tab", background=[("selected", P["card"]), ("active", P["hover"])],
+              foreground=[("selected", P["accfg"]), ("active", P["fg"])], font=[("selected", (F, 10, "bold"))])
+    style.configure("Treeview", background=P["card"], fieldbackground=P["card"], foreground=P["fg"], bordercolor=P["border"],
+                    rowheight=26, font=(F, 10), borderwidth=1)
+    style.map("Treeview", background=[("selected", P["acc"])], foreground=[("selected", "white")])
+    style.configure("Treeview.Heading", background=P["head"], foreground=P["fg"], bordercolor=P["border"], relief="flat",
+                    font=(F, 9, "bold"), padding=(6, 5))
+    style.map("Treeview.Heading", background=[("active", P["hover"])])
+    style.configure("TScrollbar", background=P["btn"], troughcolor=P["bg"], arrowcolor=P["muted"], bordercolor=P["bg"],
+                    lightcolor=P["btn"], darkcolor=P["btn"], relief="flat", arrowsize=13)
+    style.map("TScrollbar", background=[("active", P["hover"])])
+    style.configure("TProgressbar", background=P["acc"], troughcolor=P["btn"], bordercolor=P["btn"], lightcolor=P["acc"],
+                    darkcolor=P["acc"])
+    style.configure("TSeparator", background=P["border"])
+    style.configure("TMenubutton", background=P["btn"], foreground=P["fg"], padding=(10, 5))
+    style.configure("TPanedwindow", background=P["bg"])
+    style.configure("Muted.TLabel", foreground=P["muted"], font=(F, 9))
+    style.configure("Title.TLabel", font=(F, 13, "bold"))
+    style.configure("Card.TFrame", background=P["card"])
+
+
+def dark_style(style):
+    flat_style(style, DARK)
+
+
+def make_btn(parent, text, cmd, bg="#e5e7eb", fg="#111827", padx=10, pady=4):
+    """Knop in het vaste kleurenschema: blauw = hoofdactie, groen = aanzetten/starten, rood = verwijderen, grijs = de rest."""
+    P = DARK if DARK_ON else LIGHT
+    b = bg.lower()
+    if b in ("#16a34a", "#059669", "#15803d", "#047857", "#dcfce7"):
+        col, tx, hov = ("#059669", "white", "#047857") if b != "#dcfce7" else (P["btn"], P["fg"], P["hover"])
+    elif b in ("#dc2626", "#b91c1c", "#fee2e2"):
+        col, tx, hov = ("#dc2626", "white", "#b91c1c") if b != "#fee2e2" else (P["btn"], "#dc2626", P["hover"])
+    elif b in ("#2563eb", "#1d4ed8", "#3b82f6"):
+        col, tx, hov = P["acc"], "white", "#1d4ed8"
+    else:  # grijs, oranje, paars, pastel: allemaal rustig grijs
+        col, tx, hov = P["btn"], P["fg"], P["hover"]
+    btn = tk.Button(parent, text=text, command=cmd, bg=col, fg=tx, activebackground=hov, activeforeground=tx,
+                    relief="flat", bd=0, padx=padx + 2, pady=pady + 1, font=("Segoe UI", 9, "bold"), cursor="hand2",
+                    highlightthickness=0, disabledforeground=P["muted"])
+    btn.bind("<Enter>", lambda e: btn.config(bg=hov) if str(btn["state"]) != "disabled" else None)
+    btn.bind("<Leave>", lambda e: btn.config(bg=col))
+    return btn
 
 
 def dark_titlebar(win):
@@ -2408,7 +2464,7 @@ class PluginsTab(ttk.Frame):
                                   ("📂  Map openen", self._open_dir, "#e5e7eb", "#111827"),
                                   ("↻  Vernieuwen", self.refresh, "#e5e7eb", "#111827")):
             self._btn(bar, text, cmd, bg, fg).pack(side="left", padx=(0, 6))
-        tk.Label(bar, text="Vink plugins aan om meer tegelijk te beheren, of gebruik de knop op de kaart.", bg=self.BG,
+        tk.Label(bar, text="Vink plugins aan om meerdere tegelijk te beheren.", bg=self.BG,
                  fg="#9ca3af", font=("Segoe UI", 9)).pack(side="right")
         # --- scrollbare lijst met kaarten ---
         wrap = tk.Frame(f, bg=self.BG)
@@ -2432,9 +2488,7 @@ class PluginsTab(ttk.Frame):
 
     @staticmethod
     def _btn(parent, text, cmd, bg, fg, pad=10):
-        b = tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg,
-                      relief="flat", bd=0, padx=pad, pady=4, font=("Segoe UI", 9, "bold"), cursor="hand2")
-        return b
+        return make_btn(parent, text, cmd, bg, fg, pad, 3)
 
     def _canvas_resized(self, ev):
         self.canvas.itemconfigure(self._win, width=ev.width)
@@ -3067,8 +3121,7 @@ class MapTab(ttk.Frame):
 
     # ---------- opbouw ----------
     def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
-        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg, relief="flat",
-                         bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
+        return make_btn(parent, text, cmd, bg, fg, 8, 2)
 
     def _build(self):
         bar = ttk.Frame(self)
@@ -5835,8 +5888,7 @@ class BeheerTab(ttk.Frame):
         self.sub.bind("<<NotebookTabChanged>>", lambda e: self.on_show())
 
     def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
-        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg, relief="flat",
-                         bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
+        return make_btn(parent, text, cmd, bg, fg, 8, 2)
 
     def on_show(self):
         self.visible = True
@@ -6564,8 +6616,7 @@ class BackupTab(ttk.Frame):
         self._build()
 
     def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
-        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg, relief="flat",
-                         bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
+        return make_btn(parent, text, cmd, bg, fg, 8, 2)
 
     def folder(self):
         return self.app.folder_var.get().strip()
@@ -6991,16 +7042,12 @@ class App(tk.Tk):
     # ---------------- UI opbouw ----------------
     def _style(self):
         style = ttk.Style(self)
-        try:
-            style.theme_use("vista" if "vista" in style.theme_names() else "clam")
-        except tk.TclError:
-            pass
-        if DARK_ON:
-            dark_style(style)
-        style.configure("Treeview", rowheight=26, font=("Segoe UI", 10))
-        style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
-        style.configure("TNotebook.Tab", padding=(10, 3), font=("Segoe UI", 9))
-        style.configure("Big.TButton", font=("Segoe UI", 10, "bold"), padding=6)
+        flat_style(style, DARK if DARK_ON else LIGHT)
+        if not DARK_ON:
+            for pat in ("*Frame.background", "*Toplevel.background", "*Label.background", "*Checkbutton.background",
+                        "*Radiobutton.background"):
+                self.option_add(pat, LIGHT["bg"], 20)
+            self.configure(bg=LIGHT["bg"])
 
         def fixed_map(option):  # workaround voor kleuren in Tk 8.6.9
             return [e for e in style.map("Treeview", query_opt=option) if e[:2] != ("!disabled", "!selected")]
@@ -7013,7 +7060,7 @@ class App(tk.Tk):
         header.pack(fill="x")
         tk.Label(header, text="⛏  MC Server Manager", bg="#1f2937", fg="white",
                  font=("Segoe UI", 16, "bold")).pack(side="left", padx=14, pady=10)
-        tk.Label(header, text="Server • Console • Updates via Modrinth, Hangar, GitHub & PaperMC", bg="#1f2937", fg="#9ca3af",
+        tk.Label(header, text="Beheer je Minecraft-server: starten, plugins, kaart en backups", bg="#1f2937", fg="#9ca3af",
                  font=("Segoe UI", 10)).pack(side="left", padx=4)
 
         self.btn_settings = tk.Button(header, text="⚙  Instellingen", command=self.open_settings, bg="#374151",
@@ -7044,7 +7091,7 @@ class App(tk.Tk):
         self.nb.add(self.tab_backup, text="💾  Backups")
         self.tab_upd = body
         self.nb.add(body, text="🔧  Updates")
-        self.nb.add(self.tab_net, text="🌐  Bereikbaarheid")
+        self.nb.add(self.tab_net, text="🌐  Netwerk")
         self._build_server_tab(self.tab_srv)
         self._build_net_tab(self.tab_net)
         self.nb.bind("<<NotebookTabChanged>>", self._tab_changed)
@@ -7054,6 +7101,9 @@ class App(tk.Tk):
         self.after(700, self._upd_tab_blink)
         self.after(800, self._heads_tick)
 
+        ttk.Label(body, text="Controleer en installeer updates voor Paper (de server zelf) en voor je plugins. "
+                             "Er wordt eerst een backup gemaakt, zodat je altijd terug kunt.",
+                  style="Muted.TLabel", wraplength=1000, justify="left").pack(anchor="w", pady=(0, 8))
         # --- Server ---
         f1 = ttk.LabelFrame(body, text=" Server ", padding=8)
         f1.pack(fill="x")
@@ -7332,6 +7382,8 @@ class App(tk.Tk):
 
     def _startup(self):
         self.after(60000, self._graphs_tick)
+        self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
+                          "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
             self.load_folder()
             if self.cfg.get("auto_check"):
@@ -8541,6 +8593,9 @@ class App(tk.Tk):
         ttk.Label(pr2, text="Lokale poort van de server (voor de lokale test):").pack(side="left")
         ttk.Spinbox(pr2, from_=1, to=65535, width=7, textvariable=self.reach_lport_var).pack(side="left", padx=4)
         ttk.Label(pr2, text="(uit server.properties)", foreground="#6b7280").pack(side="left", padx=4)
+        ttk.Label(a, text="Test of vrienden via internet kunnen verbinden. Vul je publieke IP-adres of domeinnaam in "
+                          "(of klik op 'Mijn IP opzoeken') en klik op 'Controleer van buitenaf'.",
+                  style="Muted.TLabel", wraplength=900, justify="left").grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
         br = ttk.Frame(a)
         br.grid(row=3, column=0, columnspan=3, sticky="w", pady=(12, 0))
         self.btn_net_ext = ttk.Button(br, text="🌍  Controleer van buitenaf", style="Big.TButton",
@@ -9572,14 +9627,14 @@ class SettingsDialog(tk.Toplevel):
 
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True, padx=10, pady=(10, 4))
-        self._tab_backups(nb)
-        self._tab_updates(nb)
+        self._tab_gedrag(nb)
         self._tab_server(nb)
         self._tab_beheer(nb)
+        self._tab_updates(nb)
+        self._tab_backups(nb)
         self._tab_grafiek(nb)
         self._tab_console(nb)
         self._tab_update(nb)
-        self._tab_gedrag(nb)
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", padx=10, pady=(4, 10))
@@ -9653,7 +9708,7 @@ class SettingsDialog(tk.Toplevel):
             self.info_lbl.config(text="")
 
     def _tab_updates(self, nb):
-        f = self._frame(nb, "Updates")
+        f = self._frame(nb, "Zoeken naar updates")
         self._check(f, "Automatisch controleren op updates bij het opstarten", self.v["auto_check"], 0)
         self._check(f, "Ook beta/alpha-versies toestaan", self.app.unstable_var, 1)
         self._check(f, "Server draait: updates klaarzetten in plugins/update (toegepast bij herstart)",
@@ -9694,7 +9749,7 @@ class SettingsDialog(tk.Toplevel):
         self._spin(f, "Netwerk-timeout:", "net_timeout", 6, 5, 180, "seconden (verhoog bij trage verbinding)")
 
     def _tab_beheer(self, nb):
-        f = self._frame(nb, "Serverbeheer")
+        f = self._frame(nb, "Starten & Java")
         ttk.Label(f, text="Hoe start de server vanuit dit programma?", font=("Segoe UI", 10, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w")
         for i, (key, label) in enumerate(LAUNCH_MODES):
@@ -9776,7 +9831,7 @@ class SettingsDialog(tk.Toplevel):
                    ).grid(row=12, column=0, columnspan=2, sticky="w")
 
     def _tab_update(self, nb):
-        f = self._frame(nb, "Programma-update")
+        f = self._frame(nb, "Dit programma")
         ttk.Label(f, text=f"Huidige versie: {APP_VERSION}", font=("Segoe UI", 10, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w")
         ttk.Label(f, text="Link naar de nieuwste versie:").grid(row=1, column=0, sticky="w", pady=(10, 2))
@@ -9799,7 +9854,7 @@ class SettingsDialog(tk.Toplevel):
         self.app.selfupdate_check(manual=True)
 
     def _tab_gedrag(self, nb):
-        f = self._frame(nb, "Gedrag")
+        f = self._frame(nb, "Algemeen")
         self._check(f, "Vraag bevestiging voor updates en het starten van de server", self.v["confirm"], 0)
         self._check(f, "Speel een geluidje af als een taak klaar is", self.v["sound"], 1)
         self._check(f, "Venster altijd bovenop andere vensters", self.v["topmost"], 2)
