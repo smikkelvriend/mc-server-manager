@@ -19,6 +19,7 @@ import http.server
 import ipaddress
 import secrets
 import importlib
+import io
 import json
 import math
 import os
@@ -52,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.21"
+APP_VERSION = "2.22"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.22 - Soepel zoomen met echte tussenbeelden (via Pillow, wordt eenmalig met een knop geïnstalleerd; zonder Pillow blijft het stapsgewijs). Help-regels van de server komen niet meer in de console terecht tijdens het leren van commando's.
 2.21 - Zoomen op de kaart gebruikt veel meer tussenstappen (ca. 16). Tab-aanvulling: leert via /help <plugin>, geeft bij plugin-commando's geen spelersnamen meer en vergeet commando's die de server afkeurt.
 2.20 - Kaart zoomt soepel (animatie tussen de niveaus) in het programma en op de telefoon, ook met twee vingers.
 2.19 - Nieuw tabblad Backups (Backuper beheren), spelerskoppen (Java en Bedrock) in lijsten, kaart en telefoon, en Tab-aanvulling kent nu ook plugin-commando's.
@@ -190,7 +192,7 @@ DEFAULTS = {
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
     "chunky_autopause": True, "chunky_autoresume": True,
-    "cmd_history": [], "learned_cmds": [],
+    "cmd_history": [], "learned_cmds": [], "pil_asked": False,
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
@@ -645,6 +647,21 @@ def compile_noise(text):
         else:
             out.append(line.lower())
     return out
+
+
+Image_ = ImageTk_ = None
+
+
+def load_pil():
+    """Pillow (optioneel): nodig voor het soepel zoomen op de kaart."""
+    global Image_, ImageTk_
+    try:
+        importlib.invalidate_caches()
+        from PIL import Image as _I, ImageTk as _IT
+        Image_, ImageTk_ = _I, _IT
+        return True
+    except Exception:
+        return False
 
 
 def load_psutil():
@@ -1528,6 +1545,7 @@ class Spark(tk.Canvas):
 
 
 load_psutil()
+load_pil()
 
 
 # ======================================================================================
@@ -2998,6 +3016,8 @@ class MapTab(ttk.Frame):
         super().__init__(parent, padding=6)
         self.app = app
         self.url_var = tk.StringVar(value=app.cfg.get("squaremap_url", "http://localhost:8080"))
+        self._url_now = self.url_var.get()
+        self.url_var.trace_add("write", lambda *a: setattr(self, "_url_now", self.url_var.get()))
         self.world_var = tk.StringVar()
         self.status_var, self.coord_var = tk.StringVar(), tk.StringVar()
         self.follow_var = tk.BooleanVar(value=False)
@@ -3007,7 +3027,8 @@ class MapTab(ttk.Frame):
         self.worlds, self.wset = [], {}
         self.cur = None                       # naam van de wereld die getoond wordt
         self.zl, self.cx, self.cz = 3, 0.0, 0.0   # zoomniveau, midden van het beeld (in blokken)
-        self.zfrac, self._anim_job, self._anchor, self._wp = 0.0, None, None, 512   # soepel zoomen: tussenstap tussen twee niveaus
+        self.zfrac, self._anim_job, self._anchor, self._wp = 0.0, None, None, 512
+        self.raw, self.pilsrc, self._nat, self._anim_from, self._za = {}, {}, None, 0, None   # soepel zoomen: tussenstap tussen twee niveaus
         self.zimgs = {}                       # extra uitgezoomde (vergrote) versies voor het diepste zoomniveau
         self.imgs = {}                        # (wereld, z, x, y) -> PhotoImage of None (lege tegel)
         self.sig = {}                         # (wereld, z, x, y) -> hash van de bytes, om verversen goedkoop te houden
@@ -3053,6 +3074,9 @@ class MapTab(ttk.Frame):
         self.sel_btn = self._btn(bar, "\U0001F4D0  Gebied genereren", self.toggle_sel, "#7c3aed", "white")
         self.sel_btn.pack(side="left", padx=(6, 0))
         tk.Label(bar, textvariable=self.status_var, fg="#6b7280", font=("Segoe UI", 9)).pack(side="right")
+        self.pil_btn = self._btn(bar, "✨  Soepel zoomen aanzetten", self._ask_pil, "#0ea5e9", "white")
+        if Image_ is None and not getattr(sys, "frozen", False):
+            self.pil_btn.pack(side="right", padx=(0, 8))
         main = ttk.Frame(self)
         main.pack(fill="both", expand=True)
         side = ttk.Frame(main, width=250)
@@ -3121,7 +3145,7 @@ class MapTab(ttk.Frame):
     def _get(self, path):
         if time.time() < getattr(self, "_disk_until", 0):
             return self._disk(path)
-        base = self.url_var.get().strip().rstrip("/")
+        base = (self._url_now or "").strip().rstrip("/")
         try:
             with urllib.request.urlopen(f"{base}/{path}", timeout=5) as r:
                 self._from_disk = False
@@ -3199,9 +3223,31 @@ class MapTab(ttk.Frame):
         self.pool.submit(work)
 
     # ---------- zichtbaar / onzichtbaar ----------
+    def _ask_pil(self):
+        if Image_ is not None:
+            return
+        if not messagebox.askyesno(APP_NAME, "Voor soepel zoomen op de kaart gebruikt het programma het pakket Pillow (ongeveer 10 MB, via pip).\n\n"
+                                             "Zonder Pillow werkt de kaart gewoon, maar zoomt hij in sprongen.\n\nNu installeren?"):
+            return
+        self.pil_btn.config(state="disabled", text="Pillow installeren…")
+
+        def work():
+            try:
+                r = subprocess.run([sys.executable, "-m", "pip", "install", "pillow"], capture_output=True, text=True, timeout=300,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                ok = r.returncode == 0
+            except Exception:
+                ok = False
+            self.q.put(("pil", ok))
+        threading.Thread(target=work, daemon=True).start()
+
     def on_show(self):
         self.visible = True
         self._tok += 1
+        if Image_ is None and not self.app.cfg.get("pil_asked") and not getattr(sys, "frozen", False):
+            self.app.cfg["pil_asked"] = True
+            self.app._save_cfg()
+            self.after(800, self._ask_pil)
         if not self.worlds:
             self.load_worlds()
         self._loop(self._tok)
@@ -3264,6 +3310,14 @@ class MapTab(ttk.Frame):
                 self._tile(*m[1:])
             elif m[0] == "players":
                 self._players(m[1])
+            elif m[0] == "pil":
+                if m[1] and load_pil():
+                    self.pil_btn.pack_forget()
+                    self.status_var.set("Soepel zoomen staat aan")
+                    self.app.log("Pillow geïnstalleerd: de kaart zoomt nu soepel.", "ok")
+                else:
+                    self.pil_btn.config(state="normal", text="✨  Soepel zoomen aanzetten")
+                    messagebox.showinfo(APP_NAME, "Installeren mislukt. Probeer in een opdrachtvenster: pip install pillow")
 
     def _tile(self, key, data, replace):
         self.pending.discard(key)
@@ -3274,6 +3328,11 @@ class MapTab(ttk.Frame):
             return
         self.sig[key] = sig
         old = self.imgs.pop(key, None)
+        self.pilsrc.pop(key, None)
+        if data:
+            self.raw[key] = data
+        else:
+            self.raw.pop(key, None)
         if not data:
             self.imgs[key] = None
         else:
@@ -3287,6 +3346,8 @@ class MapTab(ttk.Frame):
             keep = set(self._view_keys())
             for k in [k for k in self.imgs if k not in keep][:len(self.imgs) - self.CACHE_MAX + 40]:
                 self.imgs.pop(k, None)
+                self.raw.pop(k, None)
+                self.pilsrc.pop(k, None)
                 self.sig.pop(k, None)
                 for zk in [z for z in self.zimgs if z[0] == k]:
                     del self.zimgs[zk]
@@ -3329,6 +3390,8 @@ class MapTab(ttk.Frame):
         return int(z.get("max", 3)) + int(z.get("extra", 1))
 
     def _clear_tiles(self):
+        self.raw.clear()
+        self.pilsrc.clear()
         self.imgs.clear()
         self.zimgs.clear()
         self.sig.clear()
@@ -3392,18 +3455,6 @@ class MapTab(ttk.Frame):
         return self._geometry()[2]  # pixels per blok (afgerond op hele tegelpixels, ook tijdens het soepele zoomen)
 
     # tijdens het zoomen: tegel van het volgende niveau verkleind met een kleine breuk (zoom p, subsample q) -> breedte in pixels
-    _PQ = {}
-
-    @classmethod
-    def _frac(cls, ex):
-        """Beste breuk p/q (q <= 14) voor een verkleining 2**ex; geeft (p, q, tegelbreedte in pixels). Veel breuken = veel tussenstappen."""
-        k = round(ex * 32)
-        r = cls._PQ.get(k)
-        if r is None:
-            t = 2.0 ** (k / 32.0)
-            p, q = min(((pp, qq) for qq in range(1, 15) for pp in range(1, qq + 1)), key=lambda c: (abs(c[0] / c[1] - t), c[1]))
-            r = cls._PQ[k] = (p, q, -(-cls.TILE // q) * p)
-        return r
 
     def _zoom(self, d, mx=None, my=None):
         nz = max(0, min(self._max_zoom(), self.zl + d))
@@ -3415,15 +3466,18 @@ class MapTab(ttk.Frame):
         old = self._scale()
         wx, wz = self.cx + (mx - W / 2) / old, self.cz + (my - H / 2) / old
         ze = self.zl + self.zfrac
+        self._anim_from = round(ze)
         self.zl = nz
         nat = self._max_native(self.cur)
-        # soepel alleen tussen de echte tegelniveaus; de extra vergrotingen daarbuiten springen gewoon
-        self.zfrac = 0.0 if max(ze, nz) > nat else max(-1.0, min(1.0, round((ze - nz) * 32) / 32))
+        # soepel alleen tussen de echte tegelniveaus (en alleen met Pillow); de extra vergrotingen daarbuiten springen gewoon
+        self.zfrac = 0.0 if (Image_ is None or max(ze, nz) > nat) else max(-1.0, min(1.0, ze - nz))
+        self._za = (time.time(), self.zfrac)
         self._anchor = (mx, my, wx, wz)
+        self._nat = None
         self._fix_center()
         self._draw()
         if self.zfrac and self._anim_job is None:
-            self._anim_job = self.after(40, self._anim_tick)
+            self._anim_job = self.after(5, self._anim_tick)
 
     def _fix_center(self):
         if not self._anchor:
@@ -3434,18 +3488,21 @@ class MapTab(ttk.Frame):
         self.cx, self.cz = wx - (mx - W / 2) / sc, wz - (my - H / 2) / sc
 
     def _anim_tick(self):
+        """Tijdgestuurde animatie (ca. 0,3 s, eerst snel dan zacht): zoveel tussenbeelden als de computer aankan."""
         self._anim_job = None
-        if not self.zfrac:
+        if not self.zfrac or not self._za:
             return
-        step = max(1 / 32, abs(self.zfrac) * 0.16)          # uitlopen: eerst sneller, op het eind kleine stapjes
-        step = round(step * 32) / 32
-        self.zfrac = min(0.0, self.zfrac + step) if self.zfrac < 0 else max(0.0, self.zfrac - step)
+        t0, z0 = self._za
+        t = (time.time() - t0) / 0.30
+        self.zfrac = 0.0 if t >= 1 else z0 * (1 - t) ** 3
+        if abs(self.zfrac) < 0.004:
+            self.zfrac = 0.0
         self._fix_center()
         self._draw()
         if self.zfrac:
-            self._anim_job = self.after(18, self._anim_tick)
+            self._anim_job = self.after(2, self._anim_tick)
         else:
-            self._anchor = None
+            self._anchor = self._nat = None
             self._dirty = True
 
     def _wheel(self, ev):
@@ -3455,15 +3512,10 @@ class MapTab(ttk.Frame):
     def _geometry(self):
         mx = self._max_native(self.cur)
         ze = self.zl + self.zfrac
-        native = min(math.ceil(ze - 1e-9), mx)
+        native = self._nat if (self.zfrac and self._nat is not None) else min(math.ceil(ze - 1e-9), mx)
         ex = ze - native
         span = self.TILE * 2 ** (mx - native)     # blokken per tegel
-        if abs(ex - round(ex)) <= 1e-6:
-            wp = round(self.TILE * 2 ** round(ex))
-        elif ex < 0:
-            wp = self._frac(ex)[2]
-        else:
-            wp = round(self.TILE * 2 ** ex)
+        wp = round(self.TILE * 2 ** round(ex)) if abs(ex - round(ex)) <= 1e-6 else max(8, round(self.TILE * 2 ** ex))
         self._wp = wp
         return native, span, wp / span
 
@@ -3491,19 +3543,21 @@ class MapTab(ttk.Frame):
                            text=("Kaart laden…" if self.loading else
                                  "Geen kaart gevonden.\nStart de server met squaremap en laat hem eerst renderen;\ndaarna staat de kaart ook offline klaar."))
             return
+        if self.zfrac:
+            self._nat = self._pick_native()
         native, span, s = self._geometry()
         ex = self.zl + self.zfrac - native
         extra = round(ex) if abs(ex - round(ex)) < 1e-6 else ex
         P = self._wp                                     # tegelgrootte op het scherm in pixels
         ox, oy = round(W / 2 - self.cx * s), round(H / 2 - self.cz * s)
-        t_end = time.time() + 0.03
+        t_end = time.time() + (0.03 if not self.zfrac else 0.15)
         for key in sorted(self._view_keys(0.0), key=lambda k: abs(k[2] * span + span / 2 - self.cx) + abs(k[3] * span + span / 2 - self.cz)):
             if key in self.imgs:
                 img = self.imgs[key]
-                if img is not None and extra > 0:
+                if img is not None and extra != round(extra):
+                    img = self._pscaled(key, P, t_end)
+                elif img is not None and extra > 0:
                     img = self._zoomed(key, extra, t_end)
-                elif img is not None and extra < 0:
-                    img = self._shrunk(key, extra, t_end)
                 if img is not None:
                     # vaste hele pixels per tegel: anders kunnen naast elkaar liggende tegels door afronden 1 pixel uit elkaar vallen
                     cv.create_image(ox + key[2] * P, oy + key[3] * P, anchor="nw", image=img, tags="t")
@@ -3518,22 +3572,64 @@ class MapTab(ttk.Frame):
             cv.create_text(sx, sy, text="⌂", fill="#fde047", font=("Segoe UI", 15, "bold"), tags="t")
         self._draw_overlay()
 
-    def _shrunk(self, key, ex, t_end):
-        """Verkleinde tegel voor de tussenstappen tijdens het zoomen (snelle, ruwe verkleining; alleen onderweg zichtbaar)."""
-        p, q, _w = self._frac(ex)
-        zk = (key, ("s", p, q))
+    def _pilsrc(self, key):
+        im = self.pilsrc.get(key)
+        if im is None:
+            raw = self.raw.get(key)
+            if not raw:
+                return None
+            try:
+                im = Image_.open(io.BytesIO(raw)).convert("RGBA")
+            except Exception:
+                return None
+            if len(self.pilsrc) > 60:
+                self.pilsrc.clear()
+            self.pilsrc[key] = im
+        return im
+
+    def _pscaled(self, key, wp, t_end):
+        """Tegel op elke gewenste grootte (Pillow, vloeiend geschaald) voor het soepele zoomen."""
+        zk = (key, ("p", wp))
         img = self.zimgs.get(zk)
         if img is None:
             if time.time() > t_end:
                 self._dirty = True
                 return None
-            img = self.imgs[key].subsample(q, q).zoom(p, p) if q > 1 else self.imgs[key]
-            if len(self.zimgs) > 160:
-                keep = {(k, ("s", p, q)) for k in self._view_keys(0.0)}
-                for old in [z for z in self.zimgs if z not in keep][:120]:
+            src = self._pilsrc(key)
+            if src is None:
+                return None
+            try:
+                img = ImageTk_.PhotoImage(src.resize((wp, wp), getattr(Image_, "Resampling", Image_).BILINEAR))
+            except Exception:
+                return None
+            if len(self.zimgs) > 220:
+                keep = {(k, ("p", wp)) for k in self._view_keys(0.0)}
+                for old in [z for z in self.zimgs if z not in keep][:150]:
                     del self.zimgs[old]
             self.zimgs[zk] = img
         return img
+
+    def _pick_native(self):
+        """Tijdens het zoomen: kies het tegelniveau (oud of nieuw) dat voor het hele beeld al geladen is."""
+        mx = self._max_native(self.cur)
+        ze = self.zl + self.zfrac
+        hi, lo = min(math.ceil(ze - 1e-9), mx), max(0, min(math.floor(ze + 1e-9), mx))
+        if hi == lo:
+            return hi
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        sc = 2.0 ** (ze - mx)
+        for nat in (hi, lo):
+            span = self.TILE * 2 ** (mx - nat)
+            x0, x1 = self.cx - W / 2 / sc, self.cx + W / 2 / sc
+            z0, z1 = self.cz - H / 2 / sc, self.cz + H / 2 / sc
+            keys = [(self.cur, nat, tx, ty) for ty in range(math.floor(z0 / span), math.floor(z1 / span) + 1)
+                    for tx in range(math.floor(x0 / span), math.floor(x1 / span) + 1)]
+            if all(k in self.imgs for k in keys):
+                return nat
+            if nat == hi:
+                for k in keys:
+                    self.fetch_tile(k)
+        return self._anim_from if self._anim_from in (hi, lo) else lo
 
     def _zoomed(self, key, extra, t_end):
         """Vergrote tegel (2x, 4x) voor de diepste zoomniveaus; maximaal een paar tegelijk, in kleine happen."""
@@ -7853,7 +7949,7 @@ class App(tk.Tk):
                 suppress = True
                 if tp.group(1) not in self._learn_topics:
                     self._learn_topics.append(tp.group(1))
-            elif lc or msg.startswith("Help:") or msg.startswith("Use /help"):
+            elif lc or re.match(r"^-{3,}\s*Help:", msg) or re.match(r"^Below is a list of all .* commands:", msg) or msg.startswith("Help:") or msg.startswith("Use /help"):
                 suppress = True
                 if lc:
                     nm = lc.group(1).split(":")[-1].lower()

@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.22
+- Soepel zoomen op de kaart met echte tussenbeelden: de tegels worden vloeiend geschaald in plaats van korrelig. Dit gebruikt Pillow; het programma vraagt eenmalig of het dat mag installeren (of gebruik de knop "Soepel zoomen aanzetten" op het Kaart-tabblad). Zonder Pillow zoomt de kaart zoals voorheen in stappen.
+- De help-regels van de server verschijnen niet meer in de console terwijl het programma commando's leert voor tab-aanvulling.
+- Kaart leest het adres niet meer vanuit een achtergrondthread (stabieler).
+- Deze versie vereist een herstart.
+
 ## 2.21
 - Soepel zoomen met veel meer tussenstappen (ongeveer 16 per niveau in plaats van 3).
 - Tab-aanvulling leert de commando's via /help en /help <plugin> (de server geeft per plugin een lijst), toont daarna ook plugin-commando's zoals backuper, geeft bij plugin-commando's geen spelersnamen meer als subcommando en vergeet commando's die de server afkeurt.
