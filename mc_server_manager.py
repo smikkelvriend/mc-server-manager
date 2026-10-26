@@ -58,6 +58,7 @@ APP_VERSION = "2.17"
 HOT_SAFE = False
 
 CHANGELOG = """
+2.17 - Updates kunnen zonder herstart worden toegepast als het programma dat veilig vindt; de server blijft dan draaien.
 2.16.1 - Chunky pauzeert zodra er een speler online komt (met reden op de kaart) en hervat als de server leeg is.
 2.16 - Telefoon: bedien je server op afstand via een webpagina/app met wachtwoord (tabblad Beheer, Telefoon).
 2.15 - Donker thema (Instellingen -> Gedrag).
