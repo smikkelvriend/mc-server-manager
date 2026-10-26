@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.32"
+APP_VERSION = "2.33"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.33 - Slaapstand: in de Bedrock-serverlijst staat nu duidelijk "💤 Server slaapt" met "Join = starten, wacht ±1 min". (Een melding bij het joinen zelf is bij Bedrock niet mogelijk zonder het volledige Bedrock-protocol na te bouwen.)
 2.32 - Nieuw: Slaapstand (Instellingen > Starten & Java). Als er X minuten niemand online is, stopt de server veilig en luistert het programma op de serverpoort. In de serverlijst staat dan "Server slaapt"; zodra iemand probeert te joinen start de server vanzelf weer (die speler probeert het na ca. een minuut opnieuw). Niet tijdens kaartgeneratie.
 2.31 - Grafieken verbruiken veel minder processortijd (alleen hertekenen als de lijn echt verschuift: van ca. 15% naar 4% van een kern in rust); de knop "Pagina" bij plugin-zoekresultaten werkt weer.
 2.30 - De Backuper-instellingen scrollen nu (muiswiel en balk). Aanvinkvakjes, keuzerondjes, scrollbalken en lijstrijen schalen mee met de Windows-schermschaling.
@@ -2538,7 +2539,7 @@ class WakeListener:
             if not data:
                 continue
             if data[0] in (1, 2) and len(data) >= 9:
-                info = f"MCPE;{self.motd};924;1.21.0;0;{self.maxp};{self.guid};Slaapstand;Survival;1;{self.bport};{self.bport}"
+                info = f"MCPE;💤 Server slaapt;924;1.21.0;0;{self.maxp};{self.guid};Join = starten, wacht ±1 min;Survival;1;{self.bport};{self.bport}"
                 b = info.encode("utf-8")
                 try:
                     u.sendto(b"\x1c" + data[1:9] + struct.pack(">Q", self.guid) + RAKNET_MAGIC + struct.pack(">H", len(b)) + b, addr)

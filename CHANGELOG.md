@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.33
+- Slaapstand: de Bedrock-serverlijst toont nu "💤 Server slaapt" met de uitleg "Join = starten, wacht ±1 min". Een melding op het moment van joinen zelf is bij Bedrock niet gemaakt: daarvoor moet het volledige Bedrock-protocol worden nagebouwd.
+- Deze versie vereist een herstart.
+
 ## 2.32
 - Nieuw: **Slaapstand** (Instellingen > Starten & Java). Staat er X minuten niemand online, dan stopt de server veilig en gaat het programma op de serverpoort luisteren. In de Minecraft-serverlijst staat dan "Server slaapt". Probeert iemand te joinen, dan krijgt die de melding dat de server start en wordt de server automatisch gestart; na ongeveer een minuut kan de speler gewoon joinen.
 - De server gaat niet slapen zolang Chunky de kaart genereert. De knop "Server starten" wekt de server ook.
