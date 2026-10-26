@@ -43,9 +43,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.2"
+APP_VERSION = "2.3"
 
 CHANGELOG = """
+2.3 - Bedrock-controle laat nu zien wat er misgaat: eigen UDP-ping lokaal en via je domein, plus wat elke dienst zegt.
 2.2 - Temperatuur van je laptop (met grafiek en waarschuwing) en automatische programma-update via een link.
 2.1 - Bereikbaarheidscheck met serverkaart, speleracties altijd zichtbaar in de console, schonere opstart.
 2.0 - Nieuwe naam MC Server Manager en een strengere schone console.
@@ -804,6 +805,33 @@ def ext_status(host, port, bedrock=False):
     best["tried"] = sorted((r["src"], r["online"]) for r in out) + [(k, None) for k in errs]
     best["dns"] = ips
     return best
+
+
+RAKNET_MAGIC = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
+
+
+def raknet_ping(host, port, timeout=4):
+    """Eigen Bedrock-ping (RakNet, UDP): antwoordt Geyser op deze poort?"""
+    pkt = b"\x01" + struct.pack(">Q", int(time.time() * 1000) & 0x7FFFFFFFFFFFFFFF) + RAKNET_MAGIC + os.urandom(8)
+    last = None
+    for addr in sorted({i[4] for i in socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_DGRAM)}):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        try:
+            t0 = time.time()
+            sock.sendto(pkt, addr)
+            data, _ = sock.recvfrom(4096)
+            if not data or data[0] != 0x1C or len(data) < 35:
+                raise ValueError("onverwacht antwoord")
+            n = struct.unpack(">H", data[33:35])[0]
+            parts = data[35:35 + n].decode("utf-8", "replace").split(";")
+            g = lambda i: parts[i] if len(parts) > i else ""
+            return dict(online=True, motd=g(1), version=g(3), players=(g(4), g(5)), ms=int((time.time() - t0) * 1000))
+        except Exception as e:
+            last = e
+        finally:
+            sock.close()
+    raise last or OSError("geen antwoord")
 
 
 def describe_net_error(e):
@@ -2455,6 +2483,12 @@ class App(tk.Tk):
                         res["bed"] = ext_status(host, bport, bedrock=True)
                     except Exception as e:
                         res["bed_err"] = describe_net_error(e)
+                    if not (res.get("bed") and res["bed"]["online"]):
+                        for key, h in (("bed_loc", "127.0.0.1"), ("bed_own", host)):
+                            try:
+                                res[key] = raknet_ping(h, bport)
+                            except Exception as e:
+                                res[key + "_err"] = describe_net_error(e) if not isinstance(e, socket.timeout) else "geen antwoord"
             if not local_only and "ext" in res and not res["ext"]["online"]:
                 try:
                     res["pubip"] = fetch_public_ip()
@@ -2529,7 +2563,24 @@ class App(tk.Tk):
             self.net_motd.config(text="Geen server gevonden")
             self.net_info.config(text="")
             self._net_set_icon(None)
-        if bed:
+        bl, bo = res.get("bed_loc"), res.get("bed_own")
+        if bed and not bed["online"]:
+            tried = ", ".join(f"{n} ({'online' if o else 'offline' if o is not None else 'fout'})" for n, o in bed.get("tried", []))
+            lines = [f"Bedrock (Geyser): ✖ de controlediensten zien hem niet op UDP-poort {res['bport']}."]
+            lines.append("Lokaal: " + (f"✔ Geyser antwoordt op deze pc ({bl['ms']} ms)." if bl else
+                                      f"✖ geen antwoord op 127.0.0.1:{res['bport']} ({res.get('bed_loc_err', '?')}). "
+                                      "Draait Geyser en klopt de poort in config.yml?"))
+            lines.append(f"Via {res['host']}: " + (f"✔ antwoordt vanaf deze pc ({bo['ms']} ms)." if bo else
+                                                   f"✖ geen antwoord ({res.get('bed_own_err', '?')})."))
+            if bl and not bo:
+                lines.append("→ UDP-poort doorsturen in je router en toestaan in de firewall ontbreekt waarschijnlijk.")
+            elif bl and bo:
+                lines.append("→ Geyser draait en je domein bereikt hem. De diensten kunnen een oud 'offline' bewaren of UDP "
+                             "van buiten niet doorkrijgen. Test ook met een telefoon via mobiel internet.")
+            if tried:
+                lines.append("Geraadpleegd: " + tried + ".")
+            self.net_bed.config(fg="#d97706" if (bl and bo) else "#b91c1c", text="\n".join(lines), justify="left")
+        elif bed:
             if bed["online"]:
                 on, mx = bed["players"]
                 self.net_bed.config(fg="#059669", text=f"Bedrock (Geyser): ✔ bereikbaar op UDP-poort {res['bport']}"

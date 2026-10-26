@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.3
+- **Bedrock-controle met uitleg:** meldt de externe controle "offline", dan pingt het programma Geyser zelf (UDP), lokaal en
+  via je domein, en toont wat elke controledienst zei. Zo zie je of Geyser draait en of alleen de poortdoorsturing ontbreekt.
+
 ## 2.2
 - **Temperatuur van de laptop** op het Server-tabblad, met eigen grafiek en waarschuwing (standaard vanaf 85 °C).
   Leest Windows' thermal zone of, als die draait, LibreHardwareMonitor / OpenHardwareMonitor.
