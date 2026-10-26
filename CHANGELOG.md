@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.50
+- Nieuwe interface, Instellingen: de **Slaapstand** (minuten zonder spelers, alleen op bepaalde tijden, van/tot en dagen) en de **Gezondheidscontrole** (schijf, lage TPS, geheugen) hebben nu eigen kaarten. Die instellingen waren alleen in het oude scherm te vinden, dat niet meer te zien is.
+- Deze versie vereist een herstart.
+
 ## 2.49
 - Nieuwe interface: de grafiek in het Overzicht hapert niet meer. De lijn wordt nu op tijd getekend, een paar seconden achter de werkelijkheid, in plaats van te springen zodra er een nieuwe meting binnenkomt. Het scherm ververst elke seconde.
 - Na een update met herstart blijft het bestaande venster nu verbonden met het nieuwe programma (vaste sleutel in `mc_server_manager_scherm.key`), in plaats van dat er een tweede venster opent en het oude blijft staan. Een venster dat het programma na 90 seconden nog niet terugvindt, sluit zichzelf.

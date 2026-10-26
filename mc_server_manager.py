@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.49"
+APP_VERSION = "2.50"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.50 - Nieuwe interface, Instellingen: de instellingen van de slaapstand (minuten, rooster met tijden en dagen) en de gezondheidscontrole (schijf, TPS, geheugen) staan er nu in. Die waren alleen in het oude scherm te vinden.
 2.49 - Nieuwe interface: de grafiek in het Overzicht hapert niet meer. De lijn wordt nu op tijd getekend (met een korte vertraging van een paar seconden) in plaats van te springen zodra er een nieuwe meting binnenkomt, en het scherm ververst elke seconde. Na een update met herstart blijft het bestaande venster verbonden in plaats van dat er een tweede opent.
 2.48 - De nieuwe interface is nu de enige interface: het klassieke scherm is niet meer te zien. Het programma sluit als je het venster sluit (als de server niet draait), of via de knop Afsluiten onderin de zijbalk.
 2.47 - Nieuwe interface, Overzicht: alle grafieken (geheugen, processor, TPS, temperatuur) staan gecombineerd in één grafiek bovenaan, het aantal spelers staat achter "Spelers online" en het Overzicht past op één scherm zonder scrollen.
@@ -5836,7 +5837,8 @@ async function sleepAuto(){const on=!$('swSleep').classList.contains('on');$('sw
 async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
 async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
 const PROPL={'motd':'Bericht in serverlijst (MOTD)','max-players':'Maximaal aantal spelers','difficulty':'Moeilijkheid (peaceful, easy, normal, hard)','gamemode':'Standaard spelmodus','pvp':'PvP','white-list':'Whitelist','online-mode':'Online modus (Mojang-login)','allow-flight':'Vliegen toestaan','view-distance':'Zichtafstand','simulation-distance':'Simulatieafstand','spawn-protection':'Spawn-bescherming (blokken)'};
-V.set=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Server (server.properties)</h3><div id="props" class="mut">Laden…</div></div>
+V.set=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Slaapstand</h3><div id="slp" class="mut">Laden…</div></div>
+ <div class="card"><h3>Gezondheidscontrole</h3><div id="hlt" class="mut">Laden…</div></div><div class="card"><h3>Server (server.properties)</h3><div id="props" class="mut">Laden…</div></div>
  <div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>
  <div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Programma</h3><div id="set" class="mut">Laden…</div></div>
@@ -5850,9 +5852,18 @@ async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
  <div class="row" style="margin-top:8px"><input id="nh" value="${esc(j.host)}" placeholder="Adres/IP" style="flex:1"><input id="np" value="${esc(j.jport)}" style="width:90px" inputmode="numeric"></div>
  <div class="row" style="margin-top:8px"><button onclick="netChk(false)" ${j.busy?'disabled':''}>Controleer</button><button onclick="netChk(true)" ${j.busy?'disabled':''}>Alleen lokaal</button></div>`}
 async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport:$('np').value,local},'Controleren…');setTimeout(netLoad,3500);setTimeout(netLoad,8000)}
-async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;
- $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
+const DAYN=['Ma','Di','Wo','Do','Vr','Za','Zo'];
+async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;const by={};j.items.forEach(i=>by[i.key]=i);const v=k=>by[k]?by[k].value:'';
+ const chk=(k,l)=>`<label class="lab"><span>${l}</span><input type="checkbox" ${v(k)?'checked':''} onchange="setSet('${k}',this.checked)"></label>`;
+ const num=(k,l)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" inputmode="numeric" onchange="setSet('${k}',this.value)"></label>`;
+ const days=String(v('sleep_days')||'1234567');
+ $('slp').innerHTML=`<div class="mut" style="font-size:13px;margin-bottom:4px">Zet je server in slaapstand als er een tijd niemand online is. Hij start vanzelf weer bij de eerste join. De aan/uit-schakelaar staat linksonder.</div>`+num('sleep_minutes','Minuten zonder spelers voor de slaapstand')+chk('sleep_sched','Alleen op bepaalde tijden')+
+  `<label class="lab"><span>Van</span><input type="time" value="${esc(v('sleep_from'))}" onchange="setSet('sleep_from',this.value)"></label><label class="lab"><span>Tot</span><input type="time" value="${esc(v('sleep_to'))}" onchange="setSet('sleep_to',this.value)"></label>
+   <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DAYN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`;
+ $('hlt').innerHTML=chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (minuten)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (% van het maximum)');
+ $('set').innerHTML=j.items.filter(i=>!/^(sleep_|health_)/.test(i.key)).map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 /* ---------- Afsluiten ---------- */
 async function quitApp(){const run=S.state=='online'||S.state=='starting'||S.state=='stopping';if(!await ask(run?'De server draait nog. Hij wordt veilig gestopt (de wereld wordt opgeslagen) en daarna sluit het programma. Doorgaan?':'MC Server Manager afsluiten?','Afsluiten'))return;toast('Afsluiten…',60000);go('/api/quit',{})}
 window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','X-MC':'1'},body:'{}'})}catch(e){}});
@@ -6152,6 +6163,11 @@ class RemoteServer:
         "graph_minutes": ("int", "Grafiek-tijdvenster (min)", 1, 180), "java_xms": ("str", "Java min. geheugen (bijv. 1G)"),
         "java_xmx": ("str", "Java max. geheugen (bijv. 4G)"), "java_extra": ("str", "Extra Java-opties"),
         "selfupdate_check": ("bool", "Automatisch zoeken naar programma-updates"), "selfupdate_auto": ("bool", "Updates automatisch installeren"),
+        "sleep_minutes": ("int", "Slaapstand: minuten zonder spelers", 1, 1440), "sleep_sched": ("bool", "Slaapstand alleen op bepaalde tijden"),
+        "sleep_from": ("str", "Slaapstand: van (UU:MM)"), "sleep_to": ("str", "Slaapstand: tot (UU:MM)"), "sleep_days": ("str", "Slaapstand: dagen (1 = maandag)"),
+        "health_disk": ("bool", "Waarschuwen als de schijf bijna vol is"), "health_disk_gb": ("int", "Schijf: waarschuwen onder (GB)", 1, 10000),
+        "health_tps": ("bool", "Waarschuwen bij lage TPS"), "health_tps_min": ("int", "TPS-grens", 1, 19), "health_tps_mins": ("int", "Zo lang onder de grens (minuten)", 1, 120),
+        "health_ram": ("bool", "Waarschuwen als het geheugen bijna op is"), "health_ram_pct": ("int", "Geheugen: waarschuwen boven (%)", 50, 100),
         "clean_console": ("bool", "Schone console"), "console_max_lines": ("int", "Maximaal aantal consoleregels", 500, 50000),
         "temp_enabled": ("bool", "Temperatuur tonen"), "temp_warn": ("int", "Temperatuurwaarschuwing (°C)", 50, 110),
         "notify_crash": ("bool", "Melding bij crash"), "notify_start": ("bool", "Melding als de server klaar is met starten"),
@@ -6690,6 +6706,12 @@ class RemoteServer:
                 v = min(max(int(v), spec[2]), spec[3])
             else:
                 v = str(v).strip()[:300]
+                if k in ("sleep_from", "sleep_to") and not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", v):
+                    return 400, {"error": "Vul een tijd in als UU:MM, bijvoorbeeld 22:00"}
+                if k == "sleep_days":
+                    v = "".join(sorted(set(c for c in v if c in "1234567")))
+                    if not v:
+                        return 400, {"error": "Kies minstens één dag"}
         except (TypeError, ValueError):
             return 400, {"error": "ongeldige waarde"}
 
