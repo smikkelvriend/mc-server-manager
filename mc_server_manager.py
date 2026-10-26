@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.7"
+APP_VERSION = "2.7.1"
 
 CHANGELOG = """
+2.7.1 - Plugin-lijst opgeruimd: geen bestandsnaam, commando's of grootte meer, kleinere tellers en tabbladen.
 2.7 - Nieuw tabblad Kaart: terrein van je wereld met alle spelers live erop (naam, richting, spoor, coordinaten).
 2.6.1 - Scrollen in de plugin-lijsten werkt nu ook als de muis boven een kaart staat.
 2.6 - Plugins-tabblad in kaartvorm: aantrekkelijker, met filter, sortering, aan/uit per plugin en installeren per zoekresultaat.
@@ -1799,8 +1800,8 @@ class PluginsTab(ttk.Frame):
         self.sub.pack(fill="both", expand=True)
         self.pg_inst = ttk.Frame(self.sub, padding=8)
         self.pg_find = ttk.Frame(self.sub, padding=8)
-        self.sub.add(self.pg_inst, text="  Geïnstalleerd  ")
-        self.sub.add(self.pg_find, text="  🔍 Zoeken en toevoegen  ")
+        self.sub.add(self.pg_inst, text="Geïnstalleerd")
+        self.sub.add(self.pg_find, text="🔍 Zoeken en toevoegen")
         self._build_installed()
         self._build_find()
         box = ttk.Frame(self)
@@ -1820,16 +1821,16 @@ class PluginsTab(ttk.Frame):
         self.s_key, self.s_desc = tk.StringVar(value="Naam"), False
         # --- teller-tegels ---
         tiles = tk.Frame(f, bg=self.BG)
-        tiles.pack(fill="x", pady=(0, 8))
+        tiles.pack(fill="x", pady=(0, 5))
         self.tiles = {}
         for key, label, color in (("total", "Plugins", "#2563eb"), ("on", "Aan", "#16a34a"),
                                   ("off", "Uit", "#6b7280"), ("warn", "Aandacht nodig", "#d97706")):
             t = tk.Frame(tiles, bg="white", highlightbackground="#e5e7eb", highlightthickness=1)
-            t.pack(side="left", padx=(0, 8))
-            tk.Frame(t, bg=color, width=5).pack(side="left", fill="y")
-            n = tk.Label(t, text="0", bg="white", fg=color, font=("Segoe UI", 20, "bold"))
-            n.pack(side="left", padx=(12, 6), pady=2)
-            tk.Label(t, text=label, bg="white", fg="#4b5563", font=("Segoe UI", 10)).pack(side="left", padx=(0, 14))
+            t.pack(side="left", padx=(0, 6))
+            tk.Frame(t, bg=color, width=3).pack(side="left", fill="y")
+            n = tk.Label(t, text="0", bg="white", fg=color, font=("Segoe UI", 10, "bold"))
+            n.pack(side="left", padx=(8, 3))
+            tk.Label(t, text=label, bg="white", fg="#4b5563", font=("Segoe UI", 9)).pack(side="left", padx=(0, 8))
             self.tiles[key] = n
         # --- filter en sortering ---
         row = tk.Frame(f, bg=self.BG)
@@ -1842,7 +1843,7 @@ class PluginsTab(ttk.Frame):
         cb.pack(side="left", padx=(14, 0))
         cb.bind("<<ComboboxSelected>>", lambda ev: self._render())
         tk.Label(row, text="Sorteer op", bg=self.BG, fg="#4b5563", font=("Segoe UI", 9)).pack(side="left", padx=(14, 4))
-        sc = ttk.Combobox(row, textvariable=self.s_key, values=["Naam", "Status", "Grootte", "Versie"], state="readonly", width=9)
+        sc = ttk.Combobox(row, textvariable=self.s_key, values=["Naam", "Status", "Versie"], state="readonly", width=9)
         sc.pack(side="left")
         sc.bind("<<ComboboxSelected>>", lambda ev: self._render())
         self.btn_dir = self._btn(row, "▲", self._flip_sort, "#e5e7eb", "#111827", pad=6)
@@ -1962,10 +1963,10 @@ class PluginsTab(ttk.Frame):
         tk.Checkbutton(card, variable=var, bg="white", activebackground="white", bd=0, highlightthickness=0,
                        command=self._refresh_selection).pack(side="left", padx=(8, 2))
         body = tk.Frame(card, bg="white")
-        body.pack(side="left", fill="x", expand=True, padx=(4, 8), pady=7)
+        body.pack(side="left", fill="x", expand=True, padx=(4, 8), pady=4)
         top = tk.Frame(body, bg="white")
         top.pack(fill="x")
-        tk.Label(top, text=it["name"], bg="white", fg=fg_main, font=("Segoe UI", 12, "bold")).pack(side="left")
+        tk.Label(top, text=it["name"], bg="white", fg=fg_main, font=("Segoe UI", 11, "bold")).pack(side="left")
         if it["version"]:
             tk.Label(top, text=it["version"], bg="#eef2ff" if enabled else "#f3f4f6", fg="#3730a3" if enabled else "#6b7280",
                      font=("Segoe UI", 9), padx=6).pack(side="left", padx=8)
@@ -1985,11 +1986,9 @@ class PluginsTab(ttk.Frame):
             meta.append("Heeft nodig: " + ", ".join(it["depend"]))
         if it["needed_by"]:
             meta.append("Nodig voor: " + ", ".join(it["needed_by"]))
-        if it["commands"]:
-            meta.append(" ".join("/" + c for c in it["commands"][:4]) + (" …" if len(it["commands"]) > 4 else ""))
-        meta.append(f"{it['file']}  ·  {fmt_size(it['size'])}")
-        tk.Label(body, text="   ·   ".join(meta), bg="white", fg="#9ca3af", anchor="w", justify="left",
-                 font=("Segoe UI", 9)).pack(fill="x", pady=(3, 0))
+        if meta:
+            tk.Label(body, text="   ·   ".join(meta), bg="white", fg="#9ca3af", anchor="w", justify="left",
+                     font=("Segoe UI", 9)).pack(fill="x", pady=(2, 0))
         right = tk.Frame(card, bg="white")
         right.pack(side="right", padx=10)
         if enabled:
@@ -3356,6 +3355,7 @@ class App(tk.Tk):
             pass
         style.configure("Treeview", rowheight=26, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+        style.configure("TNotebook.Tab", padding=(10, 3), font=("Segoe UI", 9))
         style.configure("Big.TButton", font=("Segoe UI", 10, "bold"), padding=6)
 
         def fixed_map(option):  # workaround voor kleuren in Tk 8.6.9
@@ -3389,11 +3389,11 @@ class App(tk.Tk):
         self.tab_net = ttk.Frame(self.nb, padding=10)
         self.tab_plug = PluginsTab(self.nb, self)
         self.tab_map = MapTab(self.nb, self)
-        self.nb.add(self.tab_srv, text="   🖥  Server   ")
-        self.nb.add(self.tab_plug, text="   🧩  Plugins   ")
-        self.nb.add(self.tab_map, text="   🗺  Kaart   ")
-        self.nb.add(body, text="   🔧  Updates   ")
-        self.nb.add(self.tab_net, text="   🌐  Bereikbaarheid   ")
+        self.nb.add(self.tab_srv, text="🖥  Server")
+        self.nb.add(self.tab_plug, text="🧩  Plugins")
+        self.nb.add(self.tab_map, text="🗺  Kaart")
+        self.nb.add(body, text="🔧  Updates")
+        self.nb.add(self.tab_net, text="🌐  Bereikbaarheid")
         self._build_server_tab(self.tab_srv)
         self._build_net_tab(self.tab_net)
         self.nb.bind("<<NotebookTabChanged>>", self._tab_changed)

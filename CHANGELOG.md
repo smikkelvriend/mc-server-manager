@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.7.1
+- Plugin-lijst opgeruimd: geen bestandsnaam, commando's of grootte meer, kleinere tellers en kleinere tabbladen.
+
 ## 2.7
 - **Nieuw tabblad Kaart:** terrein van je wereld (Overworld, Nether, End) uit de opgeslagen wereldbestanden, met alle spelers live erop:
   gekleurde stip, naam, kijkrichting en een spoor van waar ze langs liepen. Slepen om te verschuiven, muiswiel om te zoomen,
