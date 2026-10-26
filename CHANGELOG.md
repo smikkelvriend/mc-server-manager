@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.12.6
+- Bedrock (NetherNet): bij een werkende poort alleen nog één korte groene regel.
+
 ## 2.12.5
 - **NetherNet:** staat Geyser op `transport: nethernet`, dan test het programma de TCP-poort (lokaal en via je domein) in plaats van de oude RakNet-ping, en legt uit dat TCP en UDP open moeten voor naam/motd.
 

@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.12.5"
+APP_VERSION = "2.12.6"
 
 CHANGELOG = """
+2.12.6 - Bedrock (NetherNet): korte groene melding als alles werkt.
 2.12.5 - Bedrock-check begrijpt Geyser NetherNet: test TCP-poort in plaats van RakNet-ping.
 2.12.4 - Bedrock: als Java de UDP-poort open heeft maar niet op de ping antwoordt, oranje waarschuwing in plaats van rood kruis.
 2.12.3 - Bedrock-check: ping met herhaling en ook IPv6, en meldt dat Geyser luistert als Java de UDP-poort open heeft.
@@ -4818,7 +4819,11 @@ class App(tk.Tk):
             L.append(f"TCP {res['bport']} lokaal: " + ("✔ open." if nn["loc"] else "✖ gesloten: luistert Geyser wel op TCP?"))
             L.append(f"TCP {res['bport']} via {res['host']}: " + ("✔ bereikbaar." if nn["own"] else
                      "✖ niet bereikbaar. Router: stuur TCP 19132 ook door (niet alleen UDP) en sta het toe in de Windows Firewall."))
-            self.net_bed.config(fg="#059669" if (nn["loc"] and nn["own"]) else "#d97706", text="\n".join(L), justify="left")
+            if nn["loc"] and nn["own"]:
+                self.net_bed.config(fg="#059669", justify="left",
+                                    text=f"Bedrock (Geyser): ✔ bereikbaar op {res['host']}:{res['bport']}")
+            else:
+                self.net_bed.config(fg="#d97706", text="\n".join(L), justify="left")
         elif bed and not bed["online"]:
             tried = ", ".join(f"{n} ({'online' if o else 'offline' if o is not None else 'fout'})" for n, o in bed.get("tried", []))
             lines = [f"Bedrock (Geyser): ✖ de controlediensten zien hem niet op UDP-poort {res['bport']}."]
