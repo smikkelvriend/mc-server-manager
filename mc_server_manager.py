@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.38"
+APP_VERSION = "2.39"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.39 - Het vinkje voor de slaapstand op het tabblad Server heet nu "Auto slaapstand".
 2.38 - Nieuwe knop "Nu in slaapstand" op het tabblad Server: zet de server meteen in slaapstand, ook als de automatische slaapstand uit staat.
 2.37 - Nieuw: venster Whitelist en bans (whitelist, bans, IP-bans, operators; ook via rechtsklik op een speler), logboek doorzoeken (alle logs inclusief .gz, filter op speler, soort en datum), slaapstand-knop op het Server-tabblad met statistieken en rooster, en gezondheidscontrole (schijf, TPS, geheugen).
 2.36 - Fix: de spelerskop in het spelersmenu knipperde af en toe omdat de lijst bij elke verversing werd leeggemaakt en opnieuw opgebouwd. Rijen blijven nu staan en worden alleen bijgewerkt.
@@ -8238,7 +8239,7 @@ class App(tk.Tk):
 
         ttk.Separator(st).grid(row=9, column=0, columnspan=2, sticky="ew", pady=6)
         self.sleep_var = tk.BooleanVar(value=bool(self.cfg.get("sleep_enabled")))
-        ttk.Checkbutton(st, text="😴  Slaapstand aan", variable=self.sleep_var, command=self._sleep_toggle).grid(
+        ttk.Checkbutton(st, text="😴  Auto slaapstand", variable=self.sleep_var, command=self._sleep_toggle).grid(
             row=10, column=0, columnspan=2, sticky="w")
         self.btn_sleep_now = make_btn(st, "😴  Nu in slaapstand", self.sleep_now)
         self.btn_sleep_now.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(6, 0))

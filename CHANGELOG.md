@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.39
+- Het vinkje voor de slaapstand op het tabblad Server heet nu "Auto slaapstand" (de knop eronder zet de server meteen in slaapstand).
+- Deze versie vereist een herstart.
+
 ## 2.38
 - Nieuwe knop **Nu in slaapstand** op het tabblad Server. De server stopt dan meteen veilig en start weer zodra iemand probeert te joinen. De knop werkt ook als de automatische slaapstand uit staat, en vraagt eerst bevestiging als er spelers online zijn of Chunky bezig is.
 - Deze versie vereist een herstart.
