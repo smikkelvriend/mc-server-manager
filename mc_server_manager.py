@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.37"
+APP_VERSION = "2.38"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.38 - Nieuwe knop "Nu in slaapstand" op het tabblad Server: zet de server meteen in slaapstand, ook als de automatische slaapstand uit staat.
 2.37 - Nieuw: venster Whitelist en bans (whitelist, bans, IP-bans, operators; ook via rechtsklik op een speler), logboek doorzoeken (alle logs inclusief .gz, filter op speler, soort en datum), slaapstand-knop op het Server-tabblad met statistieken en rooster, en gezondheidscontrole (schijf, TPS, geheugen).
 2.36 - Fix: de spelerskop in het spelersmenu knipperde af en toe omdat de lijst bij elke verversing werd leeggemaakt en opnieuw opgebouwd. Rijen blijven nu staan en worden alleen bijgewerkt.
 2.35 - De kaart wordt op de achtergrond voorgeladen (bij het opstarten van het programma en 30 seconden nadat de server online is), zodat hij er meteen staat als je het tabblad Kaart opent.
@@ -8239,8 +8240,10 @@ class App(tk.Tk):
         self.sleep_var = tk.BooleanVar(value=bool(self.cfg.get("sleep_enabled")))
         ttk.Checkbutton(st, text="😴  Slaapstand aan", variable=self.sleep_var, command=self._sleep_toggle).grid(
             row=10, column=0, columnspan=2, sticky="w")
-        make_btn(st, "👥  Whitelist en bans", self.open_lists).grid(row=11, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        make_btn(st, "🔎  Logboek doorzoeken", self.open_logsearch).grid(row=12, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.btn_sleep_now = make_btn(st, "😴  Nu in slaapstand", self.sleep_now)
+        self.btn_sleep_now.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        make_btn(st, "👥  Whitelist en bans", self.open_lists).grid(row=12, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        make_btn(st, "🔎  Logboek doorzoeken", self.open_logsearch).grid(row=13, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
         sp = ttk.Frame(mid)
         sp.grid(row=0, column=1, sticky="nsew", padx=8)
@@ -8351,6 +8354,10 @@ class App(tk.Tk):
         self.btn_s_stop.config(state="normal" if st in ("starting", "online") else "disabled")
         self.btn_s_restart.config(state="normal" if st in ("starting", "online") else "disabled")
         self.btn_s_kill.config(state="normal" if run else "disabled")
+        try:
+            self.btn_sleep_now.config(state="normal" if st == "online" else "disabled")
+        except AttributeError:
+            pass
         for w in [self.cmd_entry, self.btn_send] + self.quick_btns:
             w.config(state="normal" if st in ("starting", "online") else "disabled")
         self.btn_start.config(text="▶  Server starten" if st == "stopped" else "🖥  Naar server")
@@ -8566,8 +8573,24 @@ class App(tk.Tk):
             pass
         self.after(60000, self._health_tick)
 
+    def sleep_now(self):
+        """Knop: de server nu zelf in slaapstand zetten, ook als de automatische slaapstand uit staat."""
+        if self.srv_state != "online" or getattr(self, "_sleeping", False):
+            return
+        n = len(self.players)
+        gen = self.tab_map.gen["state"] in ("running", "paused")
+        msg = "De server wordt veilig gestopt en start vanzelf weer zodra iemand probeert te joinen."
+        if n:
+            msg = f"Er {'is' if n == 1 else 'zijn'} nog {n} speler{'' if n == 1 else 's'} online; die word{'t' if n == 1 else 'en'} van de server gezet.\n\n" + msg
+        if gen:
+            msg = "Chunky is nog bezig met genereren; dat stopt en kan later worden hervat.\n\n" + msg
+        if not messagebox.askyesno(APP_NAME, msg + "\n\nNu in slaapstand zetten?"):
+            return
+        self._go_sleep(None)
+
     def _go_sleep(self, mins):
-        self.log(f"Slaapstand: al {mins} minuten niemand online. De server wordt veilig gestopt en start vanzelf weer zodra iemand probeert te joinen.", "info")
+        self.log(f"Slaapstand: al {mins} minuten niemand online. De server wordt veilig gestopt en start vanzelf weer zodra iemand probeert te joinen."
+                 if mins else "Slaapstand: handmatig gestart. De server wordt veilig gestopt en start vanzelf weer zodra iemand probeert te joinen.", "info")
         self._sleeping = True
         self._sleep_t0 = time.time()
         st = self._sleep_stats()

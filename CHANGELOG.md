@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.38
+- Nieuwe knop **Nu in slaapstand** op het tabblad Server. De server stopt dan meteen veilig en start weer zodra iemand probeert te joinen. De knop werkt ook als de automatische slaapstand uit staat, en vraagt eerst bevestiging als er spelers online zijn of Chunky bezig is.
+- Deze versie vereist een herstart.
+
 ## 2.37
 - Nieuw: **Whitelist en bans**. Knop op het tabblad Server (en rechtsklik op een speler: Bannen, Op de whitelist zetten, Operator maken). Eén venster voor whitelist, bans, IP-bans en operators met toevoegen en verwijderen; whitelist aan/uit. Draait de server, dan gaat het met server-commando's; staat hij uit, dan rechtstreeks in de bestanden (UUID via Mojang, of de offline-UUID bij `online-mode=false`). Bedrock-spelers kunnen alleen bij een draaiende server.
 - Nieuw: **Logboek doorzoeken**. Zoekt in latest.log en alle oude logs (ook .gz), met filters voor speler, soort (joinen, verlaten, chat, commando's, doodgaan, waarschuwingen en fouten) en datumbereik. Maximaal 5000 resultaten.

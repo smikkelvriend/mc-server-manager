@@ -8,12 +8,13 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.36
+## Versies 2.2 t/m 2.37
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
 | Versie | Wat was nieuw |
 |---|---|
+| [`2.37`](mc_server_manager_2.37.py) | Whitelist/bans, logzoeker, slaapstand-uitbreiding, gezondheidscontrole |
 | [`2.36`](mc_server_manager_2.36.py) | Spelerskop knippert niet meer |
 | [`2.35`](mc_server_manager_2.35.py) | Kaart voorladen op de achtergrond |
 | [`2.34`](mc_server_manager_2.34.py) | Slaapstand: Bedrock NetherNet (experimenteel) |
