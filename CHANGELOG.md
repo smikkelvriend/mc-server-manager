@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.11.2
+- Programma-update betrouwbaarder: de laatste versie wordt gevonden via de GitHub-API met ETag (een '304' telt niet mee voor de limiet) en, als de API-limiet toch bereikt is, via het git-protocol. Controle bij terugkeren naar het venster hooguit elke 5 minuten.
+
 ## 2.11.1
 - Bedrock-controle (Bereikbaarheid): leest de poort van Geyser uit `plugins/Geyser-*/config.yml` (ook `clone-remote-port`) en uit de opstartregel "Started Geyser on UDP port …", in plaats van altijd 19132 te testen.
 

@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.11.1"
+APP_VERSION = "2.11.2"
 
 CHANGELOG = """
+2.11.2 - Programma-update betrouwbaarder: vindt nieuwe versies ook als de GitHub-API-limiet bereikt is.
 2.11.1 - Bedrock-controle leest de poort van Geyser zelf (config.yml en opstartregel) in plaats van 19132 te veronderstellen.
 2.11 - Kaart zit nu in het programma zelf (geen browser nodig): tegels van squaremap, spelers live, slepen en zoomen, renderen via een menu.
 2.10 - Nieuw tabblad Kaart: opent je squaremap-kaart en bedient het renderen (hele wereld, rond de spawn, pauzeren, stoppen).
@@ -1064,6 +1065,52 @@ def update_candidates(url):
     return [u] if u.lower().startswith("https://") else []
 
 
+_SHA_CACHE = {}
+
+
+def parse_git_refs(data, branches=("main", "master")):
+    """Zoekt de commit van een branch in het antwoord van git (info/refs)."""
+    text = data.decode("utf-8", "replace") if isinstance(data, bytes) else data
+    for br in branches:
+        m = re.search(r"([0-9a-f]{40}) refs/heads/" + re.escape(br) + r"(?:\x00|\n|\s|$)", text)
+        if m:
+            return m.group(1)
+    return None
+
+
+def github_head_sha(owner, repo):
+    """Laatste commit van de repository. Eerst de API (met ETag: een '304' telt niet mee voor de limiet), en als dat
+    niet lukt (bijv. API-limiet) via het git-protocol, dat geen limiet heeft."""
+    key = f"{owner}/{repo}"
+    try:
+        hdr = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github.sha"}
+        old = _SHA_CACHE.get(key)
+        if old:
+            hdr["If-None-Match"] = old[0]
+        req = urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/commits/HEAD", headers=hdr)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                sha = r.read(100).decode("ascii", "replace").strip()
+                etag = r.headers.get("ETag")
+        except urllib.error.HTTPError as e:
+            if e.code == 304 and old:
+                return old[1]
+            raise
+        if re.fullmatch(r"[0-9a-f]{40}", sha):
+            if etag:
+                _SHA_CACHE[key] = (etag, sha)
+            return sha
+    except Exception:
+        pass
+    try:
+        req = urllib.request.Request(f"https://github.com/{owner}/{repo}.git/info/refs?service=git-upload-pack",
+                                     headers={"User-Agent": "git/2.45.0", "Accept": "*/*"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return parse_git_refs(r.read(400000))
+    except Exception:
+        return None
+
+
 def fetch_update(url):
     """Haalt het nieuwste programmabestand op en controleert of het een geldig, compleet bestand is."""
     cands = update_candidates(url)
@@ -1071,15 +1118,9 @@ def fetch_update(url):
         raise ValueError("Geen geldige update-link: gebruik een https-link.")
     gm = re.fullmatch(r"https://github\.com/([\w.\-]+)/([\w.\-]+?)(?:\.git)?/?", (url or "").strip())
     if gm:  # exacte laatste commit opvragen: een bestand op commit-adres kan nooit verouderd uit de cache komen
-        try:
-            req = urllib.request.Request(f"https://api.github.com/repos/{gm.group(1)}/{gm.group(2)}/commits/HEAD",
-                                         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github.sha"})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                sha = r.read(100).decode("ascii", "replace").strip()
-            if re.fullmatch(r"[0-9a-f]{40}", sha):
-                cands.insert(0, f"https://raw.githubusercontent.com/{gm.group(1)}/{gm.group(2)}/{sha}/mc_server_manager.py")
-        except Exception:
-            pass  # bijvoorbeeld API-limiet: dan de gewone adressen proberen
+        sha = github_head_sha(gm.group(1), gm.group(2))
+        if sha:
+            cands.insert(0, f"https://raw.githubusercontent.com/{gm.group(1)}/{gm.group(2)}/{sha}/mc_server_manager.py")
     last = None
     for cand in cands:
         try:
@@ -4690,7 +4731,7 @@ class App(tk.Tk):
 
     def _selfupd_focus(self, _e=None):
         """Als je het venster weer actief maakt (en de laatste controle > 1 minuut geleden is) meteen even kijken."""
-        if (_e is None or _e.widget is self) and time.time() - getattr(self, "_upd_last", 0) > 60 \
+        if (_e is None or _e.widget is self) and time.time() - getattr(self, "_upd_last", 0) > 300 \
                 and self.cfg.get("selfupdate_check", True) and (self.cfg.get("update_url") or "").strip():
             self.selfupdate_check()
 
