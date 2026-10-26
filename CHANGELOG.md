@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.18.1
+- Plugins die up-to-date zijn tonen overal gewoon "Up-to-date" (zonder toelichting).
+
 ## 2.18
 - De telefoon-webapp heeft nu dezelfde functies als het programma op Windows: Server (grafieken, console, spelers kicken/bannen/op/gamemode, RAM), Plugins (aan/uit/verwijderen, zoeken en installeren), Updates (Paper, plugins, programma), Kaart (inzoomen en slepen, spelers live, gebied kiezen en Chunky starten/pauzeren/stoppen met voortgang en reden van pauze), Beheer (spelersstatistieken, tuning, wereldgrootte, logs opruimen) en Meer (bereikbaarheid, instellingen, logboek).
 - Vensters op de pc die door een opdracht van je telefoon verschijnen, worden automatisch beantwoord (kort tijdvenster), zodat de pc niet blijft wachten.

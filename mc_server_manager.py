@@ -52,12 +52,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.18"
+APP_VERSION = "2.18.1"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.18.1 - Plugins die up-to-date zijn tonen overal gewoon "Up-to-date".
 2.18 - Telefoon-app heeft nu alle functies: server, plugins (zoeken/installeren), updates, kaart met gebied genereren, beheer, bereikbaarheid en instellingen.
 2.17 - Updates kunnen zonder herstart worden toegepast als het programma dat veilig vindt; de server blijft dan draaien.
 2.16.1 - Chunky pauzeert zodra er een speler online komt (met reden op de kaart) en hervat als de server leeg is.
@@ -7946,7 +7947,7 @@ class App(tk.Tk):
                     self.log(f"{name}: update via GeyserMC, {why}.")
                 elif st == "ok":
                     r["state"] = "ok"
-                    self.row(fn, name, cur or "?", latest_txt, src, f"✔ Up-to-date ({why})", "ok")
+                    self.row(fn, name, cur or "?", latest_txt, src, "✔ Up-to-date", "ok")
                 else:
                     r["state"] = "unknown"
                     self.row(fn, name, cur or "?", latest_txt, src, f"Geen bewijs voor nieuwere build ({why})",
