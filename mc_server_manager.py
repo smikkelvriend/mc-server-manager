@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.7"
+APP_VERSION = "2.8.8"
 
 CHANGELOG = """
+2.8.8 - Kaart begint gecentreerd op de spawn in plaats van op 0,0.
 2.8.7 - Kaart-diagnose: toont de reden waarom een chunk niet getekend kan worden en de gebruikte wereldmap.
 2.8.6 - Kaart laadt veel sneller bij het opstarten (bewaarde kaart als PNG).
 2.8.5 - Kaart: in- en uitzoomen zonder haperen (zoomniveaus worden alvast voorbereid).
@@ -2911,6 +2912,7 @@ class MapTab(ttk.Frame):
         self.follow_var = tk.BooleanVar(value=False)
         self.status_var, self.coord_var = tk.StringVar(), tk.StringVar()
         self._build()
+        self._init_center()
         self.after(100, self._pump)
         self.after(1500, self._bg_loop)  # kaart meteen uit de opslag tonen en stil bijwerken, ook als het tabblad dicht is
 
@@ -3089,6 +3091,20 @@ class MapTab(ttk.Frame):
             self.dirty = True
 
     # ---------- terrein inlezen ----------
+    def _init_center(self):
+        """De kaart begint op de spawn van de wereld (waar spelers standaard beginnen) en niet op 0,0."""
+        try:
+            folder = self.app.folder_var.get().strip()
+            if folder and os.path.isdir(folder):
+                w = find_world_dirs(folder)
+                self.winfo_ = read_world_info(w["_level"])
+                sp = self.winfo_.get("spawn")
+                if sp:
+                    self.cx, self.cz = float(sp[0]), float(sp[1])
+                    self._fit_done = False
+        except Exception:
+            pass
+
     def _bg_loop(self):
         try:
             if not self.scanning:
@@ -3178,6 +3194,11 @@ class MapTab(ttk.Frame):
             self.fit_players()
         elif "spawn" in self.winfo_:
             self.cx, self.cz = float(self.winfo_["spawn"][0]), float(self.winfo_["spawn"][1])
+        else:  # spawn onbekend: midden van wat er getekend is
+            ks = [k for k in self.base if k[0] == self.dim]
+            if ks:
+                self.cx = sum(k[1] * 512 + 256 for k in ks) / len(ks)
+                self.cz = sum(k[2] * 512 + 256 for k in ks) / len(ks)
         self.dirty = True
 
     def _pump(self):

@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.8
+- Kaart begint nu gecentreerd op de spawn van je wereld (met de wereld uit level.dat) in plaats van op 0,0. Is de spawn onbekend, dan het midden van het getekende gebied.
+
 ## 2.8.7
 - Kaart-diagnose: bij het aanwijzen van een regio zie je nu de reden waarom chunks niet getekend worden (bijv. oud wereldformaat) en welke wereldmap gebruikt wordt.
 
