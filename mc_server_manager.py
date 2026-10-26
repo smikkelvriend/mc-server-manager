@@ -11,6 +11,7 @@ Optioneel: "pip install psutil" voor CPU- en geheugenstatistieken van de server.
 Bouwen naar .exe:  pyinstaller --onefile --windowed --name MCServerManager mc_server_manager.py
 """
 
+import ast
 import gzip
 import hashlib
 import hmac
@@ -32,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -50,9 +52,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.16"
+APP_VERSION = "2.17"
+# Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
+# opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
+HOT_SAFE = False
 
 CHANGELOG = """
+2.16.1 - Chunky pauzeert zodra er een speler online komt (met reden op de kaart) en hervat als de server leeg is.
 2.16 - Telefoon: bedien je server op afstand via een webpagina/app met wachtwoord (tabblad Beheer, Telefoon).
 2.15 - Donker thema (Instellingen -> Gedrag).
 2.14.1 - Kaart werkt ook als de server uit staat: gebruikt de opgeslagen tegels van squaremap.
@@ -177,6 +183,7 @@ DEFAULTS = {
     "squaremap_url": "http://localhost:8080",
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
+    "chunky_autopause": True, "chunky_autoresume": True,
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
@@ -1271,6 +1278,128 @@ def install_update_file(script, text, backup_dir, cur_version, keep=5):
     os.replace(tmp, script)
     prune_files(backup_dir, keep)
     return bak
+
+
+# --------------------------------------------------------------------------
+# Updates zonder herstart (hot reload)
+# --------------------------------------------------------------------------
+HOT_FRESH = {"SettingsDialog"}                 # vensters die bij elk openen opnieuw gebouwd worden
+HOT_BUILD = ("__init__", "_build", "_style")   # onderdelen die de indeling opbouwen: wijziging = herstart nodig
+
+
+def _top_info(tree):
+    """Geeft (klassen, functies, losse toewijzingen, overige regels) van een module-AST."""
+    classes, funcs, assigns, other = {}, {}, {}, []
+    for n in tree.body:
+        if isinstance(n, ast.ClassDef):
+            classes[n.name] = n
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs[n.name] = n
+        elif isinstance(n, ast.Assign) and all(isinstance(t, ast.Name) for t in n.targets):
+            for t in n.targets:
+                assigns[t.id] = ast.dump(n.value)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)) or (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)):
+            continue
+        else:
+            other.append(ast.dump(n))
+    return classes, funcs, assigns, other
+
+
+def hot_check(old_src, new_src):
+    """Kan de nieuwe versie zonder herstart worden toegepast? Geeft (ok, reden)."""
+    try:
+        a, b = ast.parse(old_src), ast.parse(new_src)
+    except SyntaxError as e:
+        return False, f"onleesbaar bestand ({e})"
+    flag = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "HOT_SAFE" for t in n.targets)
+               and isinstance(n.value, ast.Constant) and n.value.value is True for n in b.body)
+    if not flag:
+        return False, "deze versie is niet als veilig voor direct toepassen gemarkeerd"
+    ca, fa, aa, oa = _top_info(a)
+    cb, fb, ab, ob = _top_info(b)
+    if sorted(oa) != sorted(ob):
+        return False, "de opstartcode van het programma is veranderd"
+    for name, node in cb.items():
+        old = ca.get(name)
+        if old is None:
+            continue
+        if [ast.dump(x) for x in old.bases] != [ast.dump(x) for x in node.bases]:
+            return False, f"{name} heeft een andere basis"
+        if name in HOT_FRESH:
+            continue
+        om = {m.name: ast.dump(m) for m in old.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for m in node.body:
+            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name.startswith(HOT_BUILD):
+                if om.get(m.name) != ast.dump(m):
+                    return False, f"de opbouw van het venster ({name}.{m.name}) is veranderd"
+    return True, ""
+
+
+def _patch_fn(old, new):
+    try:
+        if len(old.__code__.co_freevars) != len(new.__code__.co_freevars):
+            return False
+        old.__code__ = new.__code__
+        old.__defaults__ = new.__defaults__
+        old.__kwdefaults__ = new.__kwdefaults__
+        old.__doc__ = new.__doc__
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _patch_class(old, new):
+    stale = 0
+    for k, v in list(new.__dict__.items()):
+        if k in ("__dict__", "__weakref__", "__module__", "__qualname__", "__doc__"):
+            continue
+        ov = old.__dict__.get(k)
+        if isinstance(v, types.FunctionType) and isinstance(ov, types.FunctionType):
+            if not _patch_fn(ov, v):
+                setattr(old, k, v)
+                stale += 1
+        elif isinstance(v, (staticmethod, classmethod)) and isinstance(ov, type(v)):
+            if not _patch_fn(ov.__func__, v.__func__):
+                setattr(old, k, v)
+                stale += 1
+        else:
+            setattr(old, k, v)
+    return stale
+
+
+def hot_apply(new_src, old_src):
+    """Laadt de nieuwe code in het draaiende programma: bestaande functies krijgen de nieuwe code (knoppen en timers
+    gebruiken die meteen), nieuwe functies en klassen worden toegevoegd. Geeft het aantal functies dat pas bij een herstart
+    verandert."""
+    d = sys.modules[__name__].__dict__
+    code = compile(new_src, os.path.abspath(__file__), "exec")
+    ta, tb = ast.parse(old_src), ast.parse(new_src)
+    changed = {k for k, v in _top_info(tb)[2].items() if _top_info(ta)[2].get(k) != v}
+    snap = dict(d)
+    name = d["__name__"]
+    d["__name__"] = "mcm_hot"               # voorkomt dat het hoofdprogramma nog eens start
+    try:
+        exec(code, d)
+    except BaseException:
+        d.clear()
+        d.update(snap)
+        raise
+    finally:
+        d["__name__"] = name
+    stale = 0
+    for k in [k for k in d if k not in snap or d[k] is not snap[k]]:
+        newv, oldv = d[k], snap.get(k)
+        if isinstance(newv, types.FunctionType) and isinstance(oldv, types.FunctionType):
+            if _patch_fn(oldv, newv):
+                d[k] = oldv
+            else:
+                stale += 1
+        elif isinstance(newv, type) and isinstance(oldv, type):
+            stale += _patch_class(oldv, newv)
+            d[k] = oldv
+        elif k in snap and k not in changed and not k.startswith("__"):
+            d[k] = oldv                      # toestand van het programma blijft zoals hij was
+    return stale
 
 
 GRAPH_CHOICES = (1, 5, 15, 30, 60, 180)
@@ -2875,6 +3004,8 @@ class MapTab(ttk.Frame):
         self.sel_mode, self.sel, self._selstart, self._seltmp = False, None, None, None
         self.gen = {"state": "idle"}          # idle | ready | running | paused | rendering | done
         self.autorender_var = tk.BooleanVar(value=True)
+        self.autopause_var = tk.BooleanVar(value=bool(app.cfg.get("chunky_autopause", True)))
+        self.autoresume_var = tk.BooleanVar(value=bool(app.cfg.get("chunky_autoresume", True)))
         self._fast_until = 0.0
         self._build()
 
@@ -3445,13 +3576,50 @@ class MapTab(ttk.Frame):
                                        bg="#111827", fg="#d1d5db", selectcolor="#111827", activebackground="#111827",
                                        activeforeground="white", font=("Segoe UI", 9))
         self.gen_auto.pack(anchor="w", pady=(6, 0))
+        row = tk.Frame(f, bg="#111827")
+        row.pack(anchor="w", fill="x")
+        for var, text, key in ((self.autopause_var, "Pauzeer zodra er een speler online komt", "chunky_autopause"),
+                               (self.autoresume_var, "Hervat vanzelf als de server weer leeg is", "chunky_autoresume")):
+            tk.Checkbutton(row, text=text, variable=var, bg="#111827", fg="#d1d5db", selectcolor="#111827",
+                           activebackground="#111827", activeforeground="white", font=("Segoe UI", 9),
+                           command=lambda v=var, k=key: self._save_opt(k, v)).pack(side="left", padx=(0, 16))
+
+    def _save_opt(self, key, var):
+        self.app.cfg[key] = bool(var.get())
+        self.app._save_cfg()
+
+    def _gen_players(self):
+        """Namen van spelers die online zijn, zonder de namen die je bij Meldingen negeert (bijv. bots)."""
+        ign = {x.strip().lower() for x in str(self.app.cfg.get("notify_ignore", "")).split(",") if x.strip()}
+        return sorted(n for n in self.app.players if n.lower() not in ign)
+
+    def players_changed(self, who=None):
+        """Aangeroepen als iemand binnenkomt of weggaat: Chunky pauzeren of hervatten."""
+        g, app = self.gen, self.app
+        names = self._gen_players()
+        if g.get("state") == "running" and self.autopause_var.get() and names:
+            app.srv_send("chunky pause", echo=False)
+            g.update(state="paused", auto=True, reason=f"{who or names[0]} is online gekomen" if who else
+                     f"{', '.join(names[:3])} is online")
+            app.log(f"Chunky gepauzeerd: {g['reason']}.", "warn")
+            app.tab_beheer.notify("notify_chunky", "Chunky gepauzeerd", g["reason"])
+            self._gen_refresh_ui()
+            self._draw_overlay_only()
+        elif g.get("state") == "paused" and g.get("auto") and not names and self.autoresume_var.get():
+            app.srv_send("chunky continue", echo=False)
+            g.update(state="running", auto=False, reason="")
+            app.log("Chunky hervat: de server is weer leeg.", "ok")
+            self._gen_refresh_ui()
+            self._draw_overlay_only()
+        elif g.get("state") == "waiting" and not names:
+            self._gen_start_cmds()
 
     def gen_show(self):
         if not self.gen_fr.winfo_ismapped():
             self.gen_fr.pack(fill="x", before=self.coord_lbl, pady=(6, 0))
 
     def gen_hide(self):
-        if self.gen["state"] in ("running", "paused"):
+        if self.gen["state"] in ("running", "paused", "waiting"):
             self.status_var.set("Er loopt nog een taak: stop of pauzeer die eerst")
             return
         self.gen = {"state": "idle"}
@@ -3460,7 +3628,7 @@ class MapTab(ttk.Frame):
         self._draw_overlay_only()
 
     def toggle_sel(self, on=None):
-        if self.gen["state"] in ("running", "paused", "rendering"):
+        if self.gen["state"] in ("running", "paused", "rendering", "waiting"):
             self.status_var.set("Er loopt al een taak")
             return
         self.sel_mode = (not self.sel_mode) if on is None else on
@@ -3543,8 +3711,18 @@ class MapTab(ttk.Frame):
             self.gen_stop.pack(side="right", padx=(6, 0))
             self.gen_stop.config(text="✕  Ander gebied", command=lambda: (self.gen_hide(), self.toggle_sel(True)))
             self.gen_start.pack(side="right", padx=(6, 0))
+        elif st == "waiting":
+            self.gen_title.config(text="⏳  Wacht tot de server leeg is  •  " + size)
+            self.gen_info.config(text="Chunky start zodra alle spelers weg zijn")
+            self.gen_stop.config(text="✕  Annuleren", command=self.gen_cancel)
+            self.gen_stop.pack(side="right", padx=(6, 0))
         elif st in ("running", "paused"):
-            self.gen_title.config(text=("Chunks genereren" if st == "running" else "⏸  Gepauzeerd") + "  •  " + size)
+            if st == "paused" and g.get("reason"):
+                self.gen_title.config(text="⏸  Gepauzeerd: " + g["reason"])
+                self.gen_info.config(text="Hervat vanzelf als de server weer leeg is" if self.autoresume_var.get() and g.get("auto")
+                                     else "Klik op Hervat om verder te gaan")
+            else:
+                self.gen_title.config(text=("Chunks genereren" if st == "running" else "⏸  Gepauzeerd") + "  •  " + size)
             self.gen_stop.config(text="■  Stop", command=self.gen_cancel)
             self.gen_stop.pack(side="right", padx=(6, 0))
             self.gen_pause.config(text="⏸  Pauze" if st == "running" else "▶  Hervat")
@@ -3570,7 +3748,19 @@ class MapTab(ttk.Frame):
             return
         a = self.gen["area"]
         w = self._bukkit_world()
-        self.gen.update(state="running", bworld=w, t0=time.time(), pct=0.0, done=0)
+        if self.autopause_var.get() and self._gen_players():
+            self.gen.update(state="waiting", bworld=w, reason="", auto=False)
+            app.log("Chunky wacht tot de server leeg is (er zijn spelers online).", "info")
+            self._gen_refresh_ui()
+            self._draw_overlay_only()
+            return
+        self._gen_start_cmds()
+
+    def _gen_start_cmds(self):
+        app = self.app
+        a = self.gen["area"]
+        w = self.gen.get("bworld") or self._bukkit_world()
+        self.gen.update(state="running", bworld=w, t0=time.time(), pct=0.0, done=0, reason="", auto=False)
         for c in (f"chunky world {w}", "chunky shape rectangle", f"chunky corners {a[0]} {a[1]} {a[2]} {a[3]}",
                   "chunky quiet 2", "chunky start"):
             app.srv_send(c, echo=False)
@@ -3587,11 +3777,15 @@ class MapTab(ttk.Frame):
             self.gen["state"] = "paused"
         elif st == "paused":
             self.app.srv_send("chunky continue", echo=False)
-            self.gen["state"] = "running"
+            self.gen.update(state="running", reason="", auto=False)
         self._gen_refresh_ui()
         self._draw_overlay_only()
 
     def gen_cancel(self):
+        if self.gen["state"] == "waiting":
+            self.gen = {"state": "ready", "world": self.gen.get("world"), "area": self.gen.get("area"), "chunks": self.gen.get("chunks")}
+            self._gen_refresh_ui()
+            return
         if self.gen["state"] in ("running", "paused"):
             self.app.srv_send("chunky cancel", echo=False)
             self.gen = {"state": "ready", "world": self.gen.get("world"), "area": self.gen.get("area"), "chunks": self.gen.get("chunks")}
@@ -4702,6 +4896,11 @@ class App(tk.Tk):
         self.minsize(980, 700)
         self.q = queue.Queue()
         self.cfg = {**DEFAULTS, **load_config()}
+        try:
+            with open(os.path.abspath(__file__), encoding="utf-8") as fh:
+                self._src = fh.read()          # de code die nu draait, om een update mee te vergelijken
+        except OSError:
+            self._src = None
         if self.cfg.get("dark_mode"):
             install_dark(self)
         if self.cfg.get("startup_keep") == OLD_KEEP_V2:  # oude standaardlijst -> nieuwe standaardlijst
@@ -5791,12 +5990,14 @@ class App(tk.Tk):
             self.players.setdefault(jm.group(1), now)
             self._add_name(jm.group(1))
             self._refresh_players()
+            self.tab_map.players_changed(jm.group(1))
         lv = LEAVE_RE.match(msg)
         if lv:
             self.tab_beheer.event("leave", lv.group(1))
             self.tab_beheer.notify("notify_leave", "Speler weg", f"{lv.group(1)} heeft de server verlaten.", lv.group(1))
             self.players.pop(lv.group(1), None)
             self._refresh_players()
+            self.tab_map.players_changed()
         if DONE_RE.search(msg) and self.srv_state == "starting":
             self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
@@ -6511,7 +6712,8 @@ class App(tk.Tk):
                 messagebox.showinfo(APP_NAME, f"Je hebt de nieuwste versie ({APP_VERSION}).")
             return
         self._upd = info
-        self.btn_selfupd.config(text=f"⬆  Update {info['version']}")
+        self._upd_hot = self._hot_ok(info)
+        self.btn_selfupd.config(text=f"⬆  Update {info['version']}" + ("  (zonder herstart)" if self._upd_hot else ""))
         self.btn_selfupd.pack(side="right", padx=(0, 6), pady=10)
         self.log(f"Nieuwe versie van het programma beschikbaar: {info['version']} (jij hebt {APP_VERSION}).", "warn")
         if getattr(self, "_upd_notified", None) != info["version"]:
@@ -6522,14 +6724,29 @@ class App(tk.Tk):
         elif manual or self._upd_prompted != info["version"]:
             self._selfupd_ask()
 
+    def _hot_ok(self, info):
+        """Kan deze update zonder herstart? (alleen als het .py-bestand draait en de code-vergelijking dat toestaat)"""
+        if getattr(sys, "frozen", False) or not getattr(self, "_src", None):
+            return False
+        try:
+            ok, why = hot_check(self._src, info["text"])
+        except Exception as e:  # noqa
+            ok, why = False, str(e)
+        self._hot_why = why
+        return ok
+
     def _selfupd_ask(self):
         info = self._upd
         if not info:
             return
         self._upd_prompted = info["version"]
         notes = changelog_since(info["text"], APP_VERSION)
+        hot = getattr(self, "_upd_hot", False)
+        tail = ("Deze update kan direct worden toegepast, zonder herstart. De server blijft gewoon draaien.\n\n" if hot else
+                "Voor deze update moet het programma herstarten" + (f" ({getattr(self, '_hot_why', '')})" if getattr(self, "_hot_why", "") else "") +
+                ". De server wordt dan eerst veilig gestopt.\n\n" if self.srv_running() else "")
         if messagebox.askyesno(APP_NAME, f"Nieuwe versie {info['version']} beschikbaar (jij hebt {APP_VERSION}).\n\n"
-                                         + (notes + "\n\n" if notes else "") + "Nu installeren?"):
+                                         + (notes + "\n\n" if notes else "") + tail + "Nu installeren?"):
             self.selfupdate_install()
 
     def selfupdate_install(self):
@@ -6554,6 +6771,19 @@ class App(tk.Tk):
         self.log(f"Programma bijgewerkt naar versie {info['version']}. De vorige versie staat in {bak}", "ok")
         for ln in lines:
             self.log("Nieuw: " + ln.lstrip("• "), "info")
+        if getattr(self, "_upd_hot", False) and self._src:
+            try:
+                stale = hot_apply(info["text"], self._src)
+                self._src = info["text"]
+                self.title(f"{APP_NAME} {APP_VERSION}")
+                self.log(f"Versie {APP_VERSION} is direct toegepast, zonder herstart." + (
+                    f" ({stale} onderdelen werken pas na een herstart.)" if stale else ""), "ok")
+                messagebox.showinfo(APP_NAME, f"Versie {APP_VERSION} is toegepast, zonder herstart.\n\n"
+                                              + (f"Wat is er nieuw:\n{notes}\n\n" if notes else "")
+                                              + "De server is niet gestopt.")
+                return
+            except Exception as e:  # noqa
+                self.log(f"Direct toepassen mislukt ({e}); herstart het programma om de nieuwe versie te gebruiken.", "warn")
         if messagebox.askyesno(APP_NAME, f"Versie {info['version']} is geïnstalleerd.\n\n"
                                          + (f"Wat is er nieuw:\n{notes}\n\n" if notes else "") + "Nu herstarten om hem te gebruiken?"
                                          + ("\n(De server wordt eerst veilig gestopt.)" if self.srv_running() else "")):
@@ -7097,7 +7327,7 @@ class SettingsDialog(tk.Toplevel):
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
                      "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
-                     "remote_enabled", "remote_port", "remote_pass", "remote_lan_only"):
+                     "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))

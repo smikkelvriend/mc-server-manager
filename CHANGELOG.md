@@ -2,6 +2,14 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.17
+- Updates zonder herstart: het programma beoordeelt zelf of een update veilig live kan (code-vergelijking plus een vlag per release). Zo ja, dan staat er "(zonder herstart)" bij de updateknop en blijft de server gewoon draaien. Anders herstart het programma zoals voorheen.
+- Chunky pauzeert automatisch zodra er een speler online komt en hervat als iedereen weg is; de reden staat in het Kaart-tabblad (was 2.16.1).
+- Deze versie zelf vereist nog één herstart.
+
+## 2.16.1
+- **Chunky pauzeert bij spelers:** komt er een speler online, dan pauzeert het programma Chunky en toont op de kaart waarom ("Gepauzeerd: Floyd is online gekomen"). Is de server weer leeg, dan gaat Chunky vanzelf verder. Beide zijn uit te zetten onder het voortgangsbalkje. Namen bij Beheer → Meldingen → negeren (bijv. bots) tellen niet mee. Start je een gebied terwijl er spelers online zijn, dan wacht Chunky tot ze weg zijn.
+
 ## 2.16
 - **Telefoon-app:** in Beheer, tabblad Telefoon zet je een beveiligd webadres aan dat je op je Android opent (en als app-icoon op het startscherm zet): status, CPU/geheugen/TPS-grafieken, spelers, live console, commando's sturen en starten/stoppen/herstarten. Standaard uit, met wachtwoord, begrensd tot je eigen netwerk of VPN.
 
