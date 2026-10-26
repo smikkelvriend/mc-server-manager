@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.19
+- Tabblad Backups: Backuper-plugin beheren (instellingen uit config.yml met behoud van commentaar, backups bekijken en verwijderen, bestanden van de plugin, nu een backup maken) plus de backups en instellingen van dit programma zelf. Ook op de telefoon (Beheer).
+- Spelerskoppen bij alle spelerslijsten, op de kaart en op de telefoon. Java via mc-heads.net, Bedrock via de Geyser-skin-API. Zonder skin een eigen hoofdje. Opslag in de map heads.
+- Tab-aanvulling kent nu ook plugin-commando's (de server wordt na het opstarten stil om /help gevraagd) en leert van je eigen commando's.
+- Deze versie vereist een herstart.
+
 ## 2.18.1
 - Plugins die up-to-date zijn tonen overal gewoon "Up-to-date" (zonder toelichting).
 

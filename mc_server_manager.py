@@ -52,12 +52,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.18.1"
+APP_VERSION = "2.19"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
-HOT_SAFE = True
+HOT_SAFE = False
 
 CHANGELOG = """
+2.19 - Nieuw tabblad Backups (Backuper beheren), spelerskoppen (Java en Bedrock) in lijsten, kaart en telefoon, en Tab-aanvulling kent nu ook plugin-commando's.
 2.18.1 - Plugins die up-to-date zijn tonen overal gewoon "Up-to-date".
 2.18 - Telefoon-app heeft nu alle functies: server, plugins (zoeken/installeren), updates, kaart met gebied genereren, beheer, bereikbaarheid en instellingen.
 2.17 - Updates kunnen zonder herstart worden toegepast als het programma dat veilig vindt; de server blijft dan draaien.
@@ -187,6 +188,7 @@ DEFAULTS = {
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
     "chunky_autopause": True, "chunky_autoresume": True,
+    "cmd_history": [], "learned_cmds": [],
     "remote_enabled": False, "remote_port": 8765, "remote_pass": "", "remote_lan_only": True,
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
@@ -2116,11 +2118,12 @@ TAB_SUBS = {
     ("paper", 0): ["reload", "version", "heap", "dumpitem", "mobcaps", "entity", "chunk"],
     ("spark", 0): ["profiler", "tps", "healthreport", "gc", "heapsummary", "ping", "tickmonitor"],
     ("save-all", 0): ["flush"],
+    ("chunky", 0): ["start", "pause", "continue", "cancel", "progress", "world", "shape", "center", "radius", "corners", "spawn", "quiet", "silent", "worldborder", "selection", "trim", "confirm", "patterns", "reload", "help"],
 }
 PLM_PLUGIN_SUBS = {"load", "unload", "reload", "enable", "disable", "restart", "info", "lookup"}
 
 
-def complete_command(text, commands, players, plugins):
+def complete_command(text, commands, players, plugins, history=()):
     """Tab-aanvulling voor het commandoveld. Geeft alle volledige mogelijke vervangingen van de ingevoerde tekst."""
     slash = text.startswith("/")
     body = text[1:] if slash else text
@@ -2145,8 +2148,13 @@ def complete_command(text, commands, players, plugins):
             pool = players
         elif cmd in PLAYER_CMDS and idx == 0:
             pool = players
-        if pool is None:
-            pool = players
+        known = cmd in VANILLA_CMDS
+        if pool is None or (not known and cmd not in PLAYER_CMDS):
+            # onbekend (plugin)commando: woorden uit eerder gebruikte regels op dezelfde plek, anders spelers
+            pref = " ".join(parts[:-1]).lower()
+            hw = sorted({h.split(" ")[len(parts) - 1] for h in history if h.lower().startswith(pref + " " if pref else "")
+                         and len(h.split(" ")) >= len(parts)}, key=str.lower)
+            pool = list(hw) + (list(pool) if pool else []) if hw or pool else players
     low = last.lower()
     return [pre + c for c in sorted({c for c in pool if c.lower().startswith(low)}, key=str.lower)]
 
@@ -3048,6 +3056,8 @@ class MapTab(ttk.Frame):
         side.pack_propagate(False)
         ttk.Label(side, text="Spelers op de kaart", font=("Segoe UI", 10, "bold")).pack(anchor="w")
         self.tree = ttk.Treeview(side, columns=("name", "pos"), show="headings", height=12, selectmode="browse")
+        self.app.heads.watch_tree(self.tree, lambda iid: iid)
+        self.app.heads.on_change.append(lambda: self._draw_overlay_only() if self.visible else None)
         self.tree.heading("name", text="Speler")
         self.tree.heading("pos", text="X  Y  Z")
         self.tree.column("name", width=95, anchor="w")
@@ -3494,9 +3504,14 @@ class MapTab(ttk.Frame):
             if "yaw" in p:
                 a = math.radians(p["yaw"])
                 cv.create_line(px, py, px - math.sin(a) * 18, py + math.cos(a) * 18, fill="white", width=3, arrow="last", tags="o")
-            cv.create_oval(px - 7, py - 7, px + 7, py + 7, fill=col, outline="white", width=2, tags="o")
+            hd = self.app.heads.photo(p.get("name", ""))
+            if hd is not None:
+                cv.create_rectangle(px - 14, py - 14, px + 14, py + 14, fill=col, outline="white", width=2, tags="o")
+                cv.create_image(px, py, image=hd, tags="o")
+            else:
+                cv.create_oval(px - 7, py - 7, px + 7, py + 7, fill=col, outline="white", width=2, tags="o")
             if self.names_var.get():
-                t = cv.create_text(px, py - 18, text=p.get("name", ""), fill="white", font=("Segoe UI", 9, "bold"), tags="o")
+                t = cv.create_text(px, py - 24, text=p.get("name", ""), fill="white", font=("Segoe UI", 9, "bold"), tags="o")
                 bb = cv.bbox(t)
                 r = cv.create_rectangle(bb[0] - 4, bb[1] - 1, bb[2] + 4, bb[3] + 1, fill="#111827", outline=col, tags="o")
                 cv.tag_lower(r, t)
@@ -3888,6 +3903,301 @@ def _png(w, h, rgb_rows):
             ch(b"IDAT", zlib.compress(raw, 6)) + ch(b"IEND", b""))
 
 
+# --------------------------------------------------------------------------
+# Spelerskoppen (Java en Bedrock)
+# --------------------------------------------------------------------------
+def png_decode(data):
+    """Leest een PNG (8 bit, niet-interlaced) en geeft (breedte, hoogte, rijen met (r,g,b,a)). Voor skins; zonder extra pakketten."""
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("geen PNG")
+    pos, idat, plte, hdr = 8, b"", None, None
+    while pos + 8 <= len(data):
+        n, typ = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if typ == b"IHDR":
+            hdr = struct.unpack(">IIBBBBB", body)
+        elif typ == b"PLTE":
+            plte = body
+        elif typ == b"IDAT":
+            idat += body
+        pos += 12 + n
+    if not hdr:
+        raise ValueError("geen header")
+    w, h, depth, ct, _c, _f, inter = hdr
+    if depth != 8 or inter != 0 or ct not in (2, 3, 6):
+        raise ValueError("PNG-soort niet ondersteund")
+    bpp = {2: 3, 3: 1, 6: 4}[ct]
+    raw = zlib.decompress(idat)
+    stride = w * bpp
+    rows, prev = [], bytearray(stride)
+    for y in range(h):
+        off = y * (stride + 1)
+        ft, line = raw[off], bytearray(raw[off + 1:off + 1 + stride])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b = prev[i]
+            c = prev[i - bpp] if i >= bpp else 0
+            if ft == 1:
+                line[i] = (line[i] + a) & 255
+            elif ft == 2:
+                line[i] = (line[i] + b) & 255
+            elif ft == 3:
+                line[i] = (line[i] + ((a + b) >> 1)) & 255
+            elif ft == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else (b if pb <= pc else c))) & 255
+        rows.append(bytes(line))
+        prev = line
+    out = []
+    for r in rows:
+        px = []
+        for x in range(w):
+            if ct == 6:
+                px.append(tuple(r[x * 4:x * 4 + 4]))
+            elif ct == 2:
+                px.append((r[x * 3], r[x * 3 + 1], r[x * 3 + 2], 255))
+            else:
+                i = r[x] * 3
+                px.append((plte[i], plte[i + 1], plte[i + 2], 255))
+        out.append(px)
+    return w, h, out
+
+
+def head_from_skin(skin_png, scale=6):
+    """Knipt het gezicht (met hoed-laag) uit een skin en maakt er een PNG van (8 x 8 pixels, vergroot)."""
+    w, h, px = png_decode(skin_png)
+    if w < 48 or h < 16:
+        raise ValueError("skin te klein")
+    rows = []
+    for y in range(8):
+        row = []
+        for x in range(8):
+            r, g, b, a = px[8 + y][8 + x]
+            hr, hg, hb, ha = px[8 + y][40 + x]
+            if ha:
+                f = ha / 255.0
+                r, g, b = round(hr * f + r * (1 - f)), round(hg * f + g * (1 - f)), round(hb * f + b * (1 - f))
+            row.append((r, g, b))
+        rows.append(row)
+    return _png(8 * scale, 8 * scale, [b"".join(bytes(p) * scale for p in row) for row in rows for _ in range(scale)])
+
+
+def head_placeholder(name, scale=6):
+    """Eigen simpel hoofdje (huidkleur van de naam, haar en ogen) voor als de skin niet op te halen is."""
+    hh = zlib.crc32(name.lower().encode("utf-8", "replace"))
+    skin = [(224, 172, 130), (198, 134, 96), (240, 200, 170), (160, 104, 72)][hh & 3]
+    hair = [(60, 40, 25), (30, 30, 30), (150, 100, 40), (200, 170, 70), (120, 60, 30)][(hh >> 2) % 5]
+    eye, mouth = (255, 255, 255), (150, 80, 70)
+    grid = []
+    for y in range(8):
+        row = []
+        for x in range(8):
+            c = skin
+            if y < 2 or (y == 2 and x in (0, 1, 6, 7)):
+                c = hair
+            elif y == 4 and x in (1, 2, 5, 6):
+                c = eye if x in (1, 6) else (50, 70, 160)
+            elif y == 6 and 2 <= x <= 5:
+                c = mouth
+            row.append(c)
+        grid.append(row)
+    return _png(8 * scale, 8 * scale, [b"".join(bytes(p) * scale for p in row) for row in grid for _ in range(scale)])
+
+
+def floodgate_prefix(folder):
+    try:
+        with open(os.path.join(folder, "plugins", "floodgate", "config.yml"), encoding="utf-8") as fh:
+            m = re.search(r"^username-prefix:\s*[\"']?([^\"'\n#]*)", fh.read(), re.M)
+            if m:
+                return m.group(1).strip()
+    except OSError:
+        pass
+    return "."
+
+
+def _http_bytes(url, timeout=8, limit=400000):
+    rq = urllib.request.Request(url, headers={"User-Agent": "MC-Server-Manager"})
+    with urllib.request.urlopen(rq, timeout=timeout) as r:
+        return r.read(limit)
+
+
+def fetch_head(name, bedrock, prefix):
+    """Haalt de kop van een speler op. Java: via mc-heads.net. Bedrock: skin via de Geyser-API (xuid) en dan zelf uitknippen."""
+    q = urllib.parse.quote
+    if not bedrock:
+        data = _http_bytes(f"https://mc-heads.net/avatar/{q(name)}/48")
+        if data[:8] != b"\x89PNG\r\n\x1a\n":
+            raise ValueError("geen afbeelding")
+        return data
+    gt = name[len(prefix):] if prefix and name.startswith(prefix) else name
+    last = None
+    for cand in dict.fromkeys((gt, gt.replace("_", " "))):
+        try:
+            xu = json.loads(_http_bytes(f"https://api.geysermc.org/v2/xbox/xuid/{q(cand)}").decode("utf-8")).get("xuid")
+            if not xu:
+                continue
+            sk = json.loads(_http_bytes(f"https://api.geysermc.org/v2/skin/{xu}").decode("utf-8"))
+            tid = sk.get("texture_id")
+            if not tid and sk.get("value"):
+                tex = json.loads(base64.b64decode(sk["value"]).decode("utf-8"))
+                url = tex["textures"]["SKIN"]["url"]
+            else:
+                url = f"https://textures.minecraft.net/texture/{tid}"
+            return head_from_skin(_http_bytes(url))
+        except Exception as e:  # noqa
+            last = e
+    raise ValueError(f"skin niet gevonden ({last})")
+
+
+class Heads:
+    """Haalt spelerskoppen op (met opslag op schijf), toont ze in lijsten en op de kaart en levert ze aan de telefoon."""
+    SIZE = 24
+
+    def __init__(self, app):
+        self.app = app
+        self.dir = os.path.join(app_dir(), "heads")
+        self.png, self.img, self.pending, self.watch = {}, {}, set(), []
+        self.q = queue.Queue()
+        self.on_change = []
+        self.lock = threading.Lock()
+
+    def _key(self, name):
+        return name.lower()
+
+    def _file(self, name, ext):
+        return os.path.join(self.dir, hashlib.sha1(self._key(name).encode("utf-8")).hexdigest()[:16] + ext)
+
+    def is_bedrock(self, name, typ=""):
+        if typ:
+            return typ.lower().startswith("bed")
+        pre = floodgate_prefix(self.app.folder_var.get().strip()) if hasattr(self.app, "folder_var") else "."
+        return bool(pre) and name.startswith(pre)
+
+    def _load_disk(self, name):
+        try:
+            p = self._file(name, ".png")
+            if os.path.isfile(p) and time.time() - os.path.getmtime(p) < 7 * 86400:
+                with open(p, "rb") as fh:
+                    d = fh.read()
+                self.png[self._key(name)] = d
+                return d
+        except OSError:
+            pass
+        return None
+
+    def _miss_recent(self, name):
+        try:
+            return time.time() - os.path.getmtime(self._file(name, ".miss")) < 3600
+        except OSError:
+            return False
+
+    def _fetch(self, name, bedrock):
+        d = None
+        try:
+            d = fetch_head(name, bedrock, floodgate_prefix(self.app.folder_var.get().strip()) if hasattr(self.app, "folder_var") else ".")
+            os.makedirs(self.dir, exist_ok=True)
+            with open(self._file(name, ".png"), "wb") as fh:
+                fh.write(d)
+        except Exception:
+            d = None
+            try:
+                os.makedirs(self.dir, exist_ok=True)
+                open(self._file(name, ".miss"), "w").close()
+            except OSError:
+                pass
+        return d
+
+    def request(self, name, typ=""):
+        k = self._key(name)
+        if not name or k in self.png or k in self.pending:
+            return
+        if self._load_disk(name) is not None or self._miss_recent(name):
+            return
+        self.pending.add(k)
+        bed = self.is_bedrock(name, typ)
+
+        def work():
+            d = self._fetch(name, bed)
+            self.q.put((k, d))
+        threading.Thread(target=work, daemon=True).start()
+
+    def png_bytes(self, name, typ=""):
+        """Voor de telefoon (aanroep vanuit een andere thread): PNG-bytes, desnoods het eigen hoofdje."""
+        k = self._key(name)
+        d = self.png.get(k) or self._load_disk(name)
+        if d is None and not self._miss_recent(name):
+            d = self._fetch(name, self.is_bedrock(name, typ))
+            if d:
+                self.png[k] = d
+        return d or head_placeholder(name)
+
+    def photo(self, name, typ=""):
+        """Hoofdje als afbeelding voor Tk (alleen hoofdthread). Zolang de skin er niet is: een eigen hoofdje."""
+        k = self._key(name)
+        self.request(name, typ)
+        d = self.png.get(k)
+        key = (k, bool(d))
+        im = self.img.get(key)
+        if im is None:
+            try:
+                im = tk.PhotoImage(data=base64.b64encode(d or head_placeholder(name)).decode("ascii"))
+                f = max(1, im.width() // self.SIZE)
+                if f > 1:
+                    im = im.subsample(f, f)
+            except tk.TclError:
+                return None
+            self.img[key] = im
+        return im
+
+    def pump(self):
+        changed = False
+        while True:
+            try:
+                k, d = self.q.get_nowait()
+            except queue.Empty:
+                break
+            self.pending.discard(k)
+            if d:
+                self.png[k] = d
+                for key in [x for x in self.img if x[0] == k]:
+                    self.img.pop(key, None)
+                changed = True
+        if changed:
+            self.sync()
+            for fn in self.on_change:
+                try:
+                    fn()
+                except Exception:
+                    pass
+
+    def watch_tree(self, tree, namefn, typfn=None):
+        """Zet bij elke rij van de lijst het hoofdje van de speler (de rij moet als naam dienen of namefn(iid) geven)."""
+        tree.configure(show="tree headings", style="Heads.Treeview")
+        tree.column("#0", width=40, minwidth=40, stretch=False, anchor="center")
+        tree.heading("#0", text="")
+        self.watch.append((tree, namefn, typfn))
+
+    def sync(self):
+        for ent in list(self.watch):
+            tree, namefn, typfn = ent
+            try:
+                if not tree.winfo_exists():
+                    self.watch.remove(ent)
+                    continue
+                if not tree.winfo_ismapped():
+                    continue
+                for iid in tree.get_children():
+                    nm = namefn(iid)
+                    if not nm:
+                        continue
+                    im = self.photo(nm, typfn(iid) if typfn else "")
+                    if im is not None and str(im) not in (tree.item(iid, "image") or ()):
+                        tree.item(iid, image=im)
+            except tk.TclError:
+                pass
+
+
 def app_icon_png(size=192):
     """Eenvoudig app-icoon (grasblok) zonder afbeeldingsbestand."""
     g = ["GGGGGGGGGGGGGGGG", "GGgGGGGGgGGGGgGG", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGgGGGG", "DDDDDDDDDDDDDDDD", "DdDDDDdDDDDdDDDD",
@@ -3932,6 +4242,7 @@ form,.f{display:flex;gap:8px;margin-top:8px}form input,.f input{flex:1}canvas.sp
 .li b{display:block;overflow:hidden;text-overflow:ellipsis}.li small{color:var(--m);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:11px;border-radius:6px;padding:1px 6px;background:var(--b);margin-left:6px;font-weight:400}
 .bar{height:10px;background:var(--in);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--g);transition:width .5s}
+.hd{width:22px;height:22px;image-rendering:pixelated;border-radius:4px;vertical-align:middle;margin-right:7px;background:#0b1220}
 .hide{display:none!important}#login{max-width:340px;margin:20vh auto;padding:16px}#login input{width:100%;margin:10px 0}
 #toast{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));background:#475569;padding:12px;border-radius:12px;display:none;z-index:9;box-shadow:0 4px 20px #0008}
 #dlg{position:fixed;inset:0;background:#000a;z-index:20;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:420px;width:100%;white-space:pre-wrap}
@@ -3945,6 +4256,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 <nav id="nav"></nav></div><div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
 <script>
 const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=localStorage.getItem('tab')||'srv',LOG=[],cur={};
+const hd=(n,t)=>'/head/'+encodeURIComponent(n)+'?t='+encodeURIComponent(t||'');
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 function toast(t,ms=4000){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
 function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';
@@ -3980,7 +4292,7 @@ function spark(id,d,col){const c=$(id);if(!c)return;const x=c.getContext('2d');c
  x.strokeStyle=col;x.lineWidth=3;x.lineJoin='round';x.beginPath();d.forEach((v,i)=>{const X=i/(d.length-1)*c.width,Y=c.height-(v-lo)/(hi-lo)*(c.height-8)-4;i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
 function draw(){const j=S;if(!j.stats||!$('cpu'))return;$('cpu').textContent=j.stats.cpu;$('ram').textContent=(j.stats.ram||'-').split(' / ')[0];$('tps').textContent=j.stats.tps;
  spark('g1',j.graphs.cpu,'#38bdf8');spark('g2',j.graphs.ram,'#a78bfa');spark('g3',j.graphs.tps,'#4ade80');
- $('pn').textContent=j.players.length;$('pl').innerHTML=j.players.length?j.players.map(p=>`<span class="chip" onclick="plDlg('${esc(p.name)}')">${esc(p.name)}${p.type?` <span class="mut" style="font-size:11px">${esc(p.type)}</span>`:''}</span>`).join(''):'<span class="mut">niemand</span>';
+ $('pn').textContent=j.players.length;$('pl').innerHTML=j.players.length?j.players.map(p=>`<span class="chip" onclick="plDlg('${esc(p.name)}')"><img class="hd" src="${hd(p.name,p.type)}">${esc(p.name)}${p.type?` <span class="mut" style="font-size:11px">${esc(p.type)}</span>`:''}</span>`).join(''):'<span class="mut">niemand</span>';
  $('stline').textContent=[j.stats.temp&&j.stats.temp!='-'?'Temperatuur '+j.stats.temp:'',j.status].filter(Boolean).join('  •  ');
  const b=$('busy');b.classList.toggle('hide',!j.busy);if(j.busy){$('busytx').textContent=j.status||'Bezig…';const p=j.progress||[0,1,'determinate'];$('busybar').style.width=(p[2]=='indeterminate'?100:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
  if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
@@ -4074,8 +4386,10 @@ function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=c
  if(area){const [ax,ay]=c(area[0],area[1]),[bx,by]=c(area[2],area[3]);const col={running:'#22c55e',paused:'#f59e0b',rendering:'#38bdf8',done:'#22c55e'}[g.state]||'#c084fc';
   x.fillStyle=col+'33';x.strokeStyle=col;x.lineWidth=2;x.setLineDash([6,3]);x.fillRect(ax,ay,bx-ax,by-ay);x.strokeRect(ax,ay,bx-ax,by-ay);x.setLineDash([])}
  const sp=w.spawn;if(sp){const [a,b]=c(sp.x||0,sp.z||0);x.fillStyle='#fde047';x.font='bold 18px sans-serif';x.fillText('⌂',a-6,b+6)}
- for(const p of m.players){if(p.world!=w.name)continue;const [a,b]=c(p.x,p.z);x.fillStyle=pcol(p.name);x.strokeStyle='#fff';x.lineWidth=2;x.beginPath();x.arc(a,b,7,0,7);x.fill();x.stroke();
-  x.font='bold 12px sans-serif';const tw=x.measureText(p.name).width;x.fillStyle='#111827cc';x.fillRect(a-tw/2-4,b-27,tw+8,16);x.fillStyle='#fff';x.fillText(p.name,a-tw/2,b-15)}}
+ for(const p of m.players){if(p.world!=w.name)continue;const [a,b]=c(p.x,p.z);x.fillStyle=pcol(p.name);x.strokeStyle='#fff';x.lineWidth=2;const hi=headImg(m,p.name);
+  if(hi&&hi.ok){x.fillRect(a-14,b-14,28,28);x.strokeRect(a-14,b-14,28,28);x.imageSmoothingEnabled=false;x.drawImage(hi.img,a-12,b-12,24,24)}else{x.beginPath();x.arc(a,b,7,0,7);x.fill();x.stroke()}
+  x.font='bold 12px sans-serif';const tw=x.measureText(p.name).width;x.fillStyle='#111827cc';x.fillRect(a-tw/2-4,b-34,tw+8,16);x.fillStyle='#fff';x.fillText(p.name,a-tw/2,b-22)}}
+function headImg(m,n){m.heads=m.heads||{};let t=m.heads[n];if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.src=hd(n,'');m.heads[n]=t}return t}
 function pcol(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return['#ef4444','#3b82f6','#22c55e','#eab308','#a855f7','#f97316','#14b8a6','#ec4899'][h%8]}
 function genUI(){const m=cur.m,g=m.gen||{},e=$('mgen');if(!e)return;const st=g.state||'idle';e.classList.toggle('hide',st=='idle');if(st=='idle')return;
  const fmt=n=>Math.round(n||0).toLocaleString('nl'),a=g.area,size=a?`${a[2]-a[0]} × ${a[3]-a[1]} blokken (${fmt(g.chunks)} chunks)`:'';let t='',btn='';
@@ -4088,10 +4402,30 @@ async function genAct(a){await go('/map/gen',{action:a});mapLoad(false)}
 /* ---------- Beheer ---------- */
 V.beh=()=>{$('main').innerHTML=`<div class="card"><h3>Spelers <button class="sm" onclick="behP()">↻</button></h3><div id="bp" class="mut">Laden…</div></div>
 <div class="card"><h3>Server-tuning <button class="sm" onclick="behT()">↻</button></h3><div id="bt" class="mut">Laden…</div></div>
-<div class="card"><h3>Wereldgrootte <button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div>`;behP();behT();behW()};
+<div class="card"><h3>Wereldgrootte <button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div>
+<div class="card"><h3>Backups (Backuper) <button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>`;behP();behT();behW();behB()};
+const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const fb2=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
+async function behB(){const j=await go('/api/backuper');if(!j||!$('bb'))return;cur.bk=j;cur.bsel=new Set();
+ if(!j.jar){$('bb').innerHTML='Backuper staat niet in de plugins-map.';return}
+ const tot=j.backups.reduce((a,b)=>a+b.size,0);
+ $('bb').innerHTML=`<div>${esc(j.jar)}${j.disabled?' <span class="tag">uit</span>':''}</div><div class="mut" style="margin:4px 0">${j.backups.length} backups, ${fb2(tot)}${j.backups.length?' • laatste '+dt(j.backups[0].mtime):''}</div>
+ <div class="row" style="margin:8px 0"><button class="go sm" onclick="bkNow()">💾 Nu backup maken</button><button class="bad sm" onclick="bkDel()">Geselecteerde verwijderen</button></div>`+
+ j.backups.slice(0,40).map((b,i)=>`<label class="li"><input type="checkbox" onchange="this.checked?cur.bsel.add(${i}):cur.bsel.delete(${i})"><div><b>${esc(b.name)}</b><small>${esc(b.storage)} • ${dt(b.mtime)} • ${fb2(b.size)}</small></div></label>`).join('')+
+ (j.has_config?`<h3 style="margin-top:14px">Instellingen van Backuper</h3>`+bkForm(j)+`<div class="row" style="margin-top:8px"><button class="sm pri" onclick="bkSave(false)">Opslaan</button><button class="sm warn" onclick="bkSave(true)">Opslaan en herstarten</button></div>`:'<div class="mut">Nog geen config.yml: start de server één keer.</div>')+
+ `<h3 style="margin-top:14px">Backups van dit programma</h3>`+j.own.map(o=>`<div class="lab"><span>${esc(o.label)}</span><span class="mut" style="flex:none">${o.count} • ${fb2(o.size)}</span></div>`).join('')}
+const BKG={autoBackup:['bool','Automatisch backups maken'],autoBackupPeriod:['int','Interval (minuten)'],autoBackupCron:['str','Cron-planning']};
+const BKS={enabled:['bool','Opslag gebruiken'],autoBackup:['bool','Automatisch hierheen'],backupsFolder:['str','Map'],maxBackupsNumber:['int','Max. aantal (0 = onbeperkt)'],maxBackupsWeight:['int','Max. grootte in MB (0 = onbeperkt)'],zipArchive:['bool','Als zip bewaren'],zipCompressionLevel:['int','Zip-compressie (0-9)']};
+function bkRow(path,def,val){const id='bk|'+path.join('|');return def[0]=='bool'?`<label class="lab"><span>${def[1]}</span><input type="checkbox" data-k="${esc(id)}" data-t="bool" ${val?'checked':''}></label>`:`<label class="lab"><span>${def[1]}</span><input data-k="${esc(id)}" data-t="${def[0]}" value="${esc(val)}" ${def[0]=='int'?'inputmode="numeric"':''}></label>`}
+function bkForm(j){let h='<div class="mut" style="font-size:12px">Planning</div>';for(const k in BKG)if(k in j.global)h+=bkRow(['backup',k],BKG[k],j.global[k]);
+ for(const s of j.storages){h+=`<div class="mut" style="font-size:12px;margin-top:8px">Opslag ${esc(s.id)} (${esc(s.type||'?')})</div>`;for(const k in BKS)if(k in s)h+=bkRow(['storages',s.id,k],BKS[k],s[k])}return h}
+async function bkSave(restart){const changes=[];document.querySelectorAll('[data-k]').forEach(e=>{const path=e.dataset.k.split('|').slice(1);const v=e.dataset.t=='bool'?e.checked:e.value;changes.push({path,value:v})});
+ if(restart&&!await ask('Opslaan en de server herstarten?'))return;await go('/api/backuper/config',{changes,restart});setTimeout(behB,1500)}
+async function bkNow(){const j=cur.bk;await go('/api/backuper/now',{cmd:j.cmd});setTimeout(behB,20000)}
+async function bkDel(){const j=cur.bk,items=[...cur.bsel].map(i=>j.backups[i]).filter(Boolean);if(!items.length)return toast('Vink eerst backups aan');if(!await ask(items.length+' backup(s) definitief verwijderen?'))return;await go('/api/backuper/delete',{items:items.map(b=>({storage:b.storage,name:b.name}))});behB()}
 const dur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}u ${m}m`:`${m}m`};
 async function behP(){const j=await go('/api/stats');if(!j||!$('bp'))return;j.rows.sort((a,b)=>b.online-a.online||b.time-a.time);
- $('bp').innerHTML=j.rows.length?`<table><tr><th>Speler</th><th class="n">Tijd</th><th class="n">Dood</th><th class="n">Kills</th><th class="n">km</th></tr>`+j.rows.map(r=>`<tr><td>${r.online?'🟢 ':''}${esc(r.name)}</td><td class="n">${dur(r.time)}</td><td class="n">${r.deaths}</td><td class="n">${r.kills}</td><td class="n">${(r.dist/1000).toFixed(1)}</td></tr>`).join('')+'</table>':'Geen spelersgegevens gevonden.'}
+ $('bp').innerHTML=j.rows.length?`<table><tr><th>Speler</th><th class="n">Tijd</th><th class="n">Dood</th><th class="n">Kills</th><th class="n">km</th></tr>`+j.rows.map(r=>`<tr><td>${r.online?'🟢 ':''}<img class="hd" src="${hd(r.name,'')}">${esc(r.name)}</td><td class="n">${dur(r.time)}</td><td class="n">${r.deaths}</td><td class="n">${r.kills}</td><td class="n">${(r.dist/1000).toFixed(1)}</td></tr>`).join('')+'</table>':'Geen spelersgegevens gevonden.'}
 async function behT(){const j=await go('/api/tuning');if(!j||!$('bt'))return;const fx=j.rows.filter(r=>r.fix);
  $('bt').innerHTML=j.rows.map(r=>`<div class="li"><div><b class="${r.warn?'yel':''}">${esc(r.what)}: ${esc(r.now)}</b><small style="white-space:normal">${esc(r.adv)}</small></div></div>`).join('')+(fx.length?`<div class="row" style="margin-top:8px"><button class="go" onclick='behFix(${JSON.stringify(fx.map(r=>r.fix.split("=")[0]))})'>Alle ${fx.length} adviezen toepassen</button></div>`:'')}
 async function behFix(keys){if(!await ask('Adviezen toepassen in server.properties? Je moet de server daarna herstarten.'))return;await go('/api/tuning/apply',{keys});behT()}
@@ -4737,7 +5071,7 @@ class RemoteServer:
                                           "application/manifest+json")
                 if method == "POST" and path == "/api/login":
                     return self._login(body)
-                if not path.startswith("/api/") and not path.startswith("/map/"):
+                if not path.startswith(("/api/", "/map/", "/head/")):
                     return self._send(404, {"error": "niet gevonden"})
                 if not self._authed():
                     return self._send(401, {"error": "login"})
@@ -4792,12 +5126,89 @@ class RemoteServer:
 
     # --- kaart ---
     def extra_routes(self):
-        return {("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen}
+        return {("GET", "/api/backuper"): self.api_backuper, ("POST", "/api/backuper/config"): self.api_backuper_config,
+                ("POST", "/api/backuper/delete"): self.api_backuper_delete, ("POST", "/api/backuper/now"): self.api_backuper_now,
+                ("GET", "/map/info"): self.api_map_info, ("POST", "/map/area"): self.api_map_area, ("POST", "/map/gen"): self.api_map_gen}
 
     def dynamic_route(self, method, path):
         if method == "GET" and path.startswith("/map/tile/"):
             return lambda q, b: self.map_tile(path[len("/map/tile/"):])
+        if method == "GET" and path.startswith("/head/"):
+            nm = urllib.parse.unquote(path[len("/head/"):])
+            if not re.fullmatch(r"[\w.\- ]{1,40}", nm):
+                return lambda q, b: (400, {"error": "ongeldig"})
+            return lambda q, b: (200, "image/png", self.app.heads.png_bytes(nm, (q.get("t") or [""])[0]))
         return None
+
+    # --- backups ---
+    def api_backuper(self, q, body):
+        folder = self.folder()
+        st = backuper_state(folder) if folder else {}
+        bks = []
+        for sd in st.get("storages", []):
+            if sd.get("path"):
+                for b in list_backups(sd["path"]):
+                    bks.append({"storage": sd["id"], "name": b["name"], "size": b["size"], "mtime": b["mtime"], "dir": b["dir"]})
+        bks.sort(key=lambda b: -b["mtime"])
+        own = []
+        for label, d in self.call_main(lambda: own_backup_dirs(self.app)):
+            n = sz = 0
+            if os.path.isdir(d):
+                for fn in os.listdir(d):
+                    n += 1
+                    pth = os.path.join(d, fn)
+                    sz += dir_size(pth)[0] if os.path.isdir(pth) else (os.path.getsize(pth) if os.path.exists(pth) else 0)
+            own.append({"label": label, "count": n, "size": sz})
+        cfg = self.call_main(lambda: {k: self.app.cfg.get(k, DEFAULTS.get(k)) for k in
+                                      ("keep_server_backups", "server_backups_max", "keep_plugin_backups", "plugin_backups_max")})
+        return 200, {"jar": st.get("jar"), "disabled": bool(st.get("disabled")), "has_config": bool(st.get("has_config")),
+                     "global": st.get("global", {}), "storages": [{k: v for k, v in sd.items() if k != "path"} for sd in st.get("storages", [])],
+                     "backups": bks, "own": own, "own_cfg": cfg,
+                     "cmd": self.call_main(lambda: self.app.cfg.get("backuper_cmd", "backuper backup local"))}
+
+    def api_backuper_config(self, q, body):
+        ch = {}
+        for it in body.get("changes") or []:
+            path, val = it.get("path"), it.get("value")
+            if not isinstance(path, list) or not (2 <= len(path) <= 3) or not all(isinstance(x, str) for x in path):
+                return 400, {"error": "ongeldig"}
+            known = {("backup", k): kd for k, kd, _l in BK_GLOBAL}
+            if len(path) == 3 and path[0] == "storages":
+                known.update({tuple(path[:2]) + (k,): kd for k, kd, _l in BK_STORAGE})
+            kd = known.get(tuple(path))
+            if not kd:
+                return 400, {"error": "onbekende instelling"}
+            try:
+                val = bool(val) if kd == "bool" else (int(val) if kd == "int" else str(val).strip()[:300])
+            except (TypeError, ValueError):
+                return 400, {"error": "ongeldige waarde"}
+            ch[tuple(path)] = val
+        n = backuper_save(self.folder(), ch) if ch else 0
+        running = self.call_main(lambda: self.app.srv_running())
+        if body.get("restart") and running and n:
+            self.call_main(lambda: self.app.srv_stop(restart=True), auto=True)
+        return 200, {"ok": True, "n": n, "msg": (f"{n} instelling(en) opgeslagen" if n else "Niets veranderd")
+                     + (". Herstart de server om ze te gebruiken." if n and running and not body.get("restart") else "")}
+
+    def api_backuper_delete(self, q, body):
+        st = backuper_state(self.folder())
+        paths = {sd["id"]: sd.get("path") for sd in st.get("storages", [])}
+        gone = 0
+        for it in body.get("items") or []:
+            try:
+                delete_backup(paths[it["storage"]], it["name"])
+                gone += 1
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+        self.call_main(lambda: self.app.log(f"{gone} backup(s) verwijderd (telefoon).", "ok"))
+        return 200, {"ok": True, "msg": f"{gone} backup(s) verwijderd"}
+
+    def api_backuper_now(self, q, body):
+        c = str(body.get("cmd") or "").strip().lstrip("/")
+        if not re.fullmatch(r"backuper( [\w.\-]{1,30}){0,4}", c):
+            return 400, {"error": "Dit is geen Backuper-commando"}
+        ok = self.call_main(lambda: self.app.srv_send(c))
+        return 200, {"ok": bool(ok), "msg": f"/{c} verstuurd, kijk in de console" if ok else "De server draait niet"}
 
     def map_tile(self, rest):
         m = re.fullmatch(r"([\w.\-]{1,60})/(\d{1,2})/(-?\d{1,6})_(-?\d{1,6})\.png", rest)
@@ -5159,6 +5570,7 @@ class BeheerTab(ttk.Frame):
         self._btn(top, "↻  Vernieuwen", self.refresh_players).pack(side="right")
         cols = ("name", "online", "time", "sessions", "last", "deaths", "kills", "dist")
         self.pl_tree = ttk.Treeview(f, columns=cols, show="headings", selectmode="browse")
+        self.app.heads.watch_tree(self.pl_tree, lambda iid: iid)
         heads = {"name": ("Speler", 170), "online": ("Nu", 60), "time": ("Speeltijd", 110), "sessions": ("Keer online", 90),
                  "last": ("Laatst gezien", 150), "deaths": ("Doden", 70), "kills": ("Mobs gedood", 100), "dist": ("Afgelegd", 100)}
         for c in cols:
@@ -5231,7 +5643,7 @@ class BeheerTab(ttk.Frame):
         self.pl_tree.delete(*self.pl_tree.get_children())
         for r in rows:
             last = "nu online" if r["online"] else (datetime.fromtimestamp(r["last"]).strftime("%d-%m-%Y %H:%M") if r["last"] else "-")
-            self.pl_tree.insert("", "end", tags=("on",) if r["online"] else (), values=(
+            self.pl_tree.insert("", "end", iid=str(r["name"]), tags=("on",) if r["online"] else (), values=(
                 r["name"], "●" if r["online"] else "", fmt_dur(r["time"]) if r["time"] else "-", r["sessions"] or "-", last,
                 int(r["deaths"]) or "-", int(r["kills"]) or "-", f"{r['dist'] / 1000:.1f} km" if r["dist"] else "-"))
         tot = sum(r["time"] for r in rows)
@@ -5640,6 +6052,566 @@ class BeheerTab(ttk.Frame):
 
 
 
+# --------------------------------------------------------------------------
+# Backuper-plugin (DVDishka) beheren + backups van dit programma
+# --------------------------------------------------------------------------
+def _yml_split(val):
+    """Splitst 'waarde  # commentaar' in (waarde, commentaar) met respect voor aanhalingstekens."""
+    v = val.strip()
+    if v[:1] in ("'", '"'):
+        q = v[0]
+        i = 1
+        while i < len(v):
+            if v[i] == q and not (q == "'" and v[i + 1:i + 2] == "'"):
+                break
+            i += 2 if (q == "'" and v[i:i + 2] == "''") else 1
+        return v[:i + 1], v[i + 1:]
+    m = re.search(r"\s+#", v)
+    return (v[:m.start()], v[m.start():]) if m else (v, "")
+
+
+def yml_unquote(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1].replace("''", "'") if v[0] == "'" else v[1:-1]
+    return v
+
+
+def yml_scan(text):
+    """Leest een simpele yml (alleen sleutel: waarde, geneste secties) en geeft {pad-tuple: (regelnummer, ruwe waarde of None)}."""
+    out, stack = {}, []
+    for i, line in enumerate(text.splitlines()):
+        s = line.strip()
+        if not s or s.startswith("#") or s.startswith("-"):
+            continue
+        m = re.match(r"^(\s*)([^\s:#][^:]*?):(?:\s+(.*))?$", line.rstrip())
+        if not m:
+            continue
+        ind = len(m.group(1).replace("\t", "    "))
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        path = tuple(k for _i, k in stack) + (m.group(2).strip(),)
+        raw = _yml_split(m.group(3))[0] if m.group(3) else ""
+        if raw == "" and not (m.group(3) or "").strip():
+            out[path] = (i, None)
+            stack.append((ind, m.group(2).strip()))
+        else:
+            out[path] = (i, raw)
+    return out
+
+
+def yml_set(text, path, value):
+    """Zet één waarde en laat de rest (ook commentaar) ongemoeid. Geeft nieuwe tekst of None als de sleutel niet bestaat."""
+    sc = yml_scan(text)
+    if path not in sc or sc[path][1] is None:
+        return None
+    lines = text.splitlines(keepends=True)
+    ln = lines[sc[path][0]]
+    eol = ln[len(ln.rstrip("\r\n")):]
+    body = ln.rstrip("\r\n")
+    m = re.match(r"^(\s*[^\s:#][^:]*?:\s+)(.*)$", body)
+    if not m:
+        return None
+    _v, cm = _yml_split(m.group(2))
+    if isinstance(value, bool):
+        nv = "true" if value else "false"
+    elif isinstance(value, int):
+        nv = str(value)
+    else:
+        nv = "'" + str(value).replace("'", "''") + "'"
+    lines[sc[path][0]] = m.group(1) + nv + cm + eol
+    return "".join(lines)
+
+
+def yml_val(raw, kind):
+    if raw is None:
+        return None
+    v = yml_unquote(raw)
+    if kind == "bool":
+        return v.lower() in ("true", "yes", "on")
+    if kind == "int":
+        try:
+            return int(float(v))
+        except ValueError:
+            return 0
+    return v
+
+
+BK_GLOBAL = (("autoBackup", "bool", "Automatisch backups maken"), ("autoBackupPeriod", "int", "Interval (minuten, 1440 = elke dag)"),
+             ("autoBackupCron", "str", "Cron-planning (leeg = interval gebruiken)"))
+BK_STORAGE = (("enabled", "bool", "Deze opslag gebruiken"), ("autoBackup", "bool", "Automatische backups hierheen"),
+              ("backupsFolder", "str", "Map voor de backups"), ("maxBackupsNumber", "int", "Maximaal aantal backups (0 = onbeperkt)"),
+              ("maxBackupsWeight", "int", "Maximale totale grootte in MB (0 = onbeperkt)"), ("zipArchive", "bool", "Als zip bewaren (anders als map)"),
+              ("zipCompressionLevel", "int", "Zip-compressie (0-9)"))
+
+
+def backuper_paths(folder):
+    pl = os.path.join(folder, "plugins")
+    jar = None
+    off = False
+    try:
+        for fn in sorted(os.listdir(pl)):
+            low = fn.lower()
+            if low.startswith("backuper") and (low.endswith(".jar") or low.endswith(".jar.disabled")):
+                jar, off = fn, low.endswith(".disabled")
+                break
+    except OSError:
+        pass
+    return jar, off, os.path.join(pl, "Backuper"), os.path.join(pl, "Backuper", "config.yml")
+
+
+def backuper_state(folder):
+    """Alles wat we van Backuper weten, uit de bestanden op schijf (werkt ook als de server uit staat)."""
+    jar, off, pdir, cfgp = backuper_paths(folder)
+    st = {"jar": jar, "disabled": off, "dir": pdir, "config": cfgp, "has_config": os.path.isfile(cfgp), "global": {}, "storages": []}
+    if not st["has_config"]:
+        return st
+    try:
+        with open(cfgp, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return st
+    st["text"] = text
+    sc = yml_scan(text)
+    for k, kind, _l in BK_GLOBAL:
+        if ("backup", k) in sc:
+            st["global"][k] = yml_val(sc[("backup", k)][1], kind)
+    ids = []
+    for p, (_ln, raw) in sc.items():
+        if len(p) == 2 and p[0] == "storages" and raw is None:
+            ids.append(p[1])
+    for sid in ids:
+        d = {"id": sid, "type": yml_unquote(sc.get(("storages", sid, "type"), (0, ""))[1] or "")}
+        for k, kind, _l in BK_STORAGE:
+            if ("storages", sid, k) in sc:
+                d[k] = yml_val(sc[("storages", sid, k)][1], kind)
+        if d["type"] == "local" or "backupsFolder" in d:
+            bf = d.get("backupsFolder") or "./plugins/Backuper/Backups"
+            d["path"] = os.path.normpath(bf if os.path.isabs(bf) else os.path.join(folder, bf))
+        st["storages"].append(d)
+    return st
+
+
+def backuper_save(folder, changes):
+    """changes: {pad-tuple: waarde}. Maakt een kopie van config.yml (.mcm.bak) en schrijft de wijzigingen. Geeft aantal gewijzigde sleutels."""
+    _j, _o, _d, cfgp = backuper_paths(folder)
+    with open(cfgp, encoding="utf-8", newline="") as fh:
+        text = fh.read()
+    n = 0
+    for path, val in changes.items():
+        new = yml_set(text, tuple(path), val)
+        if new is not None and new != text:
+            text, n = new, n + 1
+    if n:
+        shutil.copy2(cfgp, cfgp + ".mcm.bak")
+        tmp = cfgp + ".tmp"
+        with open(tmp, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        os.replace(tmp, cfgp)
+    return n
+
+
+def list_backups(path):
+    """Backups in een map: lijst van dicts(name, size, mtime, dir). Grootte van mappen wordt echt gemeten."""
+    out = []
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return out
+    for fn in names:
+        p = os.path.join(path, fn)
+        try:
+            if os.path.isdir(p):
+                size, _n = dir_size(p)
+                out.append({"name": fn, "size": size, "mtime": os.path.getmtime(p), "dir": True})
+            else:
+                out.append({"name": fn, "size": os.path.getsize(p), "mtime": os.path.getmtime(p), "dir": False})
+        except OSError:
+            continue
+    out.sort(key=lambda b: b["mtime"], reverse=True)
+    return out
+
+
+def delete_backup(base, name):
+    """Verwijdert één backup uit de backupmap (alleen een naam, nooit een pad)."""
+    if not name or name != os.path.basename(name) or name in (".", ".."):
+        raise ValueError("ongeldige naam")
+    p = os.path.join(base, name)
+    if not os.path.exists(p):
+        raise OSError("bestaat niet meer")
+    shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+
+
+def open_path(p):
+    try:
+        os.startfile(p)
+    except AttributeError:
+        webbrowser.open(p)
+    except OSError as e:
+        messagebox.showerror(APP_NAME, f"Openen mislukt: {e}")
+
+
+def own_backup_dirs(app):
+    root = app.backup_root()
+    return [("Server.jar-backups (Paper)", os.path.join(root, "server")), ("Plugin-backups bij updates", os.path.join(root, "plugins")),
+            ("Verwijderde plugins", os.path.join(root, "verwijderde_plugins")),
+            ("Backups van dit programma", os.path.join(app_dir(), "programma_backups"))]
+
+
+class BackupTab(ttk.Frame):
+    """Tabblad Backups: beheert de plugin Backuper (instellingen, backups, bestanden) en de backups van dit programma."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent, padding=8)
+        self.app = app
+        self.q = queue.Queue()
+        self.st = {}
+        self.vars = {}
+        self._busy = False
+        self._build()
+
+    def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
+        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg, relief="flat",
+                         bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
+
+    def folder(self):
+        return self.app.folder_var.get().strip()
+
+    def _build(self):
+        top = ttk.Frame(self)
+        top.pack(fill="x", pady=(0, 6))
+        self.head = ttk.Label(top, text="", font=("Segoe UI", 10, "bold"))
+        self.head.pack(side="left")
+        self._btn(top, "↻  Vernieuwen", self.refresh).pack(side="right")
+        self._btn(top, "❓", lambda: self.app.srv_running() and self.app.srv_send("help backuper")).pack(side="right", padx=(6, 0))
+        self._btn(top, "💾  Nu backup maken", self.backup_now, "#15803d", "white").pack(side="right", padx=6)
+        self.cmd_var = tk.StringVar(value=self.app.cfg.get("backuper_cmd", "backuper backup local"))
+        ttk.Entry(top, textvariable=self.cmd_var, width=26).pack(side="right")
+        ttk.Label(top, text="commando:", foreground="#6b7280").pack(side="right", padx=(0, 4))
+        self.sub = ttk.Notebook(self)
+        self.sub.pack(fill="both", expand=True)
+        self.pg_bk = ttk.Frame(self.sub, padding=8)
+        self.pg_cf = ttk.Frame(self.sub, padding=8)
+        self.pg_fl = ttk.Frame(self.sub, padding=8)
+        self.pg_ow = ttk.Frame(self.sub, padding=8)
+        for pg, t in ((self.pg_bk, "💾  Backups"), (self.pg_cf, "⚙  Instellingen van Backuper"), (self.pg_fl, "📁  Bestanden van de plugin"),
+                      (self.pg_ow, "🧰  Backups van dit programma")):
+            self.sub.add(pg, text=t)
+        # backups
+        f = self.pg_bk
+        self.bk_info = ttk.Label(f, text="", foreground="#374151")
+        self.bk_info.pack(anchor="w", pady=(0, 6))
+        self.bk_tree = ttk.Treeview(f, columns=("st", "name", "date", "size"), show="headings", height=12, selectmode="extended")
+        for c, t, w, an in (("st", "Opslag", 90, "w"), ("name", "Naam", 380, "w"), ("date", "Datum", 150, "w"), ("size", "Grootte", 100, "e")):
+            self.bk_tree.heading(c, text=t)
+            self.bk_tree.column(c, width=w, anchor=an)
+        self.bk_tree.pack(fill="both", expand=True)
+        r = ttk.Frame(f)
+        r.pack(fill="x", pady=(8, 0))
+        self._btn(r, "📂  Map openen", self.open_backup_dir).pack(side="left")
+        self._btn(r, "🗑  Geselecteerde verwijderen…", self.del_selected, "#b91c1c", "white").pack(side="left", padx=6)
+        ttk.Label(r, text="Terugzetten doe je met de hand: stop de server, pak de zip uit in de wereldmap. Zo kan er niets misgaan.",
+                  foreground="#6b7280").pack(side="left", padx=8)
+        # instellingen
+        self.cf_box = ttk.Frame(self.pg_cf)
+        self.cf_box.pack(fill="both", expand=True)
+        # bestanden
+        f = self.pg_fl
+        r = ttk.Frame(f)
+        r.pack(fill="x", pady=(0, 6))
+        self._btn(r, "📝  config.yml openen", lambda: self._open_cfg()).pack(side="left")
+        self._btn(r, "📂  Pluginmap openen", lambda: open_path(self.st.get("dir", ""))).pack(side="left", padx=6)
+        self.fl_tree = ttk.Treeview(f, columns=("name", "date", "size"), show="tree headings", height=14, selectmode="browse")
+        self.fl_tree.heading("#0", text="Bestand of map")
+        self.fl_tree.column("#0", width=380)
+        for c, t, w, an in (("name", "Soort", 80, "w"), ("date", "Gewijzigd", 150, "w"), ("size", "Grootte", 100, "e")):
+            self.fl_tree.heading(c, text=t)
+            self.fl_tree.column(c, width=w, anchor=an)
+        self.fl_tree.pack(fill="both", expand=True)
+        self.fl_tree.bind("<Double-1>", self._fl_open)
+        # eigen backups
+        f = self.pg_ow
+        self.ow_tree = ttk.Treeview(f, columns=("what", "count", "size", "where"), show="headings", height=5, selectmode="browse")
+        for c, t, w, an in (("what", "Onderdeel", 240, "w"), ("count", "Aantal", 70, "e"), ("size", "Grootte", 100, "e"), ("where", "Map", 420, "w")):
+            self.ow_tree.heading(c, text=t)
+            self.ow_tree.column(c, width=w, anchor=an)
+        self.ow_tree.pack(fill="x")
+        r = ttk.Frame(f)
+        r.pack(fill="x", pady=(8, 8))
+        self._btn(r, "📂  Openen", self.ow_open).pack(side="left")
+        self._btn(r, "🗑  Leegmaken…", self.ow_clear, "#b91c1c", "white").pack(side="left", padx=6)
+        box = ttk.LabelFrame(f, text="Instellingen van dit programma voor backups", padding=8)
+        box.pack(fill="x")
+        self.ov = {}
+        for row, (key, kind, label) in enumerate((("keep_server_backups", "bool", "Bij elke Paper-update een backup van server.jar bewaren"),
+                                                  ("server_backups_max", "int", "Aantal server.jar-backups"),
+                                                  ("keep_plugin_backups", "bool", "Bij elke plugin-update een backup van de plugin bewaren"),
+                                                  ("plugin_backups_max", "int", "Aantal plugin-backups"))):
+            if kind == "bool":
+                v = tk.BooleanVar(value=bool(self.app.cfg.get(key, DEFAULTS.get(key))))
+                ttk.Checkbutton(box, text=label, variable=v, command=lambda k=key, v=v: self._own_set(k, bool(v.get()))).grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
+            else:
+                v = tk.StringVar(value=str(self.app.cfg.get(key, DEFAULTS.get(key))))
+                ttk.Label(box, text=label).grid(row=row, column=0, sticky="w", pady=2)
+                sp = ttk.Spinbox(box, from_=1, to=99, width=5, textvariable=v, command=lambda k=key, v=v: self._own_set(k, int_var(v, 3)))
+                sp.grid(row=row, column=1, sticky="w", padx=8)
+                sp.bind("<FocusOut>", lambda _e, k=key, v=v: self._own_set(k, int_var(v, 3)))
+            self.ov[key] = v
+        r = ttk.Frame(box)
+        r.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(r, text="Backupmap:").pack(side="left")
+        self.bd_var = tk.StringVar(value=self.app.cfg.get("backup_dir", ""))
+        e = ttk.Entry(r, textvariable=self.bd_var, width=50)
+        e.pack(side="left", padx=6)
+        e.bind("<FocusOut>", lambda _e: self._own_set("backup_dir", self.bd_var.get().strip()))
+        ttk.Label(r, text="(leeg = updater_backups in je servermap)", foreground="#6b7280").pack(side="left")
+
+    def _own_set(self, key, val):
+        self.app.cfg[key] = val
+        self.app._save_cfg()
+        try:
+            self.app.apply_settings()
+        except Exception:
+            pass
+
+    def on_show(self):
+        self.refresh()
+
+    # ---------- inlezen ----------
+    def refresh(self):
+        if self._busy:
+            return
+        self._busy = True
+        self.head.config(text="Laden…")
+        folder = self.folder()
+
+        def work():
+            st = backuper_state(folder) if folder else {"jar": None, "global": {}, "storages": []}
+            bks = []
+            for s in st["storages"]:
+                if s.get("path"):
+                    for b in list_backups(s["path"]):
+                        b["storage"] = s["id"]
+                        bks.append(b)
+            bks.sort(key=lambda b: b["mtime"], reverse=True)
+            files = []
+            pd = st.get("dir")
+            skip = {os.path.normcase(s["path"]) for s in st["storages"] if s.get("path")}
+            if pd and os.path.isdir(pd):
+                for fn in sorted(os.listdir(pd)):
+                    p = os.path.join(pd, fn)
+                    try:
+                        if os.path.isdir(p):
+                            sz = dir_size(p)[0]
+                            files.append((fn, "map", os.path.getmtime(p), sz, os.path.normcase(p) in skip))
+                        else:
+                            files.append((fn, "bestand", os.path.getmtime(p), os.path.getsize(p), False))
+                    except OSError:
+                        pass
+            own = []
+            for label, d in own_backup_dirs(self.app):
+                n, sz = 0, 0
+                if os.path.isdir(d):
+                    for fn in os.listdir(d):
+                        n += 1
+                        p = os.path.join(d, fn)
+                        sz += dir_size(p)[0] if os.path.isdir(p) else (os.path.getsize(p) if os.path.exists(p) else 0)
+                own.append((label, n, sz, d))
+            try:
+                du = shutil.disk_usage(folder)
+            except OSError:
+                du = None
+            self.q.put((st, bks, files, own, du))
+        threading.Thread(target=work, daemon=True).start()
+        self.after(150, self._poll)
+
+    def _poll(self):
+        try:
+            st, bks, files, own, du = self.q.get_nowait()
+        except queue.Empty:
+            self.after(150, self._poll)
+            return
+        self._busy = False
+        self.st = st
+        self.bks = bks
+        self._fill(st, bks, files, own, du)
+
+    def _fill(self, st, bks, files, own, du):
+        if not st.get("jar"):
+            self.head.config(text="Backuper staat niet in je plugins-map. Installeer hem via het tabblad Plugins (zoeken: Backuper).")
+        else:
+            state = "uitgezet (.disabled)" if st.get("disabled") else "aan"
+            self.head.config(text=f"Backuper: {st['jar']}  •  {state}" + ("" if st.get("has_config") else "  •  nog geen config.yml (start de server één keer)"))
+        t = self.bk_tree
+        t.delete(*t.get_children())
+        for i, b in enumerate(bks):
+            t.insert("", "end", iid=str(i), values=(b["storage"], b["name"] + ("  (map)" if b["dir"] else ""),
+                                                     datetime.fromtimestamp(b["mtime"]).strftime("%d-%m-%Y %H:%M"), fmt_bytes(b["size"])))
+        tot = sum(b["size"] for b in bks)
+        loc = next((s for s in st.get("storages", []) if s.get("path")), {})
+        lim = []
+        if loc.get("maxBackupsNumber"):
+            lim.append(f"max {loc['maxBackupsNumber']} backups")
+        if loc.get("maxBackupsWeight"):
+            lim.append(f"max {fmt_bytes(loc['maxBackupsWeight'] * 1024 * 1024)}")
+        last = f"laatste backup {fmt_dur(time.time() - bks[0]['mtime'])} geleden" if bks else "nog geen backups gevonden"
+        per = (st.get("global") or {}).get("autoBackupPeriod")
+        warn = ""
+        if bks and per and (st.get("global") or {}).get("autoBackup") and time.time() - bks[0]["mtime"] > per * 60 * 2.5:
+            warn = "  ⚠ Dit is veel ouder dan het ingestelde interval: controleer of Backuper nog draait."
+        self.bk_info.config(text=f"{len(bks)} backups, samen {fmt_bytes(tot)}  •  {last}" + (f"  •  limiet: {', '.join(lim)}" if lim else "")
+                            + (f"  •  schijf: {fmt_bytes(du.free)} vrij" if du else "") + warn)
+        self._fill_cfg(st)
+        ft = self.fl_tree
+        ft.delete(*ft.get_children())
+        for fn, kind, mt, sz, isbk in files:
+            ft.insert("", "end", iid=fn, text=("📁 " if kind == "map" else "📄 ") + fn + ("   (hier staan je backups)" if isbk else ""),
+                      values=(kind, datetime.fromtimestamp(mt).strftime("%d-%m-%Y %H:%M"), fmt_bytes(sz)))
+        ot = self.ow_tree
+        ot.delete(*ot.get_children())
+        for label, n, sz, d in own:
+            ot.insert("", "end", iid=d, values=(label, n, fmt_bytes(sz), d))
+
+    def _fill_cfg(self, st):
+        for w in self.cf_box.winfo_children():
+            w.destroy()
+        self.vars = {}
+        if not st.get("has_config"):
+            ttk.Label(self.cf_box, text="Er is nog geen config.yml van Backuper. Start de server een keer met de plugin aan; daarna kun je hem hier instellen.",
+                      foreground="#6b7280").pack(anchor="w")
+            return
+        def section(title, rows, base, data):
+            box = ttk.LabelFrame(self.cf_box, text=title, padding=8)
+            box.pack(fill="x", pady=(0, 8))
+            for r, (key, kind, label) in enumerate(rows):
+                if key not in data:
+                    continue
+                if kind == "bool":
+                    v = tk.BooleanVar(value=bool(data[key]))
+                    ttk.Checkbutton(box, text=label, variable=v).grid(row=r, column=0, columnspan=2, sticky="w", pady=2)
+                else:
+                    v = tk.StringVar(value=str(data[key]))
+                    ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", pady=2)
+                    ttk.Entry(box, textvariable=v, width=48 if key == "backupsFolder" else 14).grid(row=r, column=1, sticky="w", padx=8)
+                self.vars[base + (key,)] = (v, kind, data[key])
+        section("Planning", BK_GLOBAL, ("backup",), st["global"])
+        for s in st["storages"]:
+            title = f"Opslag '{s['id']}'  ({s.get('type') or '?'})"
+            section(title, BK_STORAGE, ("storages", s["id"]), s)
+        r = ttk.Frame(self.cf_box)
+        r.pack(fill="x")
+        self._btn(r, "💾  Opslaan", lambda: self.save_cfg(False), "#2563eb", "white").pack(side="left")
+        self._btn(r, "💾  Opslaan en server herstarten", lambda: self.save_cfg(True), "#b45309", "white").pack(side="left", padx=6)
+        ttk.Label(r, text="Er wordt een kopie bewaard als config.yml.mcm.bak. Wachtwoorden en logins van FTP/Google Drive blijven ongemoeid.",
+                  foreground="#6b7280").pack(side="left", padx=8)
+
+    # ---------- acties ----------
+    def save_cfg(self, restart):
+        ch = {}
+        for path, (v, kind, old) in self.vars.items():
+            if kind == "int":
+                try:
+                    nv = int(str(v.get()).strip())
+                except ValueError:
+                    messagebox.showerror(APP_NAME, f"'{path[-1]}' moet een getal zijn.")
+                    return
+            elif kind == "bool":
+                nv = bool(v.get())
+            else:
+                nv = str(v.get()).strip()
+            if nv != old:
+                ch[path] = nv
+        if not ch:
+            messagebox.showinfo(APP_NAME, "Er is niets veranderd.")
+            return
+        try:
+            n = backuper_save(self.folder(), ch)
+        except OSError as e:
+            messagebox.showerror(APP_NAME, f"Opslaan mislukt: {e}")
+            return
+        self.app.log(f"Backuper-instellingen opgeslagen ({n} gewijzigd).", "ok")
+        running = self.app.srv_running()
+        if restart and running:
+            self.app.srv_stop(restart=True)
+        elif running:
+            messagebox.showinfo(APP_NAME, "Opgeslagen. Backuper leest zijn instellingen pas na een herstart van de server.")
+        self.refresh()
+
+    def backup_now(self):
+        c = self.cmd_var.get().strip().lstrip("/")
+        if not c:
+            return
+        if not self.app.srv_running() or self.app.srv_state != "online":
+            messagebox.showinfo(APP_NAME, "De server draait niet. Backuper maakt zelf backups terwijl de server aan staat.")
+            return
+        self.app.cfg["backuper_cmd"] = c
+        self.app._save_cfg()
+        self.app.srv_send(c)
+        self.app.log(f"Backup gevraagd: /{c}. Kijk in de console of Backuper hem accepteert.", "info")
+        self.after(20000, self.refresh)
+
+    def open_backup_dir(self):
+        s = next((s for s in self.st.get("storages", []) if s.get("path")), None)
+        if s and os.path.isdir(s["path"]):
+            open_path(s["path"])
+        else:
+            messagebox.showinfo(APP_NAME, "De backupmap bestaat nog niet.")
+
+    def del_selected(self):
+        sel = [self.bks[int(i)] for i in self.bk_tree.selection()]
+        if not sel:
+            messagebox.showinfo(APP_NAME, "Selecteer eerst backups in de lijst.")
+            return
+        if not messagebox.askyesno(APP_NAME, f"{len(sel)} backup(s) definitief verwijderen ({fmt_bytes(sum(b['size'] for b in sel))})?\n\n"
+                                             + "\n".join(b["name"] for b in sel[:8]) + ("\n…" if len(sel) > 8 else "")):
+            return
+        paths = {s["id"]: s.get("path") for s in self.st.get("storages", [])}
+        gone = 0
+        for b in sel:
+            try:
+                delete_backup(paths[b["storage"]], b["name"])
+                gone += 1
+            except (OSError, ValueError, KeyError) as e:
+                messagebox.showerror(APP_NAME, f"{b['name']}: {e}")
+        self.app.log(f"{gone} backup(s) verwijderd.", "ok")
+        self.refresh()
+
+    def _open_cfg(self):
+        if os.path.isfile(self.st.get("config", "")):
+            open_path(self.st["config"])
+
+    def _fl_open(self, _e):
+        iid = self.fl_tree.focus()
+        if iid and self.st.get("dir"):
+            open_path(os.path.join(self.st["dir"], iid))
+
+    def ow_open(self):
+        sel = self.ow_tree.selection()
+        if sel:
+            if os.path.isdir(sel[0]):
+                open_path(sel[0])
+            else:
+                messagebox.showinfo(APP_NAME, "Deze map bestaat nog niet.")
+
+    def ow_clear(self):
+        sel = self.ow_tree.selection()
+        if not sel or not os.path.isdir(sel[0]):
+            return
+        d = sel[0]
+        label = self.ow_tree.item(d, "values")[0]
+        if not messagebox.askyesno(APP_NAME, f"Alles in '{label}' verwijderen?\n\n{d}\n\nDit kan niet ongedaan worden gemaakt."):
+            return
+        gone = 0
+        for fn in os.listdir(d):
+            try:
+                delete_backup(d, fn)
+                gone += 1
+            except (OSError, ValueError):
+                pass
+        self.app.log(f"{gone} item(s) uit '{label}' verwijderd.", "ok")
+        self.refresh()
+
+
 class App(tk.Tk):
     COLS = (("plugin", "Plugin", 190), ("file", "Bestand", 220), ("current", "Huidige versie", 130),
             ("latest", "Nieuwste versie", 130), ("source", "Bron", 80), ("status", "Status", 290))
@@ -5682,7 +6654,9 @@ class App(tk.Tk):
         self._pcache, self._last_poll = {}, 0
         self._user_stop = self._restart_pending = self._restart_after_update = self._stop_warned = False
         self._after_exit = self._tmp_script = self._rr_job = None
-        self._crash_times, self.cmd_hist, self.hist_idx = [], [], 0
+        self._crash_times, self.cmd_hist, self.hist_idx = [], [str(x) for x in (self.cfg.get("cmd_history") or [])][-200:], 0
+        self.hist_idx = len(self.cmd_hist)
+        self._learn_until = 0.0
         self._stop_t = self._last_nl = self._stop_deadline = 0
         self.noise = compile_noise(c.get("noise_filters", DEFAULT_NOISE))
         self.keep = compile_noise(c.get("startup_keep", DEFAULT_KEEP))
@@ -5705,6 +6679,7 @@ class App(tk.Tk):
         self._temp_fail, self._upd, self._upd_prompted = 0, None, None
         self.sv_lbl = {}
 
+        self.heads = Heads(self)
         self._style()
         self._build()
         self.apply_settings()
@@ -5737,6 +6712,7 @@ class App(tk.Tk):
             return [e for e in style.map("Treeview", query_opt=option) if e[:2] != ("!disabled", "!selected")]
 
         style.map("Treeview", foreground=fixed_map("foreground"), background=fixed_map("background"))
+        style.configure("Heads.Treeview", rowheight=28)
 
     def _build(self):
         header = tk.Frame(self, bg="#1f2937")
@@ -5766,10 +6742,12 @@ class App(tk.Tk):
         self.remote = RemoteServer(self)
         self.tab_map = MapTab(self.nb, self)
         self.tab_beheer = BeheerTab(self.nb, self)
+        self.tab_backup = BackupTab(self.nb, self)
         self.nb.add(self.tab_srv, text="🖥  Server")
         self.nb.add(self.tab_plug, text="🧩  Plugins")
         self.nb.add(self.tab_map, text="🗺  Kaart")
         self.nb.add(self.tab_beheer, text="🛠  Beheer")
+        self.nb.add(self.tab_backup, text="💾  Backups")
         self.tab_upd = body
         self.nb.add(body, text="🔧  Updates")
         self.nb.add(self.tab_net, text="🌐  Bereikbaarheid")
@@ -5780,6 +6758,7 @@ class App(tk.Tk):
         self.after(1500, self.remote_apply)
         self.after(1000, self._remote_tick)
         self.after(700, self._upd_tab_blink)
+        self.after(800, self._heads_tick)
 
         # --- Server ---
         f1 = ttk.LabelFrame(body, text=" Server ", padding=8)
@@ -5880,6 +6859,10 @@ class App(tk.Tk):
             for _ in range(300):  # niet alles in één keer, zodat het venster soepel blijft bij veel console-uitvoer
                 self._handle(self.q.get_nowait())
         except queue.Empty:
+            pass
+        try:
+            self.heads.pump()
+        except Exception:
             pass
         self.after(80, self._poll)
 
@@ -6139,6 +7122,7 @@ class App(tk.Tk):
         self.pmenu.add_command(label="Bericht sturen…", command=self.player_tell)
         self.pmenu.add_command(label="Kicken…", command=self.player_kick)
         self.ptree.bind("<Button-3>", self._player_menu)
+        self.heads.watch_tree(self.ptree, lambda iid: iid, lambda iid: (self.ptree.item(iid, "values") or ("", ""))[1] if len(self.ptree.item(iid, "values") or ()) > 1 else "")
 
         cf = ttk.LabelFrame(f, text=" Console ", padding=6)
         cf.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
@@ -6582,6 +7566,8 @@ class App(tk.Tk):
         if self.srv_send(cmd):
             self.cmd_hist.append(cmd)
             self.hist_idx = len(self.cmd_hist)
+            self.cfg["cmd_history"] = list(dict.fromkeys(self.cmd_hist))[-200:]
+            self._save_cfg()
         else:
             self._console_add("De server draait niet.", own=True)
         self.cmd_var.set("")
@@ -6605,6 +7591,16 @@ class App(tk.Tk):
         self._plug_cache = (pdir, time.time(), sorted(set(cmds)), sorted(set(names), key=str.lower))
         return self._plug_cache[2], self._plug_cache[3]
 
+    def _learn_commands(self):
+        """Vraagt de server stil om zijn commandolijst (/help) zodat Tab ook plugin-commando's kent."""
+        if self.srv_state != "online":
+            return
+        self._learn_until = time.time() + 8
+        self._learn_dirty = False
+        self.srv_send("help", echo=False)
+        self.after(9000, lambda: (self._save_cfg(), self.log(f"{len(self.cfg.get('learned_cmds') or [])} commando's geleerd voor Tab-aanvulling.", "info"))
+                   if getattr(self, "_learn_dirty", False) else None)
+
     def _tab_complete(self, direction=1):
         text = self.cmd_var.get()
         st = self._tab_state
@@ -6612,8 +7608,9 @@ class App(tk.Tk):
             st["i"] = (st["i"] + direction) % len(st["cands"])
         else:
             cmds, plugs = self._plugin_cmds()
-            cands = complete_command(text, sorted(set(VANILLA_CMDS) | set(cmds)),
-                                     sorted(self.player_names, key=str.lower), plugs)
+            cmds = set(cmds) | {x.lower() for x in plugs if re.fullmatch(r"[a-z0-9_\-]{2,30}", x.lower())} | set(self.cfg.get("learned_cmds") or [])
+            cands = complete_command(text, sorted(set(VANILLA_CMDS) | cmds),
+                                     sorted(self.player_names, key=str.lower), plugs, self.cmd_hist)
             if not cands:
                 return "break"
             st = self._tab_state = {"cands": cands, "i": 0 if direction > 0 else len(cands) - 1, "cur": None}
@@ -6661,6 +7658,13 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def _heads_tick(self):
+        try:
+            self.heads.sync()
+        except Exception:
+            pass
+        self.after(1000, self._heads_tick)
+
     def _remote_tick(self):
         if self.remote.running:
             self.remote.pump()
@@ -6696,6 +7700,8 @@ class App(tk.Tk):
                 self.tab_map.on_show()
             else:
                 self.tab_map.on_hide()
+            if cur == str(self.tab_backup):
+                self.tab_backup.on_show()
             if cur == str(self.tab_beheer):
                 self.tab_beheer.on_show()
             else:
@@ -6739,6 +7745,16 @@ class App(tk.Tk):
             suppress = True
         if self.tab_map.gen["state"] in ("running", "paused") and self.tab_map.on_chunky(msg):
             suppress = True
+        if now < self._learn_until:
+            lc = re.match(r"^/([A-Za-z0-9_:.\-]{1,40}):", msg)
+            if lc or msg.startswith("Help: Index") or msg.startswith("Use /help"):
+                suppress = True
+                if lc:
+                    nm = lc.group(1).split(":")[-1].lower()
+                    cur = self.cfg.setdefault("learned_cmds", [])
+                    if nm and nm not in cur and len(cur) < 3000:
+                        cur.append(nm)
+                        self._learn_dirty = True
         gm = re.search(r"Started Geyser on (?:UDP )?port (\d+)", msg)
         if gm and gm.group(1).isdigit() and 0 < int(gm.group(1)) < 65536:
             if int(gm.group(1)) != int_var(self.reach_bport_var, 19132):
@@ -6762,6 +7778,7 @@ class App(tk.Tk):
         if DONE_RE.search(msg) and self.srv_state == "starting":
             self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
+            self.after(12000, self._learn_commands)
             self._startup_until = time.time() + 10
             if self.reach_auto_var.get():
                 self.after(20000, self._auto_net_check)
