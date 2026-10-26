@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.11.4"
+APP_VERSION = "2.12"
 
 CHANGELOG = """
+2.12 - Grafieken lopen soepel door; Updates-tabje knippert met aantal bij beschikbare updates.
 2.11.4 - Kaart: geen dunne strepen meer tussen tegels op bepaalde zoomniveaus.
 2.11.3 - Kaart: inzoomen voorbij het diepste niveau geeft geen zwart beeld meer, en renderen gebruikt de juiste wereldnaam (minecraft:overworld).
 2.11.2 - Programma-update betrouwbaarder: vindt nieuwe versies ook als de GitHub-API-limiet bereikt is.
@@ -1204,19 +1205,45 @@ class Spark(tk.Canvas):
     def _num(x, rng):
         return f"{x:.1f}" if rng < 10 else f"{x:.0f}"
 
+    def _delay(self):
+        """Hoe ver de grafiek 'achterloopt': iets meer dan de tijd tussen twee metingen. Daardoor kan de lijn altijd
+        soepel tussen twee echte metingen doorlopen (geen sprongen en geen gokwerk)."""
+        if len(self.data) < 3:
+            return 1.0
+        ts = [t for t, _ in list(self.data)[-6:]]
+        gaps = sorted(b - a for a, b in zip(ts, ts[1:]))
+        return min(max(gaps[len(gaps) // 2] * 1.15, 0.5), 4.0)
+
     def redraw(self):
         self.delete("all")
         w, h = self.winfo_width(), self.winfo_height()
         if w < 40 or h < 50:
             return
         now = time.time()
-        t0 = now - self.window
+        td = now - self._delay()          # tijdstip dat nu rechts in de grafiek staat
+        t0 = td - self.window
         self.create_text(6, 4, anchor="nw", fill="#9ca3af", font=("Segoe UI", 8), text=self.title)
         self.create_text(6, h - 3, anchor="sw", fill="#4b5563", font=("Segoe UI", 7),
                          text=graph_label(max(1, round(self.window / 60))))
-        pts = [(t, v) for t, v in self.data if t >= t0 and v is not None]
+        pts, nxt = [], None
+        for t, v in reversed(self.data):  # van achter naar voren, stopt zodra we buiten het venster zijn
+            if v is None:
+                continue
+            if t > td:
+                nxt = (t, v)
+                continue
+            pts.append((t, v))
+            if t < t0:
+                break
+        pts.reverse()
         if not pts:
             return
+        if nxt and pts[-1][0] < td:  # tussen twee metingen doorrekenen: het uiteinde schuift gelijkmatig mee
+            (ta, va), (tb, vb) = pts[-1], nxt
+            f = (td - ta) / max(tb - ta, 1e-6)
+            pts.append((td, va + (vb - va) * f))
+        elif pts[-1][0] < td:
+            pts.append((td, pts[-1][1]))
         vals = [v for _, v in pts]
         fixed_hi = (self.hi_fn() if self.hi_fn else None) or self.hi
         if self.zoom:
@@ -1232,6 +1259,13 @@ class Spark(tk.Canvas):
         else:
             lo_v = self.lo
             hi_v = fixed_hi or max(max(vals) * 1.2, self.min_span)
+        # de schaal beweegt zachtjes mee in plaats van te springen
+        if getattr(self, "_sl", None) is None or abs(self._sl - lo_v) + abs(self._sh - hi_v) > 50 * (hi_v - lo_v + 1):
+            self._sl, self._sh = lo_v, hi_v
+        else:
+            self._sl += (lo_v - self._sl) * 0.12
+            self._sh += (hi_v - self._sh) * 0.12
+        lo_v, hi_v = self._sl, self._sh
         rng = max(hi_v - lo_v, 1e-9)
         top, bot = 30, h - 14
 
@@ -1244,11 +1278,10 @@ class Spark(tk.Canvas):
         xy = []
         for t, v in pts:
             xy += [X(t), Y(v)]
-        xy += [X(now), Y(vals[-1])]  # tot nu doortrekken, ook als er een tijdje geen nieuwe meting was
         if len(xy) >= 4:
             self.create_line(*xy, fill=self.color, width=2)
-        self.create_text(w - 6, 4, anchor="ne", fill="white", font=("Segoe UI", 9, "bold"),
-                         text=f"{vals[-1]:.1f}{self.unit}")
+        last = next((v for t, v in reversed(self.data) if v is not None), vals[-1])  # echte laatste waarde
+        self.create_text(w - 6, 4, anchor="ne", fill="white", font=("Segoe UI", 9, "bold"), text=f"{last:.1f}{self.unit}")
         self.create_text(w - 6, 18, anchor="ne", fill="#6b7280", font=("Segoe UI", 7), text=self._num(hi_v, rng))
         self.create_text(w - 6, h - 3, anchor="se", fill="#6b7280", font=("Segoe UI", 7), text=self._num(lo_v, rng))
 
@@ -3233,6 +3266,8 @@ class App(tk.Tk):
         self._build_server_tab(self.tab_srv)
         self._build_net_tab(self.tab_net)
         self.nb.bind("<<NotebookTabChanged>>", self._tab_changed)
+        self.after(300, self._spark_anim)
+        self.after(700, self._upd_tab_blink)
 
         # --- Server ---
         f1 = ttk.LabelFrame(body, text=" Server ", padding=8)
@@ -4076,6 +4111,35 @@ class App(tk.Tk):
         self.cmd_var.set(new)
         self.cmd_entry.icursor("end")
         return "break"
+
+    def _spark_anim(self):
+        """Laat de grafieken doorlopen (ca. 20x per seconde), maar alleen als ze in beeld zijn."""
+        try:
+            if self.state() != "iconic" and self.nb.select() == str(self.tab_srv):
+                for sk in (self.spark_cpu, self.spark_ram, self.spark_tps, self.spark_temp):
+                    if sk.data:
+                        sk.redraw()
+        except tk.TclError:
+            pass
+        self.after(50, self._spark_anim)
+
+    def _upd_tab_blink(self):
+        """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""
+        try:
+            n = sum(1 for r in self.rows.values() if r.get("state") == "update")
+            if str(self.paper_label.cget("text")).startswith("⬆"):
+                n += 1
+            if n:
+                self._blink = not getattr(self, "_blink", False)
+                txt = f"{'🔴' if self._blink else '🟠'}  Updates ({n})"
+            else:
+                txt = "🔧  Updates"
+            if txt != getattr(self, "_upd_txt", None):
+                self._upd_txt = txt
+                self.nb.tab(self.nb.index(self.nb.tabs()[3]), text=txt)
+        except tk.TclError:
+            pass
+        self.after(700, self._upd_tab_blink)
 
     def _tab_changed(self, _e=None):
         try:

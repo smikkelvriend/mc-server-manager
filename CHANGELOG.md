@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.12
+- **Soepele grafieken:** de grafieken van CPU, geheugen, TPS en temperatuur lopen nu continu door (ca. 20 keer per seconde) in plaats van elke seconde te springen. De lijn loopt een fractie achter op de werkelijkheid en rekent soepel tussen twee echte metingen door; de getoonde waarde rechtsboven is altijd de echte laatste meting. De schaal beweegt zacht mee. Alleen actief als het tabblad Server in beeld is.
+- **Opvallend Updates-tabje:** het tabblad Updates knippert rood/oranje en toont het aantal zodra er een plugin- of Paper-update beschikbaar is.
+
 ## 2.11.4
 - Kaart: dunne strepen tussen tegels op bepaalde zoomniveaus opgelost (tegels worden op hele pixels getekend, zodat afronden geen kier meer geeft).
 
