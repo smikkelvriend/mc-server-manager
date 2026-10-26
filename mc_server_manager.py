@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.14"
+APP_VERSION = "2.14.1"
 
 CHANGELOG = """
+2.14.1 - Kaart werkt ook als de server uit staat: gebruikt de opgeslagen tegels van squaremap.
 2.14 - Nieuw tabblad Beheer: spelersstatistieken, Windows-meldingen, server-tuning en wereldgrootte met opruimen.
 2.13 - Kaart: sleep een gebied (zoals Knipprogramma), het programma laat Chunky het genereren met voortgangsbalk en werkt daarna de kaart bij.
 2.12.7 - Kaart: onderin staat per tegel of hij geladen is of niet bestaat op de server (voor diagnose).
@@ -2818,15 +2819,51 @@ class MapTab(ttk.Frame):
         cv.bind("<Double-Button-1>", lambda e: self._zoom(1, e.x, e.y))
 
     # ---------- netwerk (alleen in achtergrondthreads) ----------
+    def _upd_webdir(self):
+        """Waar squaremap zijn kaart op schijf bewaart (voor als de server uit staat). Alleen vanuit de hoofdthread aanroepen."""
+        base = os.path.join(self.app.folder_var.get().strip(), "plugins", "squaremap")
+        path = "web"
+        try:
+            with open(os.path.join(base, "config.yml"), encoding="utf-8", errors="replace") as fh:
+                m = re.search(r"web-directory:\s*\n\s+path:\s*['\"]?([^'\"\n#]+)", fh.read())
+                if m and m.group(1).strip():
+                    path = m.group(1).strip()
+        except OSError:
+            pass
+        self._webdir = path if os.path.isabs(path) else os.path.join(base, path)
+
+    def _disk(self, path):
+        """Leest een bestand uit de opgeslagen kaart. None = er is geen opgeslagen kaart; b'' = die tegel bestaat niet."""
+        wd = getattr(self, "_webdir", None)
+        if not wd or not os.path.isfile(os.path.join(wd, "tiles", "settings.json")) or path.endswith("players.json"):
+            return None
+        try:
+            with open(os.path.join(wd, *path.split("/")), "rb") as fh:
+                self._from_disk = True
+                return fh.read()
+        except OSError:
+            self._from_disk = True
+            return b""
+
     def _get(self, path):
+        if time.time() < getattr(self, "_disk_until", 0):
+            return self._disk(path)
         base = self.url_var.get().strip().rstrip("/")
         try:
             with urllib.request.urlopen(f"{base}/{path}", timeout=5) as r:
+                self._from_disk = False
                 return r.read()
         except urllib.error.HTTPError as e:
-            return b"" if e.code == 404 else None
+            if e.code == 404:
+                self._from_disk = False
+                return b""
         except Exception:
-            return None
+            pass
+        # geen verbinding: server uit of squaremap niet actief -> gebruik de opgeslagen kaart
+        d = self._disk(path)
+        if d is not None:
+            self._disk_until = time.time() + 8
+        return d
 
     def _save_url(self, reload=False):
         u = self.url_var.get().strip() or "http://localhost:8080"
@@ -2846,6 +2883,7 @@ class MapTab(ttk.Frame):
         if self.loading:
             return
         self.loading = True
+        self._upd_webdir()
 
         def work():
             raw = self._get("tiles/settings.json")
@@ -2920,6 +2958,7 @@ class MapTab(ttk.Frame):
 
     def refresh(self, force=False):
         self._last_refresh = time.time()
+        self._upd_webdir()
         if force:
             self.sig.clear()
         for key in list(self._view_keys()):
@@ -2937,7 +2976,7 @@ class MapTab(ttk.Frame):
                 self.loading = False
                 if m[1] is None:
                     self.online = False
-                    self.status_var.set("Kaart niet bereikbaar: server uit of squaremap niet actief")
+                    self.status_var.set("Geen kaart: server uit en nog niets opgeslagen door squaremap")
                     self._dirty = True
                     continue
                 self.worlds, self.wset = m[1]
@@ -2947,7 +2986,7 @@ class MapTab(ttk.Frame):
                 if self.worlds and self.cur not in [w["name"] for w in self.worlds]:
                     first = next((w for w in self.worlds if w.get("type") == "normal"), self.worlds[0])
                     self._set_world(first["name"])
-                self.status_var.set("")
+                self.status_var.set("Server uit: opgeslagen kaart" if getattr(self, "_from_disk", False) else "")
             elif m[0] == "tile":
                 self._tile(*m[1:])
             elif m[0] == "players":
@@ -3123,7 +3162,7 @@ class MapTab(ttk.Frame):
         if not self.cur:
             cv.create_text(W / 2, H / 2, fill="#94a3b8", font=("Segoe UI", 12), justify="center",
                            text=("Kaart laden…" if self.loading else
-                                 "Kaart niet bereikbaar.\nStart de server en controleer of squaremap actief is\n(adres rechts in het paneel)."))
+                                 "Geen kaart gevonden.\nStart de server met squaremap en laat hem eerst renderen;\ndaarna staat de kaart ook offline klaar."))
             return
         native, span, s = self._geometry()
         extra = self.zl - native

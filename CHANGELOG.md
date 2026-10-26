@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.14.1
+- **Kaart offline:** staat de server uit (of is squaremap niet bereikbaar), dan toont de kaart de door squaremap opgeslagen tegels uit `plugins/squaremap/web`. Zodra de server draait, schakelt hij vanzelf terug naar live (met spelers).
+
 ## 2.14
 - **Tabblad Beheer** met vier onderdelen:
   - *Spelers:* speeltijd, keer online, laatst gezien, doden, gedode mobs en afgelegde afstand per speler (uit de stats van je wereld en het logboek van het programma); sorteerbaar.
