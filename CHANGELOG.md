@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.8.1
+- Temperatuur: ondersteunt ook LibreHardwareMonitor via de ingebouwde webserver (poort 8085), omdat nieuwere versies geen WMI meer aanbieden.
+
 ## 2.8
 - **Kaart wordt bewaard** (map `map_cache` naast het programma) en staat bij het openen direct klaar.
 - De kaart wordt elke paar minuten stil op de achtergrond bijgewerkt (alleen regio's die de server opnieuw heeft opgeslagen), ook als het tabblad dicht is, met weinig processorgebruik.

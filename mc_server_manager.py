@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8"
+APP_VERSION = "2.8.1"
 
 CHANGELOG = """
+2.8.1 - Temperatuur wordt nu ook gelezen via de webserver van LibreHardwareMonitor (Options > Remote Web Server).
 2.8 - Kaart wordt bewaard en staat direct klaar; op de achtergrond wordt hij stil bijgewerkt, ook als het tabblad dicht is.
 2.7.1 - Plugin-lijst opgeruimd: geen bestandsnaam, commando's of grootte meer, kleinere tellers en tabbladen.
 2.7 - Nieuw tabblad Kaart: terrein van je wereld met alle spelers live erop (naam, richting, spoor, coordinaten).
@@ -959,10 +960,41 @@ def pick_temperature(items):
     return dict(value=float(best["value"]), label=label, src=best.get("src"))
 
 
+def parse_lhm_tree(tree):
+    """Haalt de temperatuursensoren uit de data.json van de webserver van LibreHardwareMonitor."""
+    out = []
+
+    def walk(node, path):
+        if not isinstance(node, dict):
+            return
+        text = str(node.get("Text", ""))
+        kids = node.get("Children") or []
+        val = str(node.get("Value", ""))
+        m = re.match(r"^\s*(-?\d+(?:[.,]\d+)?)\s*\u00b0\s*C", val)
+        if m and not kids:
+            out.append(dict(src="hwmon", name=text, parent=" ".join(path), value=float(m.group(1).replace(",", "."))))
+        for k in kids:
+            walk(k, path + [text])
+
+    walk(tree, [])
+    return out
+
+
+def read_lhm_web(port=8085):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/data.json", timeout=1.5) as r:
+            return parse_lhm_tree(json.loads(r.read().decode("utf-8", "replace")))
+    except Exception:
+        return []
+
+
 def read_temperature():
     """Leest de temperatuur: Windows (LibreHardwareMonitor -> thermal zone -> ACPI) of psutil op Linux/Mac."""
     items = []
     if os.name == "nt":
+        items = read_lhm_web()  # webserver van LibreHardwareMonitor (nieuwere versies hebben geen WMI meer)
+        if items:
+            return pick_temperature(items)
         try:
             enc = base64.b64encode(TEMP_SCRIPT.encode("utf-16-le")).decode("ascii")
             r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
