@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.13"
+APP_VERSION = "2.14"
 
 CHANGELOG = """
+2.14 - Nieuw tabblad Beheer: spelersstatistieken, Windows-meldingen, server-tuning en wereldgrootte met opruimen.
 2.13 - Kaart: sleep een gebied (zoals Knipprogramma), het programma laat Chunky het genereren met voortgangsbalk en werkt daarna de kaart bij.
 2.12.7 - Kaart: onderin staat per tegel of hij geladen is of niet bestaat op de server (voor diagnose).
 2.12.6 - Bedrock (NetherNet): korte groene melding als alles werkt.
@@ -167,6 +168,8 @@ DEFAULTS = {
     "graph_minutes": 5, "graph_zoom": True, "stats_secs": 2,
     "show_player_activity": True,
     "squaremap_url": "http://localhost:8080",
+    "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
+    "notify_update": True, "notify_ignore": "",
     "plm_load": False, "plm_ack": False, "plugins_only_compat": False,
     "temp_enabled": True, "temp_secs": 10, "temp_warn": 85,
     "update_url": "", "selfupdate_check": True, "selfupdate_auto": False,
@@ -3486,6 +3489,7 @@ class MapTab(ttk.Frame):
             self.after(60000, self._gen_render_done)
         else:
             g["state"] = "done"
+        self.app.tab_beheer.notify("notify_chunky", "Gebied gegenereerd", f"Chunky is klaar ({g['chunks']} chunks).")
         self._gen_refresh_ui()
         self._draw_overlay_only()
 
@@ -3509,6 +3513,653 @@ class MapTab(ttk.Frame):
         c = "map " + template.format(w=w)
         if app.srv_send(c):
             self.status_var.set(f"Verstuurd: {c}")
+
+
+# --------------------------------------------------------------------------
+# Tabblad Beheer: spelersstatistieken, meldingen, server-tuning, wereldgrootte
+# --------------------------------------------------------------------------
+STATS_PATH = os.path.join(app_dir(), "mc_server_manager_spelers.json")
+
+
+def toast(title, text):
+    """Windows-melding (rechtsonder). Op andere systemen of bij een fout gebeurt er niets."""
+    if os.name != "nt":
+        return
+
+    def work():
+        try:
+            from xml.sax.saxutils import escape
+            xml = ('<toast><visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual></toast>'
+                   % (escape(title), escape(text)))
+            ps = ("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null\n"
+                  "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null\n"
+                  "$x = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
+                  "$x.LoadXml(@'\n" + xml + "\n'@)\n"
+                  "$t = [Windows.UI.Notifications.ToastNotification]::new($x)\n"
+                  "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+                  "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show($t)\n")
+            enc = base64.b64encode(ps.encode("utf-16-le")).decode("ascii")
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", enc], timeout=20,
+                           capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception:
+            pass
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def fmt_dur(sec):
+    sec = int(sec or 0)
+    d, r = divmod(sec, 86400)
+    h, r = divmod(r, 3600)
+    m = r // 60
+    return (f"{d}d " if d else "") + (f"{h}u " if (h or d) else "") + f"{m}m"
+
+
+def fmt_bytes(n):
+    n = float(n or 0)
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or u == "TB":
+            return f"{n:.0f} {u}" if u in ("B", "KB") else f"{n:.1f} {u}"
+        n /= 1024
+
+
+def dir_size(path):
+    tot = n = 0
+    for root, _d, files in os.walk(path):
+        for f in files:
+            try:
+                tot += os.path.getsize(os.path.join(root, f))
+                n += 1
+            except OSError:
+                pass
+    return tot, n
+
+
+def level_name(folder):
+    return read_properties(folder).get("level-name", "world") or "world"
+
+
+def world_roots(folder):
+    """Mappen die een wereld bevatten (overworld, nether, end), op basis van level-name."""
+    lvl = level_name(folder)
+    out = []
+    for suffix in ("", "_nether", "_the_end"):
+        p = os.path.join(folder, lvl + suffix)
+        if os.path.isdir(p):
+            out.append(p)
+    return out
+
+
+def dim_of(path):
+    low = path.replace("\\", "/").lower()
+    if "nether" in low or "/dim-1" in low:
+        return "nether"
+    if "the_end" in low or "/dim1" in low:
+        return "end"
+    return "overworld"
+
+
+def find_data_dirs(folder, kinds=("region", "entities", "poi")):
+    """Alle region/entities/poi-mappen in de wereldmappen: lijst van (pad, soort, dimensie)."""
+    out = []
+    for root in world_roots(folder):
+        for r, dirs, _f in os.walk(root):
+            for d in dirs:
+                if d in kinds:
+                    p = os.path.join(r, d)
+                    out.append((p, d, dim_of(p)))
+    return out
+
+
+def find_stats_dirs(folder):
+    out = []
+    for root in world_roots(folder):
+        for sub in ("stats", os.path.join("players", "stats")):
+            p = os.path.join(root, sub)
+            if os.path.isdir(p):
+                out.append(p)
+    return out
+
+
+def set_property(folder, key, value):
+    path = os.path.join(folder, "server.properties")
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().splitlines(True)
+    bak = path + ".mcupdater.bak"
+    if not os.path.exists(bak):
+        shutil.copy2(path, bak)
+    done = False
+    for i, ln in enumerate(lines):
+        if ln.split("=", 1)[0].strip() == key and not ln.lstrip().startswith("#"):
+            lines[i] = f"{key}={value}\n"
+            done = True
+    if not done:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(f"{key}={value}\n")
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.writelines(lines)
+
+
+class BeheerTab(ttk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent, padding=8)
+        self.app = app
+        self.q = queue.Queue()
+        self.visible = False
+        self.stats = self._load_stats()
+        self.sort = ("time", True)
+        self._build()
+
+    # ---------- opslag eigen log (sessies) ----------
+    def _load_stats(self):
+        try:
+            with open(STATS_PATH, encoding="utf-8") as fh:
+                d = json.load(fh)
+                return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_stats(self):
+        try:
+            tmp = STATS_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self.stats, fh)
+            os.replace(tmp, STATS_PATH)
+        except OSError:
+            pass
+
+    def event(self, kind, name):
+        """Aangeroepen vanuit de console: speler komt binnen of vertrekt."""
+        now = time.time()
+        s = self.stats.setdefault(name, {"first": now, "last": now, "sessions": 0, "seconds": 0.0, "since": None})
+        if kind == "join":
+            s["sessions"] += 1
+            s["since"] = now
+        elif s.get("since"):
+            s["seconds"] += max(0, now - s["since"])
+            s["since"] = None
+        s["last"] = now
+        self._save_stats()
+        if self.visible and self.sub.select() == str(self.pg_pl):
+            self.after(400, self.refresh_players)
+
+    def close_all(self):
+        now = time.time()
+        for s in self.stats.values():
+            if s.get("since"):
+                s["seconds"] += max(0, now - s["since"])
+                s["since"] = None
+                s["last"] = now
+        self._save_stats()
+
+    # ---------- opbouw ----------
+    def _build(self):
+        self.sub = ttk.Notebook(self)
+        self.sub.pack(fill="both", expand=True)
+        self.pg_pl = ttk.Frame(self.sub, padding=8)
+        self.pg_nf = ttk.Frame(self.sub, padding=12)
+        self.pg_tu = ttk.Frame(self.sub, padding=8)
+        self.pg_wd = ttk.Frame(self.sub, padding=8)
+        for pg, t in ((self.pg_pl, "📊  Spelers"), (self.pg_nf, "🔔  Meldingen"), (self.pg_tu, "⚙  Tuning"), (self.pg_wd, "💾  Wereld")):
+            self.sub.add(pg, text=t)
+        self._build_players()
+        self._build_notify()
+        self._build_tuning()
+        self._build_world()
+        self.sub.bind("<<NotebookTabChanged>>", lambda e: self.on_show())
+
+    def _btn(self, parent, text, cmd, bg="#e5e7eb", fg="#111827"):
+        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground=bg, activeforeground=fg, relief="flat",
+                         bd=0, padx=9, pady=3, font=("Segoe UI", 9, "bold"), cursor="hand2")
+
+    def on_show(self):
+        self.visible = True
+        cur = self.sub.select()
+        if cur == str(self.pg_pl):
+            self.refresh_players()
+        elif cur == str(self.pg_tu):
+            self.refresh_tuning()
+        elif cur == str(self.pg_wd):
+            self.refresh_world()
+
+    def on_hide(self):
+        self.visible = False
+
+    # ---------- spelers ----------
+    def _build_players(self):
+        f = self.pg_pl
+        top = ttk.Frame(f)
+        top.pack(fill="x", pady=(0, 6))
+        ttk.Label(top, text="Speeltijd en activiteit per speler (uit de wereldmap van je server en het logboek van dit programma).",
+                  foreground="#6b7280").pack(side="left")
+        self._btn(top, "↻  Vernieuwen", self.refresh_players).pack(side="right")
+        cols = ("name", "online", "time", "sessions", "last", "deaths", "kills", "dist")
+        self.pl_tree = ttk.Treeview(f, columns=cols, show="headings", selectmode="browse")
+        heads = {"name": ("Speler", 170), "online": ("Nu", 60), "time": ("Speeltijd", 110), "sessions": ("Keer online", 90),
+                 "last": ("Laatst gezien", 150), "deaths": ("Doden", 70), "kills": ("Mobs gedood", 100), "dist": ("Afgelegd", 100)}
+        for c in cols:
+            self.pl_tree.heading(c, text=heads[c][0], command=lambda c=c: self._sort_players(c))
+            self.pl_tree.column(c, width=heads[c][1], anchor="w" if c in ("name", "last") else "e")
+        self.pl_tree.pack(fill="both", expand=True)
+        self.pl_tree.tag_configure("on", background="#dcfce7")
+        self.pl_info = ttk.Label(f, text="", foreground="#6b7280")
+        self.pl_info.pack(anchor="w", pady=(6, 0))
+
+    def _sort_players(self, c):
+        self.sort = (c, not self.sort[1] if self.sort[0] == c else c != "name")
+        self.refresh_players()
+
+    def _collect_players(self):
+        folder = self.app.folder_var.get().strip()
+        names = {}
+        try:
+            with open(os.path.join(folder, "usercache.json"), encoding="utf-8") as fh:
+                for x in json.load(fh):
+                    if isinstance(x, dict) and x.get("uuid") and x.get("name"):
+                        names[x["uuid"].lower()] = x["name"]
+        except (OSError, ValueError):
+            pass
+        rows = {}
+        for d in find_stats_dirs(folder):
+            try:
+                files = os.listdir(d)
+            except OSError:
+                continue
+            for fn in files:
+                if not fn.endswith(".json"):
+                    continue
+                uid = fn[:-5].lower()
+                nm = names.get(uid) or uid[:8]
+                try:
+                    p = os.path.join(d, fn)
+                    with open(p, encoding="utf-8") as fh:
+                        st = json.load(fh).get("stats", {})
+                    cu = st.get("minecraft:custom", {})
+                    ticks = cu.get("minecraft:play_time", cu.get("minecraft:play_one_minute", 0))
+                    kills = sum((st.get("minecraft:killed") or {}).values())
+                    dist = sum(cu.get(k, 0) for k in ("minecraft:walk_one_cm", "minecraft:sprint_one_cm", "minecraft:swim_one_cm",
+                                                       "minecraft:aviate_one_cm", "minecraft:boat_one_cm", "minecraft:horse_one_cm",
+                                                       "minecraft:minecart_one_cm", "minecraft:crouch_one_cm"))
+                    r = rows.setdefault(nm, dict(name=nm, time=0, sessions=0, last=0, deaths=0, kills=0, dist=0, online=False))
+                    r["time"] += ticks / 20.0
+                    r["deaths"] += cu.get("minecraft:deaths", 0)
+                    r["kills"] += kills
+                    r["dist"] += dist / 100.0
+                    r["last"] = max(r["last"], os.path.getmtime(p))
+                except (OSError, ValueError, AttributeError):
+                    continue
+        for nm, s in self.stats.items():
+            r = rows.setdefault(nm, dict(name=nm, time=s.get("seconds", 0), sessions=0, last=0, deaths=0, kills=0, dist=0, online=False))
+            r["sessions"] = s.get("sessions", 0)
+            r["last"] = max(r["last"], s.get("last", 0))
+            if not any(True for d in find_stats_dirs(folder)) or r["time"] == 0:
+                r["time"] = max(r["time"], s.get("seconds", 0))
+        online = set(self.app.players) if isinstance(self.app.players, dict) else set()
+        for nm in online:
+            if nm in rows:
+                rows[nm]["online"] = True
+        return list(rows.values())
+
+    def refresh_players(self):
+        rows = self._collect_players()
+        key, desc = self.sort
+        rows.sort(key=lambda r: (str(r["name"]).lower() if key == "name" else (1 if r.get(key) else 0, r.get(key, 0))), reverse=desc)
+        self.pl_tree.delete(*self.pl_tree.get_children())
+        for r in rows:
+            last = "nu online" if r["online"] else (datetime.fromtimestamp(r["last"]).strftime("%d-%m-%Y %H:%M") if r["last"] else "-")
+            self.pl_tree.insert("", "end", tags=("on",) if r["online"] else (), values=(
+                r["name"], "●" if r["online"] else "", fmt_dur(r["time"]) if r["time"] else "-", r["sessions"] or "-", last,
+                int(r["deaths"]) or "-", int(r["kills"]) or "-", f"{r['dist'] / 1000:.1f} km" if r["dist"] else "-"))
+        tot = sum(r["time"] for r in rows)
+        self.pl_info.config(text=f"{len(rows)} spelers  •  samen {fmt_dur(tot)} gespeeld" if rows else
+                            "Nog geen spelers gevonden. Kies je servermap (Instellingen) of wacht tot er iemand is binnengekomen.")
+
+    # ---------- meldingen ----------
+    NOTIFY = (("notify_crash", "Als de server onverwacht stopt (crash)"), ("notify_start", "Als de server klaar is met opstarten"),
+              ("notify_join", "Als een speler binnenkomt"), ("notify_leave", "Als een speler weggaat"),
+              ("notify_chunky", "Als het genereren van een gebied klaar is"), ("notify_update", "Als er een update van het programma is"))
+
+    def _build_notify(self):
+        f = self.pg_nf
+        ttk.Label(f, text="Laat een melding van Windows zien (rechtsonder) bij:", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.nv = {}
+        for key, text in self.NOTIFY:
+            v = tk.BooleanVar(value=bool(self.app.cfg.get(key, DEFAULTS.get(key, False))))
+            self.nv[key] = v
+            ttk.Checkbutton(f, text=text, variable=v, command=lambda k=key: self._nsave(k)).pack(anchor="w", pady=2)
+        ttk.Label(f, text="Namen waarvoor je geen meldingen wilt (bijv. bots), gescheiden door komma's:",
+                  foreground="#6b7280").pack(anchor="w", pady=(12, 2))
+        self.ign_var = tk.StringVar(value=self.app.cfg.get("notify_ignore", ""))
+        e = ttk.Entry(f, textvariable=self.ign_var, width=60)
+        e.pack(anchor="w")
+        e.bind("<FocusOut>", lambda ev: self._nsave("notify_ignore"))
+        e.bind("<Return>", lambda ev: self._nsave("notify_ignore"))
+        self._btn(f, "Test: toon een melding", lambda: toast(APP_NAME, "Zo ziet een melding eruit.")).pack(anchor="w", pady=(14, 0))
+        self.nf_note = ttk.Label(f, text="", foreground="#6b7280")
+        self.nf_note.pack(anchor="w", pady=(6, 0))
+        if os.name != "nt":
+            self.nf_note.config(text="Meldingen werken alleen op Windows.")
+
+    def _nsave(self, key):
+        self.app.cfg[key] = self.ign_var.get().strip() if key == "notify_ignore" else bool(self.nv[key].get())
+        save_config(self.app.cfg)
+
+    def notify(self, key, title, text, name=None):
+        if not self.app.cfg.get(key, DEFAULTS.get(key, False)):
+            return
+        ign = {x.strip().lower() for x in str(self.app.cfg.get("notify_ignore", "")).split(",") if x.strip()}
+        if name and name.lower() in ign:
+            return
+        toast(title, text)
+
+    # ---------- tuning ----------
+    def _build_tuning(self):
+        f = self.pg_tu
+        top = ttk.Frame(f)
+        top.pack(fill="x", pady=(0, 6))
+        ttk.Label(top, text="Controle van je serverinstellingen, Java-geheugen en de huidige belasting.",
+                  foreground="#6b7280").pack(side="left")
+        self._btn(top, "↻  Opnieuw controleren", self.refresh_tuning).pack(side="right")
+        self.tu_tree = ttk.Treeview(f, columns=("what", "now", "adv"), show="headings", selectmode="extended")
+        for c, t, w in (("what", "Onderdeel", 190), ("now", "Nu", 160), ("adv", "Beoordeling", 560)):
+            self.tu_tree.heading(c, text=t)
+            self.tu_tree.column(c, width=w, anchor="w")
+        self.tu_tree.pack(fill="both", expand=True)
+        self.tu_tree.tag_configure("warn", background="#fff3e0", foreground="#e65100")
+        self.tu_tree.tag_configure("ok", foreground="#166534")
+        bar = ttk.Frame(f)
+        bar.pack(fill="x", pady=(6, 0))
+        self.tu_apply = self._btn(bar, "Pas geselecteerde regels toe", self.apply_tuning, "#059669", "white")
+        self.tu_apply.pack(side="left")
+        ttk.Label(bar, text="  (wijzigt server.properties; een kopie blijft bewaard; herstart de server daarna)",
+                  foreground="#6b7280").pack(side="left")
+        self.tu_fix = {}
+
+    def refresh_tuning(self):
+        a = self.app
+        folder = a.folder_var.get().strip()
+        pr = read_properties(folder)
+        t = self.tu_tree
+        t.delete(*t.get_children())
+        self.tu_fix = {}
+
+        def add(what, now, adv, warn=False, fix=None):
+            iid = t.insert("", "end", values=(what, now, ("⚠ " if warn else "✔ ") + adv), tags=("warn" if warn else "ok",))
+            if fix:
+                self.tu_fix[iid] = fix
+
+        if not pr:
+            add("server.properties", "niet gevonden", "Kies je servermap in Instellingen.", True)
+        else:
+            def num(k, d):
+                try:
+                    return int(pr.get(k, d))
+                except ValueError:
+                    return d
+            vd, sd = num("view-distance", 10), num("simulation-distance", 10)
+            add("view-distance", f"{vd} chunks", "Hoog: kost veel geheugen en netwerk. 8–10 is genoeg voor de meeste servers." if vd > 10
+                else "Prima.", vd > 10, ("view-distance", "10") if vd > 10 else None)
+            add("simulation-distance", f"{sd} chunks", "Hoog: mobs en machines rekenen in een groot gebied. 6 is een goede balans." if sd > 8
+                else "Prima.", sd > 8, ("simulation-distance", "6") if sd > 8 else None)
+            mp = num("max-players", 20)
+            add("max-players", str(mp), "Zeer hoog ten opzichte van wat je server aankan." if mp > 100 else "Prima.", mp > 100)
+            om = pr.get("online-mode", "true").lower()
+            add("online-mode", om, "Staat uit: iedereen kan met een willekeurige naam binnen. Alleen veilig achter een proxy met "
+                                   "eigen controle." if om == "false" else "Aan (aanbevolen).", om == "false")
+            ct = num("network-compression-threshold", 256)
+            add("network-compression-threshold", str(ct), "Uitgeschakeld (-1): meer netwerkverkeer, tenzij je dat bewust doet."
+                if ct == -1 else "Prima.", ct == -1)
+        # Java-geheugen
+        xmx = a.cfg.get("java_xmx") or ""
+        extra = a.cfg.get("java_extra") or ""
+        mb = parse_mem_mb(xmx) if xmx else None
+        sp = (a.cfg.get("start_script") or "").strip()
+        if sp and os.path.isfile(sp):
+            try:
+                txt = open(sp, encoding="utf-8", errors="replace").read(20000)
+                m = re.search(r"-Xmx(\d+\s*[GgMm])", txt)
+                mb = parse_mem_mb(m.group(1)) if m else mb
+                extra = txt
+            except OSError:
+                pass
+        total = None
+        if psutil is not None:
+            try:
+                total = psutil.virtual_memory().total // (1024 * 1024)
+            except Exception:
+                pass
+        if mb:
+            if total:
+                pct = mb * 100 // total
+                add("Geheugen voor Java (-Xmx)", f"{mb / 1024:.1f} GB van {total / 1024:.0f} GB",
+                    f"Meer dan 75% van je werkgeheugen ({pct}%): Windows en andere programma's kunnen dan vastlopen." if pct > 75
+                    else ("Erg weinig voor een server met plugins." if mb < 2048 else "Prima."), pct > 75 or mb < 2048)
+            else:
+                add("Geheugen voor Java (-Xmx)", f"{mb / 1024:.1f} GB", "Installeer 'psutil' voor een vergelijking met je werkgeheugen.")
+        else:
+            add("Geheugen voor Java (-Xmx)", "onbekend", "Niet gevonden in de instellingen of het startbestand.")
+        has_g1 = "UseG1GC" in extra or "UseZGC" in extra or "UseShenandoah" in extra
+        add("Garbage collector", "G1/ZGC aanwezig" if has_g1 else "standaard", "Java kiest zelf; dat is prima voor kleine servers."
+            if not has_g1 else "Eigen opstartopties gevonden.")
+        # Live
+        try:
+            tps = next((v for _t, v in reversed(a.spark_tps.data) if v is not None), None)
+            ram = next((v for _t, v in reversed(a.spark_ram.data) if v is not None), None)
+        except Exception:
+            tps = ram = None
+        if a.srv_running():
+            if tps is not None:
+                add("TPS (nu)", f"{tps:.1f}", "Server loopt achter: minder view-distance/simulation-distance of minder plugins."
+                    if tps < 18 else "Soepel (20 is perfect).", tps < 18)
+            if ram is not None and mb:
+                p = ram / mb * 100
+                add("Geheugengebruik (nu)", f"{ram / 1024:.1f} GB ({p:.0f}%)", "Bijna vol: geef Java meer geheugen of verlaag de afstanden."
+                    if p > 90 else "Prima.", p > 90)
+        else:
+            add("Belasting", "server uit", "Start de server om TPS en geheugen te zien.")
+
+    def apply_tuning(self):
+        a = self.app
+        sel = [i for i in self.tu_tree.selection() if i in self.tu_fix] or list(self.tu_fix)
+        if not sel:
+            messagebox.showinfo(APP_NAME, "Er zijn geen aanpassingen om toe te passen.")
+            return
+        txt = "\n".join(f"{self.tu_fix[i][0]} → {self.tu_fix[i][1]}" for i in sel)
+        if not messagebox.askyesno(APP_NAME, f"Deze instellingen aanpassen in server.properties?\n\n{txt}\n\n"
+                                             "De server moet daarna opnieuw starten. Een kopie van het bestand blijft bewaard."):
+            return
+        try:
+            for i in sel:
+                set_property(a.folder_var.get().strip(), *self.tu_fix[i])
+        except OSError as e:
+            messagebox.showerror(APP_NAME, f"Aanpassen mislukt: {e}")
+            return
+        a.log("server.properties aangepast: " + ", ".join(f"{k}={v}" for k, v in (self.tu_fix[i] for i in sel)) +
+              ". Herstart de server om het te laten werken.", "ok")
+        self.refresh_tuning()
+
+    # ---------- wereld ----------
+    def _build_world(self):
+        f = self.pg_wd
+        top = ttk.Frame(f)
+        top.pack(fill="x", pady=(0, 6))
+        self.wd_status = ttk.Label(top, text="", foreground="#6b7280")
+        self.wd_status.pack(side="left")
+        self._btn(top, "↻  Opnieuw meten", self.refresh_world).pack(side="right")
+        self.wd_tree = ttk.Treeview(f, columns=("what", "size", "files", "share"), show="headings", height=9, selectmode="browse")
+        for c, t, w, an in (("what", "Onderdeel", 300, "w"), ("size", "Grootte", 110, "e"), ("files", "Bestanden", 100, "e"),
+                            ("share", "Aandeel", 300, "w")):
+            self.wd_tree.heading(c, text=t)
+            self.wd_tree.column(c, width=w, anchor=an)
+        self.wd_tree.pack(fill="x")
+        self.wd_disk = ttk.Label(f, text="", foreground="#374151", font=("Segoe UI", 10, "bold"))
+        self.wd_disk.pack(anchor="w", pady=(8, 8))
+        box = ttk.LabelFrame(f, text="Opruimen", padding=8)
+        box.pack(fill="x")
+        r1 = ttk.Frame(box)
+        r1.pack(fill="x", pady=2)
+        self._btn(r1, "🧹  Oude logs en crash-reports opruimen", self.clean_logs).pack(side="left")
+        ttk.Label(r1, text="  logs ouder dan 7 dagen en crash-reports ouder dan 14 dagen", foreground="#6b7280").pack(side="left")
+        r2 = ttk.Frame(box)
+        r2.pack(fill="x", pady=(8, 2))
+        self.trim_world = tk.StringVar()
+        ttk.Label(r2, text="Regio's buiten een gebied wegzetten voor:").pack(side="left")
+        self.trim_cb = ttk.Combobox(r2, textvariable=self.trim_world, state="readonly", width=20,
+                                    values=["overworld", "nether", "end"])
+        self.trim_cb.pack(side="left", padx=6)
+        self.trim_cb.set("overworld")
+        self._btn(r2, "✂  Buiten gekozen gebied wegzetten…", self.trim_regions, "#b45309", "white").pack(side="left")
+        ttk.Label(box, text="Kies eerst op het tabblad Kaart een gebied dat je wilt BEHOUDEN (Gebied genereren → slepen). Alles daarbuiten "
+                            "gaat naar een map _opgeruimd in je servermap (niet verwijderd). De server moet uit staan.",
+                  foreground="#6b7280", wraplength=900, justify="left").pack(anchor="w", pady=(4, 0))
+
+    def refresh_world(self):
+        if getattr(self, "_measuring", False):
+            return
+        self._measuring = True
+        self.wd_status.config(text="Meten…")
+        folder = self.app.folder_var.get().strip()
+
+        def work():
+            out = []
+            try:
+                for root in world_roots(folder):
+                    s, n = dir_size(root)
+                    out.append((os.path.basename(root), s, n))
+                for label, sub in (("Squaremap-kaart", os.path.join("plugins", "squaremap")), ("Logs", "logs"),
+                                   ("Crash-reports", "crash-reports"), ("Plugins", "plugins")):
+                    p = os.path.join(folder, sub)
+                    if os.path.isdir(p):
+                        s, n = dir_size(p)
+                        if label == "Plugins":
+                            sq = dir_size(os.path.join(folder, "plugins", "squaremap"))[0] if os.path.isdir(
+                                os.path.join(folder, "plugins", "squaremap")) else 0
+                            s -= sq
+                        out.append((label, s, n))
+                try:
+                    du = shutil.disk_usage(folder)
+                except OSError:
+                    du = None
+            except Exception:
+                out, du = [], None
+            self.q.put((out, du))
+
+        threading.Thread(target=work, daemon=True).start()
+        self.after(200, self._poll)
+
+    def _poll(self):
+        try:
+            out, du = self.q.get_nowait()
+        except queue.Empty:
+            self.after(200, self._poll)
+            return
+        self._measuring = False
+        t = self.wd_tree
+        t.delete(*t.get_children())
+        tot = sum(s for _l, s, _n in out) or 1
+        for label, s, n in out:
+            bar = "█" * max(1, round(s / tot * 30)) if s else ""
+            t.insert("", "end", values=(label, fmt_bytes(s), n, f"{bar}  {s / tot * 100:.0f}%"))
+        self.wd_status.config(text=f"Totaal {fmt_bytes(sum(s for _l, s, _n in out))}" if out else
+                              "Geen servermap gevonden. Kies je servermap in Instellingen.")
+        if du:
+            self.wd_disk.config(text=f"Schijf: {fmt_bytes(du.free)} vrij van {fmt_bytes(du.total)}")
+
+    def clean_logs(self):
+        folder = self.app.folder_var.get().strip()
+        now = time.time()
+        targets = []
+        for sub, days, keep in (("logs", 7, ("latest.log",)), ("crash-reports", 14, ())):
+            d = os.path.join(folder, sub)
+            if os.path.isdir(d):
+                for fn in os.listdir(d):
+                    p = os.path.join(d, fn)
+                    if fn in keep or not os.path.isfile(p):
+                        continue
+                    try:
+                        if now - os.path.getmtime(p) > days * 86400:
+                            targets.append((p, os.path.getsize(p)))
+                    except OSError:
+                        pass
+        if not targets:
+            messagebox.showinfo(APP_NAME, "Er is niets om op te ruimen.")
+            return
+        size = sum(s for _p, s in targets)
+        if not messagebox.askyesno(APP_NAME, f"{len(targets)} oude bestanden verwijderen ({fmt_bytes(size)})?"):
+            return
+        gone = 0
+        for p, _s in targets:
+            try:
+                os.remove(p)
+                gone += 1
+            except OSError:
+                pass
+        self.app.log(f"{gone} oude logbestanden opgeruimd ({fmt_bytes(size)}).", "ok")
+        self.refresh_world()
+
+    def plan_trim(self, area, dim):
+        """Welke region-bestanden liggen volledig buiten het gebied? Geeft (lijst van (pad, grootte), regio's-behouden)."""
+        x1, z1, x2, z2 = area
+        rx = range(math.floor(x1 / 512), math.floor((x2 - 1) / 512) + 1)
+        rz = range(math.floor(z1 / 512), math.floor((z2 - 1) / 512) + 1)
+        keep_n, move = 0, []
+        for path, _kind, d in find_data_dirs(self.app.folder_var.get().strip()):
+            if d != dim:
+                continue
+            for fn in os.listdir(path):
+                m = re.match(r"^r\.(-?\d+)\.(-?\d+)\.mca$", fn)
+                if not m:
+                    continue
+                if int(m.group(1)) in rx and int(m.group(2)) in rz:
+                    keep_n += 1
+                else:
+                    p = os.path.join(path, fn)
+                    try:
+                        move.append((p, os.path.getsize(p)))
+                    except OSError:
+                        pass
+        return move, keep_n
+
+    def trim_regions(self):
+        a = self.app
+        mt = a.tab_map
+        if a.srv_running():
+            messagebox.showinfo(APP_NAME, "Stop eerst de server: regio's wegzetten terwijl hij draait kan de wereld beschadigen.")
+            return
+        area = mt.sel or (mt.gen.get("area") if mt.gen.get("area") else None)
+        if not area:
+            messagebox.showinfo(APP_NAME, "Kies eerst op het tabblad Kaart een gebied dat je wilt behouden: klik op "
+                                          "'Gebied genereren' en sleep een rechthoek.")
+            return
+        dim = self.trim_world.get() or "overworld"
+        move, keep_n = self.plan_trim(area, dim)
+        if not move:
+            messagebox.showinfo(APP_NAME, f"Er liggen geen regio's van de {dim} buiten dit gebied.")
+            return
+        size = sum(s for _p, s in move)
+        msg = (f"Gebied dat blijft: X {area[0]}..{area[2]}, Z {area[1]}..{area[3]}\n"
+               f"Regio-bestanden die blijven: {keep_n}\n"
+               f"Regio-bestanden die worden weggezet: {len(move)} ({fmt_bytes(size)})\n\n"
+               "Ze gaan naar de map _opgeruimd in je servermap en kunnen terug worden gezet. Doorgaan?")
+        if not messagebox.askyesno(APP_NAME, msg):
+            return
+        folder = a.folder_var.get().strip()
+        dest = os.path.join(folder, "_opgeruimd", datetime.now().strftime("%Y%m%d-%H%M%S"))
+        moved = 0
+        for p, _s in move:
+            rel = os.path.relpath(p, folder)
+            tgt = os.path.join(dest, rel)
+            try:
+                os.makedirs(os.path.dirname(tgt), exist_ok=True)
+                shutil.move(p, tgt)
+                moved += 1
+            except OSError:
+                pass
+        a.log(f"{moved} regio-bestanden ({fmt_bytes(size)}) weggezet naar {dest}.", "ok")
+        messagebox.showinfo(APP_NAME, f"{moved} regio-bestanden weggezet ({fmt_bytes(size)}).\nMap: {dest}")
+        self.refresh_world()
+
 
 
 class App(tk.Tk):
@@ -3624,9 +4275,12 @@ class App(tk.Tk):
         self.tab_net = ttk.Frame(self.nb, padding=10)
         self.tab_plug = PluginsTab(self.nb, self)
         self.tab_map = MapTab(self.nb, self)
+        self.tab_beheer = BeheerTab(self.nb, self)
         self.nb.add(self.tab_srv, text="🖥  Server")
         self.nb.add(self.tab_plug, text="🧩  Plugins")
         self.nb.add(self.tab_map, text="🗺  Kaart")
+        self.nb.add(self.tab_beheer, text="🛠  Beheer")
+        self.tab_upd = body
         self.nb.add(body, text="🔧  Updates")
         self.nb.add(self.tab_net, text="🌐  Bereikbaarheid")
         self._build_server_tab(self.tab_srv)
@@ -4253,6 +4907,9 @@ class App(tk.Tk):
         self._refresh_players()
         for key in ("uptime", "pid", "cpu", "ram", "tps", "players"):
             self.sv[key].set("-")
+        self.tab_beheer.close_all()
+        if code not in (0, None) and not self._user_stop:
+            self.tab_beheer.notify("notify_crash", "Server gestopt!", f"De server is onverwacht gestopt (exitcode {code}).")
         self._console_add(f"■ Server gestopt (exitcode {code}).", own=True)
         self.log(f"Server gestopt (exitcode {code}).", "ok" if code in (0, None) else "warn")
         if self._restart_pending:
@@ -4502,7 +5159,7 @@ class App(tk.Tk):
                 txt = "🔧  Updates"
             if txt != getattr(self, "_upd_txt", None):
                 self._upd_txt = txt
-                self.nb.tab(self.nb.index(self.nb.tabs()[3]), text=txt)
+                self.nb.tab(self.tab_upd, text=txt)
         except tk.TclError:
             pass
         self.after(700, self._upd_tab_blink)
@@ -4516,6 +5173,10 @@ class App(tk.Tk):
                 self.tab_map.on_show()
             else:
                 self.tab_map.on_hide()
+            if cur == str(self.tab_beheer):
+                self.tab_beheer.on_show()
+            else:
+                self.tab_beheer.on_hide()
         except tk.TclError:
             pass
 
@@ -4562,14 +5223,19 @@ class App(tk.Tk):
                 self.log(f"Geyser luistert op UDP-poort {gm.group(1)}: Bedrock-poort bij Bereikbaarheid aangepast.", "info")
         jm = JOIN_RE.match(msg)
         if jm:
+            self.tab_beheer.event("join", jm.group(1))
+            self.tab_beheer.notify("notify_join", "Speler online", f"{jm.group(1)} is binnengekomen.", jm.group(1))
             self.players.setdefault(jm.group(1), now)
             self._add_name(jm.group(1))
             self._refresh_players()
         lv = LEAVE_RE.match(msg)
         if lv:
+            self.tab_beheer.event("leave", lv.group(1))
+            self.tab_beheer.notify("notify_leave", "Speler weg", f"{lv.group(1)} heeft de server verlaten.", lv.group(1))
             self.players.pop(lv.group(1), None)
             self._refresh_players()
         if DONE_RE.search(msg) and self.srv_state == "starting":
+            self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
             self._startup_until = time.time() + 10
             if self.reach_auto_var.get():
@@ -5285,6 +5951,9 @@ class App(tk.Tk):
         self.btn_selfupd.config(text=f"⬆  Update {info['version']}")
         self.btn_selfupd.pack(side="right", padx=(0, 6), pady=10)
         self.log(f"Nieuwe versie van het programma beschikbaar: {info['version']} (jij hebt {APP_VERSION}).", "warn")
+        if getattr(self, "_upd_notified", None) != info["version"]:
+            self._upd_notified = info["version"]
+            self.tab_beheer.notify("notify_update", "Update beschikbaar", f"MC Server Manager {info['version']} is beschikbaar.")
         if self.cfg.get("selfupdate_auto") and not manual:
             self.selfupdate_install()
         elif manual or self._upd_prompted != info["version"]:
@@ -5863,7 +6532,8 @@ class SettingsDialog(tk.Toplevel):
         for k, default in DEFAULTS.items():
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
-                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url"):
+                     "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
+                     "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))

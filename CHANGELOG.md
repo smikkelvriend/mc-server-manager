@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.14
+- **Tabblad Beheer** met vier onderdelen:
+  - *Spelers:* speeltijd, keer online, laatst gezien, doden, gedode mobs en afgelegde afstand per speler (uit de stats van je wereld en het logboek van het programma); sorteerbaar.
+  - *Meldingen:* Windows-melding bij een crash, opstarten klaar, speler komt/gaat, gebied klaar of programma-update; namen (bots) negeren.
+  - *Tuning:* controle van view/simulation-distance, online-mode, Java-geheugen, TPS en geheugengebruik, met knop om advies toe te passen in server.properties.
+  - *Wereld:* grootte per wereld en onderdeel, vrije schijfruimte, oude logs opruimen en regio's buiten een gekozen gebied wegzetten (naar _opgeruimd, niet verwijderd).
+
 ## 2.13
 - **Gebied genereren op de kaart:** klik op *Gebied genereren*, sleep een rechthoek over de kaart (zoals Knipprogramma) en kies *Start genereren*. Het programma stuurt de Chunky-commando's, toont een voortgangsbalk met percentage, chunks, resterende tijd en snelheid (de Chunky-regels verdwijnen uit de console) en werkt daarna automatisch de kaart bij met squaremap. Pauzeren en stoppen kan ook.
 
