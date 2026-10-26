@@ -46,9 +46,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.8.4"
+APP_VERSION = "2.8.5"
 
 CHANGELOG = """
+2.8.5 - Kaart: in- en uitzoomen zonder haperen (zoomniveaus worden alvast voorbereid).
 2.8.4 - Zwart consolevenster wordt verborgen; kaart toont bij het aanwijzen van een regio waarom stukken ontbreken.
 2.8.3 - Programma-update: elke 5 minuten (en bij het terugkeren naar het venster) controleren in plaats van elke 6 uur.
 2.8.2 - Kaart veel sneller en stabieler: soepel slepen en zoomen, geen ontbrekende stukken meer bij ander zoomniveau.
@@ -3201,23 +3202,67 @@ class MapTab(ttk.Frame):
         self.after(60 if not self.q.empty() else 150, self._pump)
 
     # ---------- weergave ----------
-    def _scaled(self, key):
-        s = self.scale
+    def _scaled(self, key, scale=None, t_end=None):
+        """Plaatje van een regio op het gevraagde formaat; None als het nog niet klaar is en de tijd op is."""
+        s = scale or self.scale
         ratio = s / self.BASE
         mode = ("z", int(round(ratio))) if ratio >= 1 else ("s", int(round(self.BASE / s)))
         ck = key + mode
         img = self.imgs.get(ck)
         if img is None:
+            if t_end is not None and time.time() > t_end:
+                return None
             base = self.base[key]
             img = base.zoom(mode[1], mode[1]) if mode[0] == "z" and mode[1] > 1 else (
                 base.subsample(mode[1], mode[1]) if mode[0] == "s" and mode[1] > 1 else base)
             if len(self.imgs) > 600:  # oude formaten opruimen, maar nooit wat nu op het scherm staat (anders wordt het blanco)
-                keep = getattr(self, "_inuse", set())
+                keep = self._inuse
                 for old in [k for k in self.imgs if k not in keep][:300]:
                     del self.imgs[old]
             self.imgs[ck] = img
-        self._inuse.add(ck)
+        if scale is None:
+            self._inuse.add(ck)
         return img
+
+    def _visible_keys(self, W, H, scale=None):
+        s = scale or self.scale
+        mg = max(W, H) // 2
+        out = []
+        for key in self.base:
+            if key[0] != self.dim:
+                continue
+            x0 = W / 2 + (key[1] * 512 - self.cx) * s
+            y0 = H / 2 + (key[2] * 512 - self.cz) * s
+            if x0 > W + mg or y0 > H + mg or x0 + 512 * s < -mg or y0 + 512 * s < -mg:
+                continue
+            out.append((abs(x0 + 256 * s - W / 2) + abs(y0 + 256 * s - H / 2), key))
+        out.sort()
+        return [k for _, k in out]
+
+    def _schedule_precompute(self):
+        """In rustige momenten alvast de plaatjes voor het volgende en vorige zoomniveau maken, zodat zoomen direct gaat."""
+        self._pc_token = getattr(self, "_pc_token", 0) + 1
+        tok = self._pc_token
+        i = min(range(len(self.SCALES)), key=lambda k: abs(self.SCALES[k] - self.scale))
+        todo = []
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        for j in (i + 1, i - 1):
+            if 0 <= j < len(self.SCALES):
+                sc = self.SCALES[j]
+                todo += [(k, sc) for k in self._visible_keys(W, H, sc)]
+
+        def step():
+            if tok != self._pc_token or not self.visible:
+                return
+            t_end = time.time() + 0.012
+            while todo and time.time() < t_end:
+                k, sc = todo.pop(0)
+                if k in self.base:
+                    self._scaled(k, sc)
+            if todo:
+                self.after(25, step)
+
+        self.after(300, step)
 
     def _w2c(self, x, z):
         return self.cv.winfo_width() / 2 + (x - self.cx) * self.scale, self.cv.winfo_height() / 2 + (z - self.cz) * self.scale
@@ -3243,16 +3288,22 @@ class MapTab(ttk.Frame):
         s = self.scale
         shown = 0
         self._inuse = set()
-        for key in list(self.base):
-            if key[0] != self.dim:
+        t_end = time.time() + 0.03  # hoogstens 30 ms per keer; de rest volgt meteen daarna (geen haperingen)
+        partial = False
+        for key in self._visible_keys(W, H):  # van midden naar buiten
+            img = self._scaled(key, None, t_end)
+            if img is None:
+                partial = True
                 continue
             x0, y0 = self._w2c(key[1] * 512, key[2] * 512)
-            size = 512 * s
-            mg = max(W, H) // 2  # ruime marge: bij het slepen is er dan al terrein buiten beeld getekend
-            if x0 > W + mg or y0 > H + mg or x0 + size < -mg or y0 + size < -mg:
-                continue
-            cv.create_image(x0, y0, anchor="nw", image=self._scaled(key), tags="t")
+            cv.create_image(x0, y0, anchor="nw", image=img, tags="t")
             shown += 1
+        if partial:
+            if not getattr(self, "_cont", False):
+                self._cont = True
+                self.after(8, self._continue_draw)
+        else:
+            self._schedule_precompute()
         if self.grid_var.get():
             self._draw_grid(W, H)
         b = self.winfo_.get("border")
@@ -3271,6 +3322,11 @@ class MapTab(ttk.Frame):
                    ("Geen terrein voor deze wereld. Verken eerst iets en sla de wereld op (save-all)."
                     if self.world else "Geen wereldbestanden gevonden."))
             cv.create_text(W / 2, H / 2, text=msg, fill="#94a3b8", font=("Segoe UI", 12), tags="t")
+
+    def _continue_draw(self):
+        self._cont = False
+        self._tdirty = True
+        self.redraw()
 
     def _draw_overlay(self, W, H):
         cv = self.cv
