@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.52"
+APP_VERSION = "2.53"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.53 - Nieuwe interface: het vinkje Schoon in de console werkt nu ook op de regels die er al staan (die werden alleen voor nieuwe regels toegepast). Daarvoor bewaart het scherm ook de regels die in de schone console verborgen zijn.
 2.52 - Nieuwe interface: spelerskoppen die traag binnenkomen (vooral Bedrock) verschijnen nu wel. De lijst werd elke seconde opnieuw opgebouwd, waardoor het laden steeds werd afgebroken; nu wordt hij alleen aangepast als er echt iets verandert. Mislukt een kop, dan staat er de beginletter van de speler. Het scherm probeert het na een paar seconden nog eens.
 2.51 - Nieuwe interface: de knop onder Auto slaapstand heet "Uit slaapstand halen" zolang de server slaapt en start dan meteen de server. Draait de server, dan is het weer "Nu in slaapstand".
 2.50 - Nieuwe interface, Instellingen: de instellingen van de slaapstand (minuten, rooster met tijden en dagen) en de gezondheidscontrole (schijf, TPS, geheugen) staan er nu in. Die waren alleen in het oude scherm te vinden.
@@ -5654,7 +5655,7 @@ function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HI
 function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
  while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
 V.con=()=>{$('view').innerHTML=`<div class="seg" style="align-self:flex-start"><button class="on" id="mLive" onclick="conMode(0)">Live console</button><button id="mSrch" onclick="conMode(1)">Logboek doorzoeken</button></div>
- <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="go('/api/clean',{on:this.checked})">schoon</label><div class="sp"></div>
+ <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="setClean(this.checked)">schoon</label><div class="sp"></div>
  <input id="cfilter" placeholder="Filter…" style="width:180px" oninput="refilter()"></div><div class="log" id="con"></div>
  <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando. Tab vult aan, pijltje omhoog haalt het vorige terug" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div></div>
  <div id="conSrch" style="display:none;flex-direction:column;gap:12px;flex:1;min-height:0"></div>`;LOG.forEach(addLine);$('cmd').focus()};
@@ -5902,9 +5903,11 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
  if(tab=='pl')plOnline();
- if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
+ if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=CLEAN==null?!!j.clean:CLEAN}
 /* ---------- poll ---------- */
-async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;fails=0;poll.off=0;$('off').style.display='none';
+let CLEAN=null;
+function setClean(on){CLEAN=on;go('/api/clean',{on});since=0;LOG=[];const c=$('con');if(c)c.innerHTML='';setTimeout(poll,100)}
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
  draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
@@ -6191,7 +6194,7 @@ class RemoteServer:
         self.app = app
         self.httpd = None
         self.thread = None
-        self.lines = deque(maxlen=400)
+        self.lines = deque(maxlen=1500)
         self.lid = 0
         self.notes = deque(maxlen=100)
         self.nid = 0
@@ -6214,12 +6217,12 @@ class RemoteServer:
         self._shim_done = False
 
     # ================= hoofdthread =================
-    def push(self, e):
+    def push(self, e, noise=False):
         kind = {"error": "e", "warn": "w", "ok": "o", "cmd": "c"}.get(e.get("tag"), "")
         text = e.get("raw") if e.get("kind") == "own" else (e.get("raw") or "")
         with self.lock:
             self.lid += 1
-            self.lines.append((self.lid, str(text)[:600], kind))
+            self.lines.append((self.lid, str(text)[:600], kind, bool(noise)))
 
     def push_log(self, text, level):
         with self.lock:
@@ -6355,7 +6358,9 @@ class RemoteServer:
         with self.lock:
             snap = dict(self.snap)
             snap["now"] = self.last_poll      # tijd van de server, zodat de grafiek in het scherm op de seconde kan meelopen
-            snap["lines"] = [l for l in self.lines if l[0] > since][-300:]
+            cl = q.get("clean", [None])[0]
+            clean = bool(self.snap.get("clean")) if cl is None else cl == "1"
+            snap["lines"] = [l for l in self.lines if l[0] > since and not (clean and l[3])][-400:]
             snap["notes"] = [x for x in self.notes if x[0] > ns]
             snap["alog"] = [x for x in self.alog if x[0] > asn][-100:]
         return 200, snap
@@ -9707,12 +9712,13 @@ class App(tk.Tk):
     def _console_add(self, raw, own=False):
         e = self._parse_line(raw, own)
         self.srv_lines.append(e)
-        if e["kind"] != "own" and self.clean_var.get() and self._is_noise(e):
+        noise = e["kind"] != "own" and self._is_noise(e)
+        self.remote.push(e, noise)       # de schermen filteren zelf (schone console), zodat het vinkje direct ook oude regels aanpast
+        self.desk.push(e, noise)
+        if noise and self.clean_var.get():
             self.srv_hidden += 1
             self._update_hidden_label()
             return
-        self.remote.push(e)
-        self.desk.push(e)
         r = self._render(e)
         if r:
             self._text_insert(*r)

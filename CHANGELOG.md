@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.53
+- Nieuwe interface: het vinkje **Schoon** in de console doet weer iets. Het werd alleen op nieuwe regels toegepast en dus nooit op wat er al stond. Nu worden de regels opnieuw geladen als je het vinkje omzet. Daarvoor bewaart het programma ook de regels die in de schone console verborgen zijn (maximaal 1500 in het geheugen).
+- Deze versie vereist een herstart.
+
 ## 2.52
 - Nieuwe interface: spelerskoppen die traag binnenkomen (vooral Bedrock-spelers) verschijnen nu wel. De spelerslijst werd elke seconde opnieuw opgebouwd, waardoor het laden van een kop steeds werd afgebroken. Nu wordt de lijst alleen opnieuw opgebouwd als er een speler bijkomt of weggaat; alleen de duur wordt bijgewerkt. Per speler wordt een kop ook maar één keer tegelijk gedownload. Mislukt een kop toch, dan staat er de beginletter en probeert het scherm het na 4 seconden nog eens.
 - Deze versie vereist een herstart.

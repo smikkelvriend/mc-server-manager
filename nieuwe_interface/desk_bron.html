@@ -172,7 +172,7 @@ function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HI
 function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
  while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
 V.con=()=>{$('view').innerHTML=`<div class="seg" style="align-self:flex-start"><button class="on" id="mLive" onclick="conMode(0)">Live console</button><button id="mSrch" onclick="conMode(1)">Logboek doorzoeken</button></div>
- <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="go('/api/clean',{on:this.checked})">schoon</label><div class="sp"></div>
+ <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="setClean(this.checked)">schoon</label><div class="sp"></div>
  <input id="cfilter" placeholder="Filter…" style="width:180px" oninput="refilter()"></div><div class="log" id="con"></div>
  <form onsubmit="return send('cmd')"><span>&gt;</span><input id="cmd" placeholder="Typ een commando. Tab vult aan, pijltje omhoog haalt het vorige terug" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="cmdKey(event)"><button class="pri sm">Verstuur</button></form></div></div>
  <div id="conSrch" style="display:none;flex-direction:column;gap:12px;flex:1;min-height:0"></div>`;LOG.forEach(addLine);$('cmd').focus()};
@@ -302,9 +302,11 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
  if(tab=='pl')plOnline();
- if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=!!j.clean}
+ if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=CLEAN==null?!!j.clean:CLEAN}
 /* ---------- poll ---------- */
-async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;fails=0;poll.off=0;$('off').style.display='none';
+let CLEAN=null;
+function setClean(on){CLEAN=on;go('/api/clean',{on});since=0;LOG=[];const c=$('con');if(c)c.innerHTML='';setTimeout(poll,100)}
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
  draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
