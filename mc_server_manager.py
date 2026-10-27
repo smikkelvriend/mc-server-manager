@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.57"
+APP_VERSION = "2.58"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.58 - Tabblad Updates duidelijker: je ziet dat er gezocht wordt (draaiende indicator en een balk met percentage tijdens het downloaden) en het installeren heeft een voortgangsbalk met stappen (reservekopie, server veilig stoppen, herstarten). Staat het scherm al op dat tabblad, dan komt er geen apart venster meer bij. Plugin installeren: kies nu 'Later laden', 'Hot-loaden (eigen risico, via PlugManX)' of 'Server herstarten'.
 2.57 - Na een update laadt het open venster zichzelf nu opnieuw (het bleef de oude schermcode draaien, waardoor nieuwe functies niet werkten). Een venster met oude code wordt geweigerd; het nieuwe programma opent dan zelf een vers venster. Het zwarte consolevenster op de achtergrond is weg: start je het programma met python.exe, dan herstart het zichzelf direct zonder venster (pythonw.exe).
 2.56 - Updates worden niet meer "zonder herstart" toegepast: het programma herstart zichzelf na het installeren.
 2.55 - Fix: plugins zoeken in de nieuwe interface (en op de telefoon) laadde de pagina opnieuw in plaats van te zoeken. Het zoekformulier wordt nu niet meer verstuurd.
@@ -1288,13 +1289,17 @@ def github_head_sha(owner, repo):
         return None
 
 
-def fetch_update(url):
-    """Haalt het nieuwste programmabestand op en controleert of het een geldig, compleet bestand is."""
+def fetch_update(url, progress=None):
+    """Haalt het nieuwste programmabestand op en controleert of het een geldig, compleet bestand is.
+    progress(fractie 0..1, tekst) wordt tijdens het ophalen aangeroepen (voor de voortgangsbalk)."""
+    pr = progress or (lambda f, t: None)
+    pr(0.05, "Verbinding maken met de update-bron…")
     cands = update_candidates(url)
     if not cands:
         raise ValueError("Geen geldige update-link: gebruik een https-link.")
     gm = re.fullmatch(r"https://github\.com/([\w.\-]+)/([\w.\-]+?)(?:\.git)?/?", (url or "").strip())
     if gm:  # exacte laatste commit opvragen: een bestand op commit-adres kan nooit verouderd uit de cache komen
+        pr(0.1, "Nieuwste versie opvragen bij GitHub…")
         sha = github_head_sha(gm.group(1), gm.group(2))
         if sha:
             cands.insert(0, f"https://raw.githubusercontent.com/{gm.group(1)}/{gm.group(2)}/{sha}/mc_server_manager.py")
@@ -1305,8 +1310,22 @@ def fetch_update(url):
             if "raw.githubusercontent.com" in cand:  # voorkomt dat een oude kopie uit de cache komt
                 full += ("&" if "?" in cand else "?") + f"_={int(time.time())}"
             req = urllib.request.Request(full, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
+            pr(0.2, "Bestand downloaden…")
             with urllib.request.urlopen(req, timeout=max(30, NET_TIMEOUT)) as r:
-                text = r.read(8000000).decode("utf-8")
+                try:
+                    total = int(r.headers.get("Content-Length") or 0)
+                except ValueError:
+                    total = 0
+                buf, got = [], 0
+                while got < 8000000:
+                    chunk = r.read(65536)
+                    if not chunk:
+                        break
+                    buf.append(chunk)
+                    got += len(chunk)
+                    pr(0.2 + 0.65 * (min(1.0, got / total) if total else 0.5), f"Downloaden… {got // 1024} kB" + (f" van {total // 1024} kB" if total else ""))
+                text = b"".join(buf).decode("utf-8")
+            pr(0.9, "Bestand controleren…")
             v = re.search(r'^APP_VERSION\s*=\s*"([0-9][0-9.]*)"', text, re.M)
             if not v or "class App(tk.Tk)" not in text:
                 raise ValueError("Dit lijkt niet op een MC Server Manager-bestand.")
@@ -5558,6 +5577,11 @@ canvas.big{flex:1;min-height:0;width:100%;display:block}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-top:1px solid var(--b);text-align:left}th{color:var(--m);font-weight:600;border:0}td.n,th.n{text-align:right}
 .seg{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:var(--in)}.seg button{border:0;background:transparent;color:var(--m);padding:4px 12px;font-size:12px;border-radius:6px}.seg button.on{background:#242c37;color:#fff}
 #busy{height:3px;background:#1c232b;border-radius:3px;overflow:hidden;flex:none}#busy i{display:block;height:100%;background:var(--bl);transition:width .4s}
+.ubox{border:1px solid var(--b2);background:var(--in);border-radius:12px;padding:16px 18px;margin:14px 0}.ubox.chk{border-color:#2d4a78}.ubox.ins{border-color:#2f6b52}.ubox.err{border-color:var(--rbd);background:var(--rb)}
+.ubox .uh{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600}.ubox .um{color:var(--m2);font-size:13px;margin-top:6px;min-height:18px}
+.ubar{height:12px;border-radius:7px;background:#1c232b;overflow:hidden;margin-top:12px}.ubar i{display:block;height:100%;width:0;border-radius:7px;background:linear-gradient(90deg,var(--a),var(--bl));transition:width .5s ease}.ubox.ins .ubar i{background:linear-gradient(90deg,#1fa974,var(--g))}
+.ubar.ind i{width:35%!important;animation:ind 1.2s infinite ease-in-out}.upct{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--m2);font-weight:500}
+.spin{width:18px;height:18px;border-radius:50%;border:3px solid #2d4a78;border-top-color:var(--bl);animation:rot .8s linear infinite;flex:none}@keyframes rot{to{transform:rotate(360deg)}}
 #busy.ind i{width:40%!important;animation:ind 1.2s infinite ease-in-out}@keyframes ind{0%{margin-left:-40%}100%{margin-left:100%}}
 #toast{position:fixed;right:24px;bottom:24px;max-width:420px;background:#2b3440;border:1px solid var(--b2);padding:12px 16px;border-radius:12px;display:none;z-index:30;box-shadow:0 8px 30px #000a}
 #dlg{position:fixed;inset:0;background:#000b;z-index:40;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:460px;width:100%;white-space:pre-wrap}
@@ -5592,6 +5616,8 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;',
 function toast(t,ms=4500){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
 function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';
  for(const [t,v,c] of [[no,false,''],[yes,true,'pri']]){const b=document.createElement('button');b.textContent=t;b.className=c;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
+function choose(msg,opts){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';$('dbtn').style.flexWrap='wrap';
+ for(const [t,v,c,dis] of opts){const b=document.createElement('button');b.textContent=t;b.className=c||'';if(dis)b.disabled=true;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
 async function api(p,b){let r;try{r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}})}catch(e){toast('Geen verbinding met het programma');throw e}
  if(r.status==401){$('off').style.display='flex';$('off').firstChild.textContent='Open dit scherm via de knop "Nieuwe interface" in het programma.';throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
 const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.msg);return j}catch(e){return null}};
@@ -5715,9 +5741,11 @@ async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres
  const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
  $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
 async function pInst(idx){const j=await go('/api/plugins/install',{idx});if(!j||!j.plan_id)return;
- if(!await ask('Dit wordt geïnstalleerd:\n\n'+j.lines.join('\n')+(j.running?'\n\nDe server draait. Na het installeren kun je hem herstarten.':'')))return;
- let restart=false;if(j.running)restart=await ask('Server nu herstarten zodat de plugin geladen wordt?','Ja, herstart','Later');
- await go('/api/plugins/install',{plan_id:j.plan_id,restart});setTimeout(()=>V.plug(),1500)}
+ const txt='Dit wordt geïnstalleerd:\n\n'+j.lines.join('\n');let mode='later';
+ if(j.running){mode=await choose(txt+'\n\nDe server draait. Een nieuwe plugin wordt pas gebruikt na laden. Hot-loaden (PlugManX) kan zonder herstart, maar op eigen risico: sommige plugins laden half of lopen vast.'+(j.plm?'':'\n\nHot-loaden kan nu niet: PlugManX staat niet op je server.'),
+   [['Annuleren',false],['Later laden','later'],['Hot-loaden (eigen risico)','hot','',!j.plm],['Server herstarten','restart','pri']]);if(!mode)return}
+ else if(!await ask(txt))return;
+ await go('/api/plugins/install',{plan_id:j.plan_id,mode});setTimeout(()=>V.plug(),1500)}
 /* ---------- Updates ---------- */
 V.upd=async()=>{$('view').innerHTML='<div class="card" id="u1">Laden…</div><div class="card" id="u2"></div>';cur.t=setInterval(updRender,3000);cur.stop=()=>clearInterval(cur.t);updRender()};
 async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))return;
@@ -5833,20 +5861,27 @@ function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enable
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
 /* ---------- Programma-updates ---------- */
-V.upd=()=>{$('view').innerHTML='<div class="two"><div class="card" id="pu1">Laden…</div><div class="card" id="pu2"></div></div>';cur.t=setInterval(progLoad,4000);cur.stop=()=>clearInterval(cur.t);progLoad()};
-async function progLoad(){const j=await go('/api/program');if(!j||!$('pu1'))return;
- $('pu1').innerHTML=`<h3>MC Server Manager</h3><div style="font-size:28px;font-weight:600">Versie ${esc(j.version)}</div>`+
+V.upd=()=>{$('view').innerHTML='<div class="two"><div class="card" id="pu1"><h3>MC Server Manager</h3><div style="font-size:28px;font-weight:600">Versie '+esc(S.version||PV)+'</div><div id="ustat"></div><div id="uinfo" class="mut">Laden…</div></div><div class="card" id="pu2"></div></div>';cur.t=setInterval(progLoad,4000);cur.stop=()=>clearInterval(cur.t);cur.rev=-1;progLoad();progBar()};
+function progBar(){const e=$('ustat');if(!e)return;const u=S.upd||{phase:'idle'};const key=u.phase+'|'+u.pct+'|'+u.msg+'|'+u.err;if(cur.ukey===key)return;cur.ukey=key;
+ if(cur.rev!==u.rev){cur.rev=u.rev;if(u.phase=='idle'||u.phase=='error')progLoad()}
+ const bar=(ind)=>`<div class="ubar${ind?' ind':''}"><i style="width:${u.pct}%"></i></div>`;
+ if(u.phase=='check')e.innerHTML=`<div class="ubox chk"><div class="uh"><span class="spin"></span>Zoeken naar updates…<span class="upct">${u.pct>3?u.pct+'%':''}</span></div>${bar(u.pct<=3)}<div class="um">${esc(u.msg)}</div></div>`;
+ else if(u.phase=='install')e.innerHTML=`<div class="ubox ins"><div class="uh"><span class="spin" style="border-color:#1d4a38;border-top-color:var(--g)"></span>Update installeren…<span class="upct">${u.pct}%</span></div>${bar(false)}<div class="um">${esc(u.msg)}</div><div class="mut" style="font-size:12px;margin-top:4px">Sluit dit venster niet: het programma herstart zelf en dit scherm laadt daarna vanzelf opnieuw.</div></div>`;
+ else if(u.phase=='error')e.innerHTML=`<div class="ubox err"><div class="uh" style="color:var(--r)">${WARNI} Het is niet gelukt</div><div class="um" style="color:var(--r)">${esc(u.err)}</div></div>`;
+ else e.innerHTML=''}
+async function progLoad(){const j=await go('/api/program');if(!j||!$('uinfo'))return;const act=S.upd&&(S.upd.phase=='check'||S.upd.phase=='install');
+ $('uinfo').className='';$('uinfo').innerHTML=
   (j.new?`<div class="att"><span class="ic y">${WARNI}</span><span class="tx">Versie <b>${esc(j.new)}</b> is beschikbaar${j.hot?' (zonder herstart)':' (het programma herstart)'}</span></div>
-   <div class="mut" style="white-space:pre-wrap;font-size:13px">${esc(j.notes)}</div><div class="row" style="margin-top:6px"><button class="pri" onclick="progInst()">Nu installeren</button></div>`:
-   `<div class="att"><span class="ic">${OKI}</span><span class="tx">Je hebt de nieuwste versie${j.last?' (gecontroleerd '+ago(j.last)+')':''}</span></div>`)+
-  `<div class="row" style="margin-top:6px"><button onclick="progCheck()" ${j.busy?'disabled':''}>${j.busy?'Controleren…':'Zoek naar updates'}</button></div>`+
+   <div class="mut" style="white-space:pre-wrap;font-size:13px">${esc(j.notes)}</div><div class="row" style="margin-top:8px"><button class="pri" onclick="progInst()" ${act?'disabled':''}>Nu installeren</button></div>`:
+   `<div class="att"><span class="ic">${OKI}</span><span class="tx">Je hebt de nieuwste versie${j.last?' <span class="mut">(laatst gecontroleerd '+ago(j.last)+')</span>':''}</span></div>`)+
+  `<div class="row" style="margin-top:8px"><button onclick="progCheck()" ${act||j.busy?'disabled':''}>Zoek naar updates</button></div>`+
   (j.frozen?'<div class="mut" style="font-size:12px">Je draait de .exe: automatisch bijwerken werkt alleen met het .py-bestand.</div>':'')+
   (j.url?'':'<div class="yel" style="font-size:13px;margin-top:6px">Er is nog geen update-link ingesteld (klassiek scherm: Instellingen, Programma-update).</div>');
  $('pu2').innerHTML=`<h3>Instellingen</h3><label class="lab"><span>Automatisch zoeken naar updates</span><input type="checkbox" ${j.check?'checked':''} onchange="setSet('selfupdate_check',this.checked)"></label>
   <label class="lab"><span>Updates automatisch installeren</span><input type="checkbox" ${j.auto?'checked':''} onchange="setSet('selfupdate_auto',this.checked)"></label>
   <div class="mut" style="font-size:12px;word-break:break-all">${j.url?'Bron: '+esc(j.url):''}</div><h3 style="margin-top:14px">Recent veranderd</h3>`+j.hist.map(l=>`<div class="li"><div style="white-space:normal;font-size:13px">${esc(l)}</div></div>`).join('')}
-async function progCheck(){await go('/api/selfupdate',{action:'check'},'Controleren…');setTimeout(progLoad,2500);setTimeout(progLoad,6000)}
-async function progInst(){if(!await ask('Het programma updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'},'Bezig…')}
+async function progCheck(){await go('/api/selfupdate',{action:'check'});setTimeout(poll,150);setTimeout(poll,500)}
+async function progInst(){if(!await ask('Het programma updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'});S.upd={phase:'install',pct:3,msg:'Starten…',rev:-2};cur.ukey=null;progBar();setTimeout(poll,200)}
 /* ---------- Instellingen ---------- */
 async function sleepAuto(){const on=!$('swSleep').classList.contains('on');$('swSleep').classList.toggle('on',on);await go('/api/sleep',{action:'auto',on});setTimeout(poll,300)}
 async function sleepBtn(){if(S.sleep&&S.sleep.sleeping){await go('/api/sleep',{action:'wake'});setTimeout(poll,800)}else sleepNow()}
@@ -5911,10 +5946,10 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
 /* ---------- poll ---------- */
 let CLEAN=null;
 function setClean(on){CLEAN=on;go('/api/clean',{on});since=0;LOG=[];const c=$('con');if(c)c.innerHTML='';setTimeout(poll,100)}
-async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?pv=${PV}&since=${since}&nsince=${nsince}&asince=${asince}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));if(j.version&&j.version!==PV){location.reload();return}S=j;fails=0;poll.off=0;$('off').style.display='none';
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?pv=${PV}&since=${since}&nsince=${nsince}&asince=${asince}&tab=${tab}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));if(j.version&&j.version!==PV){location.reload();return}S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
- draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
+ draw();if(tab=='upd')progBar();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent=(S.upd&&S.upd.phase=='install'&&S.upd.pct>=80)?'Het programma herstart met de nieuwe versie… dit scherm laadt vanzelf opnieuw.':'Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
 build();poll();setInterval(poll,1000);window.addEventListener('resize',()=>{if(S.stats)draw()});
 </script></body></html>
 """
@@ -5968,6 +6003,8 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;',
 function toast(t,ms=4000){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
 function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';
  for(const [t,v,c] of [[no,false,''],[yes,true,'pri']]){const b=document.createElement('button');b.textContent=t;b.className=c;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
+function choose(msg,opts){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';$('dbtn').style.flexWrap='wrap';
+ for(const [t,v,c,dis] of opts){const b=document.createElement('button');b.textContent=t;b.className=c||'';if(dis)b.disabled=true;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
 async function api(p,b){let r;try{r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}})}catch(e){toast('Geen verbinding met de pc');throw e}
  if(r.status==401){show(false);throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
 const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.msg);return j}catch(e){return null}};
@@ -6031,9 +6068,11 @@ async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres
  const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
  $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
 async function pInst(idx){const j=await go('/api/plugins/install',{idx});if(!j||!j.plan_id)return;
- if(!await ask('Dit wordt geïnstalleerd:\n\n'+j.lines.join('\n')+(j.running?'\n\nDe server draait. Na het installeren kun je hem herstarten.':'')))return;
- let restart=false;if(j.running)restart=await ask('Server nu herstarten zodat de plugin geladen wordt?','Ja, herstart','Later');
- await go('/api/plugins/install',{plan_id:j.plan_id,restart});setTimeout(()=>V.plug(),1500)}
+ const txt='Dit wordt geïnstalleerd:\n\n'+j.lines.join('\n');let mode='later';
+ if(j.running){mode=await choose(txt+'\n\nDe server draait. Een nieuwe plugin wordt pas gebruikt na laden. Hot-loaden (PlugManX) kan zonder herstart, maar op eigen risico: sommige plugins laden half of lopen vast.'+(j.plm?'':'\n\nHot-loaden kan nu niet: PlugManX staat niet op je server.'),
+   [['Annuleren',false],['Later laden','later'],['Hot-loaden (eigen risico)','hot','',!j.plm],['Server herstarten','restart','pri']]);if(!mode)return}
+ else if(!await ask(txt))return;
+ await go('/api/plugins/install',{plan_id:j.plan_id,mode});setTimeout(()=>V.plug(),1500)}
 /* ---------- Updates ---------- */
 V.upd=async()=>{$('main').innerHTML='<div class="card" id="u1">Laden…</div><div class="card" id="u2"></div>';cur.t=setInterval(updRender,3000);cur.stop=()=>clearInterval(cur.t);updRender()};
 async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))return;
@@ -6211,6 +6250,7 @@ class RemoteServer:
         self.sessions = {}
         self.desk_only, self.port = False, 0
         self.bye_t, self.last_poll = 0.0, 0.0
+        self.desk_tab = ("", 0.0)
         self.desk_token = secrets.token_urlsafe(18)
         self.desk_cookie = ""      # vaste sessiesleutel (alleen voor het eigen scherm): een open venster blijft na een herstart gewoon werken
         self.fails = {}
@@ -6365,8 +6405,11 @@ class RemoteServer:
             if pv != APP_VERSION:
                 return 200, {"version": APP_VERSION}           # nieuwere schermcode kent dit antwoord en laadt zichzelf opnieuw
         self.last_poll = time.time()
+        if self.desk_only:
+            self.desk_tab = ((q.get("tab") or [""])[0], self.last_poll)
         with self.lock:
             snap = dict(self.snap)
+            snap["upd"] = dict(getattr(self.app, "_upd_st", None) or {})
             snap["now"] = self.last_poll      # tijd van de server, zodat de grafiek in het scherm op de seconde kan meelopen
             cl = q.get("clean", [None])[0]
             clean = bool(self.snap.get("clean")) if cl is None else cl == "1"
@@ -6528,13 +6571,22 @@ class RemoteServer:
             done = install_plan(plan, pdir)
             self.call_main(lambda: (self.app.log("Geïnstalleerd (telefoon): " + ", ".join(done), "ok"), t.refresh()))
             run = self.call_main(lambda: self.app.srv_running())
-            if run:
-                self.call_main(lambda: t._apply_changes(done), auto=True, answer=bool(body.get("restart", False)))
-            return 200, {"ok": True, "msg": "Geïnstalleerd: " + ", ".join(done), "running": run}
+            mode = body.get("mode") or ("restart" if body.get("restart") else "later")
+            extra = ""
+            if run and mode == "hot":
+                ok = self.call_main(lambda: t._plm_load([f[:-4] if f.lower().endswith(".jar") else f for f in done]), auto=True)
+                extra = " Direct geladen met PlugManX (kijk in de console of het gelukt is)." if ok else " Direct laden kon niet (PlugManX ontbreekt?); herstart de server om de plugin te laden."
+            elif run and mode == "restart":
+                self.call_main(lambda: self.app.srv_stop(restart=True), auto=True)
+                extra = " De server herstart."
+            elif run:
+                extra = " De plugin wordt geladen na de volgende herstart."
+            return 200, {"ok": True, "msg": "Geïnstalleerd: " + ", ".join(done) + "." + extra, "running": run}
         try:
             r = self.results[int(body.get("idx"))]
         except (TypeError, ValueError, IndexError):
             return 400, {"error": "Zoek eerst opnieuw"}
+        pdir_ = os.path.join(self.folder(), "plugins")
         mc, loaders, names, unstable = self.call_main(lambda: (t._mc(), t._loaders(), t._installed_names() or [], self.app.unstable_var.get()))
         plan, notes = plan_install(r, mc, loaders, names, unstable)
         pid = secrets.token_urlsafe(8)
@@ -6545,7 +6597,8 @@ class RemoteServer:
                          + (" ⚠ niet bevestigd voor jouw Minecraft-versie" if mc and not p.get("verified", True) else ""))
         if any(p.get("vtype") not in (None, "release") for p in plan):
             lines.append("Let op: er is alleen een bèta/alpha-versie.")
-        return 200, {"plan_id": pid, "lines": lines + notes, "running": self.call_main(lambda: self.app.srv_running())}
+        return 200, {"plan_id": pid, "lines": lines + notes, "running": self.call_main(lambda: self.app.srv_running()),
+                     "plm": bool(self.call_main(lambda: plugman_name(t.items.values()) if t.items else plugman_name(scan_plugins(pdir_)))) }
 
     # --- updates ---
     def api_updates(self, q, body):
@@ -6606,7 +6659,13 @@ class RemoteServer:
         if body.get("action") == "check":
             self.call_main(lambda: a.selfupdate_check(True), auto=True)
         elif body.get("action") == "install":
-            self.call_main(a.selfupdate_install, auto=True, answer=True)
+            # op de achtergrond: het stoppen van de server en het herstarten duren te lang om op te wachten; de voortgang zie je via /api/state
+            def run():
+                try:
+                    self.call_main(lambda: a.selfupdate_install(confirm=False), timeout=400, auto=True, answer=True)
+                except Exception:
+                    pass
+            threading.Thread(target=run, daemon=True).start()
         return 200, {"ok": True}
 
     # --- bereikbaarheid ---
@@ -8587,6 +8646,8 @@ class App(tk.Tk):
         self.reach_auto_var = tk.BooleanVar(value=bool(c.get("reach_auto", False)))
         self._net_busy, self._net_img = False, None
         self._temp_busy = self._temp_warned = self._upd_busy = False
+        self._upd_st = {"phase": "idle", "pct": 0, "msg": "", "err": "", "rev": 0}
+        self._upd_t0 = 0
         self._temp_fail, self._upd, self._upd_prompted = 0, None, None
         self.sv_lbl = {}
 
@@ -9599,9 +9660,12 @@ class App(tk.Tk):
         self.srv_send("stop", echo=False)
         end = time.time() + int(self.cfg.get("stop_timeout", 60))
         last_nl = time.time()
+        t0 = time.time()
         while self.srv_running() and time.time() < end:
             self.update()
             time.sleep(0.1)
+            if (getattr(self, "_upd_st", None) or {}).get("phase") == "install":
+                self._ust("install", 50 + 30 * (1 - 2.718 ** (-(time.time() - t0) / 8)), "Server veilig stoppen (de wereld wordt opgeslagen)…")
             if time.time() - last_nl > 6:  # voor startbestanden die eindigen met 'pause'
                 last_nl = time.time()
                 self.srv_send("", echo=False)
@@ -10849,20 +10913,40 @@ class App(tk.Tk):
                 and self.cfg.get("selfupdate_check", True) and (self.cfg.get("update_url") or "").strip():
             self.selfupdate_check()
 
+    def _ust(self, phase, pct=0, msg="", err=""):
+        """Voortgang van zoeken/installeren van een programma-update, voor de balk in het nieuwe scherm (mag vanuit elke thread)."""
+        old = getattr(self, "_upd_st", None) or {}
+        self._upd_st = {"phase": phase, "pct": max(0, min(100, int(pct))), "msg": msg, "err": err, "rev": old.get("rev", 0) + 1}
+
+    def _desk_on_upd(self):
+        """Staat het nieuwe scherm nu open op het tabblad Updates? Dan hoeven er geen losse meldingen bij."""
+        try:
+            t, ts = self.desk.desk_tab
+            return t == "upd" and time.time() - ts < 6
+        except Exception:
+            return False
+
     def selfupdate_check(self, manual=False):
         url = (self.cfg.get("update_url") or "").strip()
         if not url:
             if manual:
-                messagebox.showinfo(APP_NAME, "Vul eerst een update-link in bij Instellingen → Programma-update.")
+                if self._desk_on_upd():
+                    self._ust("error", 0, "", "Er is nog geen update-link ingesteld (klassiek scherm: Instellingen, Programma-update).")
+                else:
+                    messagebox.showinfo(APP_NAME, "Vul eerst een update-link in bij Instellingen → Programma-update.")
             return
         if self._upd_busy:
             return
         self._upd_busy = True
         self._upd_last = time.time()
+        self._upd_t0 = time.time()
+        self._ust("check", 2, "Zoeken naar updates…")
 
         def work():
             try:
-                self.q.put(("selfupd", fetch_update(url), None, manual))
+                def pr(f, t):
+                    self._ust("check", 100 * f, t)
+                self.q.put(("selfupd", fetch_update(url, pr), None, manual))
             except Exception as e:
                 self.q.put(("selfupd", None, describe_net_error(e), manual))
 
@@ -10870,13 +10954,20 @@ class App(tk.Tk):
 
     def _selfupd_result(self, info, err, manual):
         self._upd_busy = False
+        on_tab = self._desk_on_upd()
+        # de balk blijft minstens even zichtbaar, zodat je ziet dat er echt gezocht is
+        wait = max(0, int((1.6 - (time.time() - getattr(self, "_upd_t0", 0))) * 1000))
+        rev = (self._upd_st or {}).get("rev")
+        done = lambda: self._ust("idle", 100, "") if (self._upd_st or {}).get("rev", 0) <= (rev or 0) + 1 else None
         if err:
             if manual or not getattr(self, "_upd_err_logged", False):
                 self.log(f"Programma-update controleren mislukt: {err}", "warn")
             self._upd_err_logged = True
-            if manual:
+            self.after(wait, lambda: self._ust("error", 0, "", err))
+            if manual and not on_tab:
                 messagebox.showwarning(APP_NAME, f"Controleren op een programma-update is mislukt:\n{err}")
             return
+        self.after(wait, done)
         if not is_newer(info["version"], APP_VERSION):
             self._upd = None
             self.btn_selfupd.pack_forget()
@@ -10884,7 +10975,7 @@ class App(tk.Tk):
             if manual or not getattr(self, "_upd_uptodate_logged", False):
                 self.log(f"Het programma is up-to-date (versie {APP_VERSION}).", "ok")
                 self._upd_uptodate_logged = True
-            if manual:
+            if manual and not on_tab:
                 messagebox.showinfo(APP_NAME, f"Je hebt de nieuwste versie ({APP_VERSION}).")
             return
         self._upd = info
@@ -10896,9 +10987,12 @@ class App(tk.Tk):
             self._upd_notified = info["version"]
             self.tab_beheer.notify("notify_update", "Update beschikbaar", f"MC Server Manager {info['version']} is beschikbaar.")
         if self.cfg.get("selfupdate_auto") and not manual:
-            self.selfupdate_install()
+            self.selfupdate_install(confirm=not on_tab)
         elif manual or self._upd_prompted != info["version"]:
-            self._selfupd_ask()
+            if on_tab:
+                self._upd_prompted = info["version"]      # je kijkt er al naar: geen apart venster
+            else:
+                self._selfupd_ask()
 
     def _hot_ok(self, info):
         """Kan deze update zonder herstart? (alleen als het .py-bestand draait en de code-vergelijking dat toestaat)"""
@@ -10928,20 +11022,25 @@ class App(tk.Tk):
                                          + (notes + "\n\n" if notes else "") + tail + "Nu installeren?"):
             self.selfupdate_install()
 
-    def selfupdate_install(self):
+    def selfupdate_install(self, confirm=True):
         info = self._upd
         if not info:
             return
+        self._ust("install", 5, "Update voorbereiden…")
         if getattr(sys, "frozen", False):
             messagebox.showinfo(APP_NAME, "Automatisch bijwerken werkt alleen als je het .py-bestand draait. Download het "
                                           "nieuwe bestand en bouw de .exe opnieuw.")
             return
         script = os.path.abspath(__file__)
+        self._ust("install", 20, "Reservekopie van de huidige versie maken…")
         try:
             bak = install_update_file(script, info["text"], os.path.join(app_dir(), "programma_backups"), APP_VERSION)
         except OSError as e:
-            messagebox.showerror(APP_NAME, f"Installeren van de update is mislukt:\n{e}")
+            self._ust("error", 0, "", f"Installeren van de update is mislukt: {e}")
+            if not self._desk_on_upd():
+                messagebox.showerror(APP_NAME, f"Installeren van de update is mislukt:\n{e}")
             return
+        self._ust("install", 45, f"Versie {info['version']} is opgeslagen")
         self._upd = None
         self.btn_selfupd.pack_forget()
         notes = changelog_since(info["text"], APP_VERSION)
@@ -10963,17 +11062,26 @@ class App(tk.Tk):
                 return
             except Exception as e:  # noqa
                 self.log(f"Direct toepassen mislukt ({e}); herstart het programma om de nieuwe versie te gebruiken.", "warn")
-        if messagebox.askyesno(APP_NAME, f"Versie {info['version']} is geïnstalleerd.\n\n"
+        if not confirm or messagebox.askyesno(APP_NAME, f"Versie {info['version']} is geïnstalleerd.\n\n"
                                          + (f"Wat is er nieuw:\n{notes}\n\n" if notes else "") + "Nu herstarten om hem te gebruiken?"
                                          + ("\n(De server wordt eerst veilig gestopt.)" if self.srv_running() else "")):
             self._restart_self()
+        else:
+            self._ust("idle", 100, "")
 
     def _restart_self(self):
         if self.srv_running():
+            self._ust("install", 50, "Server veilig stoppen (de wereld wordt opgeslagen)…")
             self._stop_blocking()
+        self._ust("install", 85, "Instellingen en grafieken opslaan…")
         self._cleanup_tmp()
         self._save_cfg()
         self._wake_stop()
+        self._ust("install", 95, "Nieuwe versie starten… dit scherm laadt vanzelf opnieuw")
+        t_end = time.time() + 1.6
+        while time.time() < t_end:      # even wachten, zodat het scherm dit nog te zien krijgt
+            self.update()
+            time.sleep(0.05)
         for r in (self.desk, self.remote):      # poorten vrijmaken, zodat het nieuwe programma ze meteen kan gebruiken
             try:
                 r.stop()

@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.58
+- Tabblad **Updates** is duidelijker: bij het zoeken zie je een draaiende indicator en een balk met het percentage van het downloaden (en minstens een paar tellen zichtbaar, zodat je ziet dat hij echt zoekt). Bij installeren staat er een voortgangsbalk met de stappen: reservekopie maken, nieuwe versie opslaan, server veilig stoppen, instellingen opslaan en herstarten. Een mislukte poging toont de reden op de pagina.
+- Sta je al op het tabblad Updates, dan komt er geen apart venster meer met 'nieuwe versie beschikbaar', 'up-to-date' of 'herstarten?'.
+- Plugin installeren terwijl de server draait: je kiest nu tussen **Later laden**, **Hot-loaden (op eigen risico, via PlugManX)** en **Server herstarten**. Hot-loaden is uitgeschakeld als PlugManX niet op je server staat.
+- Deze versie vereist een herstart.
+
 ## 2.57
 - Fix: na een update werkte een openstaand venster nog met de oude schermcode, waardoor de nieuwe functies niet werkten tot je zelf herstartte. Het scherm kent nu zijn versie: ziet het dat het programma nieuwer is, dan laadt het zichzelf automatisch opnieuw. Een venster van vóór deze versie (zonder die controle) wordt door het programma geweigerd, en het nieuwe programma opent een vers venster.
 - Fix: het zwarte cmd-venster op de achtergrond is weg. Het programma start zichzelf bij het opstarten opnieuw zonder console (via pythonw) en sluit het consolevenster.
