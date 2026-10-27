@@ -53,12 +53,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.55"
+APP_VERSION = "2.57"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.57 - Na een update laadt het open venster zichzelf nu opnieuw (het bleef de oude schermcode draaien, waardoor nieuwe functies niet werkten). Een venster met oude code wordt geweigerd; het nieuwe programma opent dan zelf een vers venster. Het zwarte consolevenster op de achtergrond is weg: start je het programma met python.exe, dan herstart het zichzelf direct zonder venster (pythonw.exe).
+2.56 - Updates worden niet meer "zonder herstart" toegepast: het programma herstart zichzelf na het installeren.
 2.55 - Fix: plugins zoeken in de nieuwe interface (en op de telefoon) laadde de pagina opnieuw in plaats van te zoeken. Het zoekformulier wordt nu niet meer verstuurd.
 2.54 - Opstarten en herstarten na een update: het klassieke venster verschijnt niet meer heel even bij het opstarten, de poorten worden bij het herstarten eerst vrijgegeven en het nieuwe programma wacht tot de poort vrij is in plaats van direct een ander adres te nemen.
 2.53 - Nieuwe interface: het vinkje Schoon in de console werkt nu ook op de regels die er al staan (die werden alleen voor nieuwe regels toegepast). Daarvoor bewaart het scherm ook de regels die in de schone console verborgen zijn.
@@ -5584,7 +5586,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 <div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
 <div id="off">Verbinding met het programma is weg.<br><span class="mut" style="font-size:13px">Is MC Server Manager nog open? Dit scherm verbindt vanzelf opnieuw.</span></div>
 <script>
-const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=(()=>{try{return localStorage.getItem('dtab')||'ov'}catch(e){return'ov'}})(),LOG=[],cur={},LOG2=[],fails=0;
+const PV='@@APPV@@';const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=(()=>{try{return localStorage.getItem('dtab')||'ov'}catch(e){return'ov'}})(),LOG=[],cur={},LOG2=[],fails=0;
 const hd=(n,t)=>'/head/'+encodeURIComponent(n)+'?t='+encodeURIComponent(t||'');
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 function toast(t,ms=4500){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
@@ -5909,7 +5911,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
 /* ---------- poll ---------- */
 let CLEAN=null;
 function setClean(on){CLEAN=on;go('/api/clean',{on});since=0;LOG=[];const c=$('con');if(c)c.innerHTML='';setTimeout(poll,100)}
-async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));S=j;fails=0;poll.off=0;$('off').style.display='none';
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?pv=${PV}&since=${since}&nsince=${nsince}&asince=${asince}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));if(j.version&&j.version!==PV){location.reload();return}S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
  draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent='Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
@@ -6356,6 +6358,12 @@ class RemoteServer:
             except ValueError:
                 return 0
         since, ns, asn = n("since"), n("nsince"), n("asince")
+        if self.desk_only:
+            pv = (q.get("pv") or [""])[0]
+            if not pv:
+                return 401, {"error": "verouderd scherm"}      # venster met schermcode van vóór 2.57: kan zichzelf niet verversen, het nieuwe programma opent een vers venster
+            if pv != APP_VERSION:
+                return 200, {"version": APP_VERSION}           # nieuwere schermcode kent dit antwoord en laadt zichzelf opnieuw
         self.last_poll = time.time()
         with self.lock:
             snap = dict(self.snap)
@@ -6828,10 +6836,10 @@ class RemoteServer:
                         if tok and self.client_address[0] in ("127.0.0.1", "::1") and hmac.compare_digest(tok, outer.desk_token):
                             st = outer.desk_cookie or secrets.token_urlsafe(32)
                             outer.sessions[st] = time.time() + 30 * 86400
-                            return self._send(200, DESK_PAGE, "text/html",
+                            return self._send(200, DESK_PAGE.replace("@@APPV@@", APP_VERSION), "text/html",
                                               extra=[("Set-Cookie", f"mcsess={st}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
                         if self._authed():
-                            return self._send(200, DESK_PAGE, "text/html")
+                            return self._send(200, DESK_PAGE.replace("@@APPV@@", APP_VERSION), "text/html")
                         return self._send(401, "Open dit scherm via de knop 'Nieuwe interface' in het programma.", "text/plain")
                     if path == "/":
                         return self._send(200, REMOTE_PAGE, "text/html")
@@ -10894,6 +10902,9 @@ class App(tk.Tk):
 
     def _hot_ok(self, info):
         """Kan deze update zonder herstart? (alleen als het .py-bestand draait en de code-vergelijking dat toestaat)"""
+        if True:   # het scherm draait nu in een eigen venster met eigen code: een update werkt pas na een herstart
+            self._hot_why = "het scherm en de server-onderdelen zijn nieuw"
+            return False
         if getattr(sys, "frozen", False) or not getattr(self, "_src", None):
             return False
         try:
@@ -11902,7 +11913,28 @@ def hide_own_console():
         pass
 
 
+def relaunch_without_console():
+    """Draaien we met python.exe en een zwart consolevenster, start dan opnieuw met pythonw.exe (zonder venster) en stop."""
+    if os.name != "nt" or getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+        if not ctypes.windll.kernel32.GetConsoleWindow():
+            return
+        pw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if not os.path.isfile(pw):
+            return
+        subprocess.Popen([pw, os.path.abspath(__file__)] + sys.argv[1:], cwd=app_dir(), close_fds=True,
+                         creationflags=0x00000008 | 0x00000200)      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
+    relaunch_without_console()
     hide_own_console()
     try:
         import ctypes

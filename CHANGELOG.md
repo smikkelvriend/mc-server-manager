@@ -2,6 +2,16 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.57
+- Fix: na een update werkte een openstaand venster nog met de oude schermcode, waardoor de nieuwe functies niet werkten tot je zelf herstartte. Het scherm kent nu zijn versie: ziet het dat het programma nieuwer is, dan laadt het zichzelf automatisch opnieuw. Een venster van vóór deze versie (zonder die controle) wordt door het programma geweigerd, en het nieuwe programma opent een vers venster.
+- Fix: het zwarte cmd-venster op de achtergrond is weg. Het programma start zichzelf bij het opstarten opnieuw zonder console (via pythonw) en sluit het consolevenster.
+- Let op: bij de eerste update vanaf een oudere versie kan het oude venster nog even blijven staan; sluit die dan zelf. Daarna gaat het vanzelf.
+- Deze versie vereist een herstart.
+
+## 2.56
+- Updaten laadt de nieuwe code niet meer 'op de achtergrond' in: een update leidt altijd tot een volledige herstart, zodat scherm en server hetzelfde zijn.
+- Deze versie vereist een herstart.
+
 ## 2.55
 - Fix: plugins zoeken in de nieuwe interface (en in de telefoon-app) laadde de hele pagina opnieuw in plaats van te zoeken, waardoor je terug bovenaan stond zonder resultaten. Het zoekformulier wordt nu niet meer verstuurd.
 - Deze versie vereist een herstart.
