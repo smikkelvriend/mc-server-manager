@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.70
+- **Backuplijst netter:** elke backup toont nu één duidelijke tijd (*Vandaag 11:47*, *Gisteren 21:59*, *22 okt 14:06*) met de grootte en hoe lang geleden, in plaats van drie keer dezelfde datum en tijd. De bestandsnaam staat nog in de tooltip.
+- Fix: de **kaart op de telefoon** (en in het nieuwe scherm) kon blijvend zwarte stukken houden als een kaarttegel één keer niet laadde. Mislukte tegels worden nu opnieuw geprobeerd, en het programma haalt een tegel zelf nog een keer bij squaremap op en bewaart hem even.
+- Deze versie vereist een herstart.
+
 ## 2.69
 - **Voortgangsbalk bij het opstarten** van de server, met de geschatte resterende tijd (op de pc en op de telefoon). De schatting komt van de laatste opstarttijden van jouw server; de eerste keer rekent hij met 45 seconden.
 - Nieuwe optie bij Updates: **Server automatisch weer starten na een update**. Geldt voor Paper-updates, plugin-updates en programma-updates: draaide de server toen de update begon, dan start hij daarna vanzelf weer.

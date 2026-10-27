@@ -156,6 +156,9 @@ function skinHtml(n,t,cls){const L=esc((String(n).replace(/^\./,'')[0]||'?').toU
 function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
 const fb2=n=>n>1e9?(n/1e9).toFixed(1).replace('.',',')+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
 const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const dtF=t=>{const d=new Date(t*1000),n=new Date(),h=d.toLocaleTimeString('nl',{hour:'2-digit',minute:'2-digit'}),dd=Math.round((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(d.getFullYear(),d.getMonth(),d.getDate()))/864e5);
+ return (dd==0?'Vandaag':dd==1?'Gisteren':d.toLocaleDateString('nl',Object.assign({day:'numeric',month:'short'},d.getFullYear()!=n.getFullYear()?{year:'numeric'}:{})))+' '+h};
+const bkAgo=ts=>{const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'};
 const OKI='<svg class="i" viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>',WARNI='<svg class="i" viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>';
 /* ---------- Overzicht ---------- */
 V.ov=()=>{$('view').innerHTML=`<section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen <b id="lgRam" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f5a524"></i>Processor <b id="lgCpu" style="color:var(--t)"></b></span><span class="leg"><i style="background:#3ddc97"></i>TPS <b id="lgTps" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f87171"></i>Temperatuur <b id="lgTmp" style="color:var(--t)"></b></span></h3><canvas class="big" id="cBig"></canvas></div>

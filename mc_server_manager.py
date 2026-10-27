@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.69"
+APP_VERSION = "2.70"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.70 - Backuplijst netter: elke backup toont nu één duidelijke tijd (Vandaag 11:47, Gisteren 21:59, 22 okt 14:06) met grootte en hoe lang geleden, in plaats van drie keer dezelfde datum en tijd. De bestandsnaam staat nog in de tooltip. Fix: de kaart op de telefoon (en in het nieuwe scherm) kon blijvend zwarte stukken houden als een kaarttegel één keer niet geladen werd. Mislukte tegels worden nu opnieuw geprobeerd, en het programma probeert een tegel zelf nog een keer bij squaremap op te halen en bewaart hem even.
 2.69 - Voortgangsbalk bij het opstarten van de server, met de geschatte resterende tijd (op de pc en op de telefoon). De schatting komt van de laatste opstarttijden van jouw server; de eerste keer rekent hij met 45 seconden. Nieuwe optie bij Updates: 'Server automatisch weer starten na een update'. Geldt voor Paper-updates, plugin-updates en programma-updates: draaide de server toen de update begon, dan start hij daarna vanzelf weer.
 2.68 - Fix: een 'stop' terwijl de server nog aan het opstarten was gaf in Paper de foutmelding 'Command exception: /stop ... NullPointerException', waarna de server gewoon bleef draaien terwijl het programma op 'Stoppen…' bleef staan. Nu wacht het programma tot de server klaar is met opstarten en stopt hem dan; en als Paper het toch weigert, probeert het programma het tot drie keer opnieuw. Het antwoord op je eigen commando's in de schone console blijft nu 2 seconden zichtbaar (was 6).
 2.67 - Fix: bij automatisch installeren van een programma-update bleef de balk op 45% hangen. Het programma stelde een 'Nu herstarten?'-vraag in het verborgen hoofdvenster en wachtte daar eindeloos op. Nu wordt er met het nieuwe scherm niet meer gevraagd; als er spelers online zijn wacht de update tot de server leeg is (je krijgt daar een melding van) en installeert dan zelf. De schone console toont nu altijd het antwoord op commando's die je zelf intypt (bijvoorbeeld list of tps), ook als die regels normaal verborgen worden.
@@ -5676,6 +5677,9 @@ function skinHtml(n,t,cls){const L=esc((String(n).replace(/^\./,'')[0]||'?').toU
 function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
 const fb2=n=>n>1e9?(n/1e9).toFixed(1).replace('.',',')+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
 const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const dtF=t=>{const d=new Date(t*1000),n=new Date(),h=d.toLocaleTimeString('nl',{hour:'2-digit',minute:'2-digit'}),dd=Math.round((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(d.getFullYear(),d.getMonth(),d.getDate()))/864e5);
+ return (dd==0?'Vandaag':dd==1?'Gisteren':d.toLocaleDateString('nl',Object.assign({day:'numeric',month:'short'},d.getFullYear()!=n.getFullYear()?{year:'numeric'}:{})))+' '+h};
+const bkAgo=ts=>{const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'};
 const OKI='<svg class="i" viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>',WARNI='<svg class="i" viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>';
 /* ---------- Overzicht ---------- */
 V.ov=()=>{$('view').innerHTML=`<section class="mid"><div class="card"><h3>Belasting <span class="leg"><i style="background:#6ea8fe"></i>Geheugen <b id="lgRam" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f5a524"></i>Processor <b id="lgCpu" style="color:var(--t)"></b></span><span class="leg"><i style="background:#3ddc97"></i>TPS <b id="lgTps" style="color:var(--t)"></b></span><span class="leg"><i style="background:#f87171"></i>Temperatuur <b id="lgTmp" style="color:var(--t)"></b></span></h3><canvas class="big" id="cBig"></canvas></div>
@@ -5860,9 +5864,9 @@ V.plug=async()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;
 async function behB(){const j=await go('/api/backuper');if(!j||!$('bb'))return;cur.bk=j;cur.bsel=new Set();
  if(!j.jar){$('bb').innerHTML='Backuper staat niet in de plugins-map.';return}
  const tot=j.backups.reduce((a,b)=>a+b.size,0);
- $('bb').innerHTML=`<div>${esc(j.jar)}${j.disabled?' <span class="tag">uit</span>':''}</div><div class="mut" style="margin:4px 0">${j.backups.length} backups, ${fb2(tot)}${j.backups.length?' • laatste '+dt(j.backups[0].mtime):''}</div>
+ $('bb').innerHTML=`<div>${esc(j.jar)}${j.disabled?' <span class="tag">uit</span>':''}</div><div class="mut" style="margin:4px 0">${j.backups.length} backups, ${fb2(tot)}${j.backups.length?' • laatste '+dtF(j.backups[0].mtime).toLowerCase():''}</div>
  <div class="row" style="margin:8px 0"><button class="go sm" onclick="bkNow()">💾 Nu backup maken</button><button class="bad sm" onclick="bkDel()">Geselecteerde verwijderen</button></div>`+
- j.backups.slice(0,40).map((b,i)=>`<label class="li"><input type="checkbox" onchange="this.checked?cur.bsel.add(${i}):cur.bsel.delete(${i})"><div><b>${esc(b.name)}</b><small>${esc(b.storage)} • ${dt(b.mtime)} • ${fb2(b.size)}</small></div></label>`).join('')+
+ j.backups.slice(0,40).map((b,i)=>`<label class="li"><input type="checkbox" onchange="this.checked?cur.bsel.add(${i}):cur.bsel.delete(${i})"><div title="${esc(b.name)}"><b>${dtF(b.mtime)}</b><small>${fb2(b.size)} • ${bkAgo(b.mtime)}${new Set(j.backups.map(x=>x.storage)).size>1?' • '+esc(b.storage):''}</small></div></label>`).join('')+
  (j.has_config?`<h3 style="margin-top:14px">Instellingen van Backuper</h3>`+bkForm(j)+`<div class="row" style="margin-top:8px"><button class="sm pri" onclick="bkSave(false)">Opslaan</button><button class="sm warn" onclick="bkSave(true)">Opslaan en herstarten</button></div>`:'<div class="mut">Nog geen config.yml: start de server één keer.</div>')+
  `<h3 style="margin-top:14px">Backups van dit programma</h3>`+j.own.map(o=>`<div class="lab"><span>${esc(o.label)}</span><span class="mut" style="flex:none">${o.count} • ${fb2(o.size)}</span></div>`).join('')}
 const BKG={autoBackup:['bool','Automatisch backups maken'],autoBackupPeriod:['int','Interval (minuten)'],autoBackupCron:['str','Cron-planning']};
@@ -6249,13 +6253,16 @@ V.beh=()=>{$('main').innerHTML=`<div class="card"><h3>Spelers <button class="sm"
 <div class="card"><h3>Wereldgrootte <button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div>
 <div class="card"><h3>Backups (Backuper) <button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>`;behP();behT();behW();behB()};
 const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const dtF=t=>{const d=new Date(t*1000),n=new Date(),h=d.toLocaleTimeString('nl',{hour:'2-digit',minute:'2-digit'}),dd=Math.round((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(d.getFullYear(),d.getMonth(),d.getDate()))/864e5);
+ return (dd==0?'Vandaag':dd==1?'Gisteren':d.toLocaleDateString('nl',Object.assign({day:'numeric',month:'short'},d.getFullYear()!=n.getFullYear()?{year:'numeric'}:{})))+' '+h};
+const bkAgo=ts=>{const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'};
 const fb2=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
 async function behB(){const j=await go('/api/backuper');if(!j||!$('bb'))return;cur.bk=j;cur.bsel=new Set();
  if(!j.jar){$('bb').innerHTML='Backuper staat niet in de plugins-map.';return}
  const tot=j.backups.reduce((a,b)=>a+b.size,0);
- $('bb').innerHTML=`<div>${esc(j.jar)}${j.disabled?' <span class="tag">uit</span>':''}</div><div class="mut" style="margin:4px 0">${j.backups.length} backups, ${fb2(tot)}${j.backups.length?' • laatste '+dt(j.backups[0].mtime):''}</div>
+ $('bb').innerHTML=`<div>${esc(j.jar)}${j.disabled?' <span class="tag">uit</span>':''}</div><div class="mut" style="margin:4px 0">${j.backups.length} backups, ${fb2(tot)}${j.backups.length?' • laatste '+dtF(j.backups[0].mtime).toLowerCase():''}</div>
  <div class="row" style="margin:8px 0"><button class="go sm" onclick="bkNow()">💾 Nu backup maken</button><button class="bad sm" onclick="bkDel()">Geselecteerde verwijderen</button></div>`+
- j.backups.slice(0,40).map((b,i)=>`<label class="li"><input type="checkbox" onchange="this.checked?cur.bsel.add(${i}):cur.bsel.delete(${i})"><div><b>${esc(b.name)}</b><small>${esc(b.storage)} • ${dt(b.mtime)} • ${fb2(b.size)}</small></div></label>`).join('')+
+ j.backups.slice(0,40).map((b,i)=>`<label class="li"><input type="checkbox" onchange="this.checked?cur.bsel.add(${i}):cur.bsel.delete(${i})"><div title="${esc(b.name)}"><b>${dtF(b.mtime)}</b><small>${fb2(b.size)} • ${bkAgo(b.mtime)}${new Set(j.backups.map(x=>x.storage)).size>1?' • '+esc(b.storage):''}</small></div></label>`).join('')+
  (j.has_config?`<h3 style="margin-top:14px">Instellingen van Backuper</h3>`+bkForm(j)+`<div class="row" style="margin-top:8px"><button class="sm pri" onclick="bkSave(false)">Opslaan</button><button class="sm warn" onclick="bkSave(true)">Opslaan en herstarten</button></div>`:'<div class="mut">Nog geen config.yml: start de server één keer.</div>')+
  `<h3 style="margin-top:14px">Backups van dit programma</h3>`+j.own.map(o=>`<div class="lab"><span>${esc(o.label)}</span><span class="mut" style="flex:none">${o.count} • ${fb2(o.size)}</span></div>`).join('')}
 const BKG={autoBackup:['bool','Automatisch backups maken'],autoBackupPeriod:['int','Interval (minuten)'],autoBackupCron:['str','Cron-planning']};
@@ -7491,12 +7498,28 @@ class RemoteServer:
         return 200, {"ok": bool(ok), "msg": f"/{c} verstuurd, kijk in de console" if ok else "De server draait niet"}
 
     def map_tile(self, rest):
-        m = re.fullmatch(r"([\w.\-]{1,60})/(\d{1,2})/(-?\d{1,6})_(-?\d{1,6})\.png", rest)
+        m = re.fullmatch(r"([\w.\-]{1,60})/(\d{1,2})/(-?\d{1,6})_(-?\d{1,6})\.png", rest.split("?")[0])
         if not m:
             return 400, {"error": "ongeldig"}
-        data = self.app.tab_map._get(f"tiles/{m.group(1)}/{m.group(2)}/{m.group(3)}_{m.group(4)}.png")
+        path = f"tiles/{m.group(1)}/{m.group(2)}/{m.group(3)}_{m.group(4)}.png"
+        cache = self.__dict__.setdefault("_tile_cache", {})
+        hit = cache.get(path)
+        now = time.time()
+        if hit and now - hit[0] < 15:
+            return 200, "image/png", hit[1]
+        data = None
+        for attempt in range(2):        # squaremap antwoordt soms te traag als er veel tegels tegelijk worden opgevraagd
+            data = self.app.tab_map._get(path)
+            if data is not None:
+                break
+            time.sleep(0.3)
+        if data is None:
+            return 503, "text/plain", b""     # tijdelijk niet beschikbaar: het scherm probeert het zo opnieuw
         if not data:
             return 404, "text/plain", b""
+        if len(cache) > 300:
+            cache.clear()
+        cache[path] = (now, data)
         return 200, "image/png", data
 
     def api_map_info(self, q, body):
