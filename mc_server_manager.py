@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.54"
+APP_VERSION = "2.55"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.55 - Fix: plugins zoeken in de nieuwe interface (en op de telefoon) laadde de pagina opnieuw in plaats van te zoeken. Het zoekformulier wordt nu niet meer verstuurd.
 2.54 - Opstarten en herstarten na een update: het klassieke venster verschijnt niet meer heel even bij het opstarten, de poorten worden bij het herstarten eerst vrijgegeven en het nieuwe programma wacht tot de poort vrij is in plaats van direct een ander adres te nemen.
 2.53 - Nieuwe interface: het vinkje Schoon in de console werkt nu ook op de regels die er al staan (die werden alleen voor nieuwe regels toegepast). Daarvoor bewaart het scherm ook de regels die in de schone console verborgen zijn.
 2.52 - Nieuwe interface: spelerskoppen die traag binnenkomen (vooral Bedrock) verschijnen nu wel. De lijst werd elke seconde opnieuw opgebouwd, waardoor het laden steeds werd afgebroken; nu wordt hij alleen aangepast als er echt iets verandert. Mislukt een kop, dan staat er de beginletter van de speler. Het scherm probeert het na een paar seconden nog eens.
@@ -5696,7 +5697,7 @@ async function behP(){const dur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m
  $('bp').innerHTML=j.rows.length?`<table><tr><th>Speler</th><th class="n">Tijd</th><th class="n">Dood</th><th class="n">Kills</th><th class="n">km</th></tr>`+j.rows.map(r=>`<tr><td style="display:flex;align-items:center;gap:8px">${skinHtml(r.name,'','sm')}${esc(r.name)}${r.online?' <span class="ok">●</span>':''}</td><td class="n">${dur(r.time)}</td><td class="n">${r.deaths}</td><td class="n">${r.kills}</td><td class="n">${(r.dist/1000).toFixed(1)}</td></tr>`).join('')+'</table>':'Geen spelersgegevens gevonden.'}
 /* ---------- Plugins ---------- */
 V.plug=async()=>{$('view').innerHTML=`<div class="card"><h3>Plugins <button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
-<div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
+<div class="card"><h3>Zoeken en installeren</h3><form onsubmit="psearch();return false" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
 <label class="row mut" style="margin-top:8px;gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres" style="margin-top:8px"></div></div>`;
  const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
 function renderPl(j){const items=j.items;$('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>`+
@@ -5791,7 +5792,7 @@ async function genAct(a){await go('/map/gen',{action:a});mapLoad(false)}
 
 /* ---------- Plugins en updates samen ---------- */
 V.plug=async()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Plugins <span class="sp"></span><button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
- <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" class="row"><input id="pq" style="flex:1" placeholder="Zoek een plugin, bijv. chunky"><button class="pri">Zoek</button></form>
+ <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="psearch();return false" class="row"><input id="pq" style="flex:1" placeholder="Zoek een plugin, bijv. chunky"><button class="pri">Zoek</button></form>
  <label class="row mut" style="gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres"></div></div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card" id="u1">Laden…</div><div class="card" id="u2"></div></div></div>`;
  cur.t=setInterval(updRender,5000);cur.stop=()=>clearInterval(cur.t);updRender();
@@ -6012,7 +6013,7 @@ function plDlg(n){const acts=[['kick','Kick'],['ban','Ban'],['pardon','Pardon'],
  const c=document.createElement('button');c.className='sm';c.textContent='Sluiten';c.onclick=()=>$('dlg').style.display='none';$('dbtn').appendChild(c);$('dlg').style.display='flex'}
 /* ---------- Plugins ---------- */
 V.plug=async()=>{$('main').innerHTML=`<div class="card"><h3>Plugins <button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
-<div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
+<div class="card"><h3>Zoeken en installeren</h3><form onsubmit="psearch();return false" style="margin-top:0"><input id="pq" placeholder="Zoek een plugin, bijv. chunky of 'wereld bewerken'"><button class="pri">Zoek</button></form>
 <label class="row mut" style="margin-top:8px;gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres" style="margin-top:8px"></div></div>`;
  const j=await go('/api/plugins');if(!j)return;cur.pl=j.items;cur.sel=new Set();renderPl(j)};
 function renderPl(j){const items=j.items;$('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>`+

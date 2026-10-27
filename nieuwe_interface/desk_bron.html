@@ -213,7 +213,7 @@ async function behP(){const dur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m
 //@@KOPIE_PLUGINS_KAART@@
 /* ---------- Plugins en updates samen ---------- */
 V.plug=async()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Plugins <span class="sp"></span><button class="sm" onclick="V.plug()">↻</button></h3><div id="pls" class="mut">Laden…</div></div>
- <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="return psearch()" class="row"><input id="pq" style="flex:1" placeholder="Zoek een plugin, bijv. chunky"><button class="pri">Zoek</button></form>
+ <div class="card"><h3>Zoeken en installeren</h3><form onsubmit="psearch();return false" class="row"><input id="pq" style="flex:1" placeholder="Zoek een plugin, bijv. chunky"><button class="pri">Zoek</button></form>
  <label class="row mut" style="gap:8px;font-size:13px"><input type="checkbox" id="pcompat" checked>Alleen compatibel met mijn Minecraft-versie</label><div id="pres"></div></div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card" id="u1">Laden…</div><div class="card" id="u2"></div></div></div>`;
  cur.t=setInterval(updRender,5000);cur.stop=()=>clearInterval(cur.t);updRender();

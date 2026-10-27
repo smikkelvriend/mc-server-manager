@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.55
+- Fix: plugins zoeken in de nieuwe interface (en in de telefoon-app) laadde de hele pagina opnieuw in plaats van te zoeken, waardoor je terug bovenaan stond zonder resultaten. Het zoekformulier wordt nu niet meer verstuurd.
+- Deze versie vereist een herstart.
+
 ## 2.54
 - Het klassieke venster verschijnt niet meer heel even bij het opstarten: het wordt al verborgen voordat er iets getekend wordt.
 - Herstarten na een update: de poorten (nieuwe interface en telefoon) worden eerst vrijgegeven, en het nieuwe programma wacht tot de poort vrij is (tot ongeveer 7 seconden) in plaats van meteen een ander adres te nemen. Daardoor kan een openstaand venster zich weer aan het nieuwe programma koppelen.
