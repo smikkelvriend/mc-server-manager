@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.76"
+APP_VERSION = "2.77"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.77 - Opstartcontrole: na het opstarten leest het programma het logboek door en meldt als er iets mis is (plugin die niet laadt of start, poort in gebruik, EULA, te weinig geheugen, andere foutmeldingen). Je ziet het onder Aandacht, in een melding en optioneel op je telefoon. Staat onder Meldingen aan/uit.
 2.76 - Tab-aanvulling in de console wacht nu langer op het antwoord van de server (3 s i.p.v. 1,2 s), zodat het ook werkt als de server even traag is.
 2.75 - Fix: als je zelf 'list' of 'tps' typt, kreeg je ook de controles van het programma erbij in de console. Nu zie je alleen jouw eigen antwoord.
 2.74 - Fix: na het gebruik van squaremap verschenen de lijsten met spelers (\"There are 0 of a max…\") en TPS-regels in de console. Antwoorden die door lag te laat binnenkomen worden nu ook verborgen.
@@ -244,7 +245,7 @@ DEFAULTS = {
     "graph_minutes": 5, "graph_zoom": True, "stats_secs": 2,
     "show_player_activity": True,
     "squaremap_url": "http://localhost:8080",
-    "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
+    "notify_crash": True, "notify_start": False, "notify_startcheck": True, "push_startcheck": True, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
     "boot_times": [], "stop_times": [], "restart_after_update": True, "start_after_restart": False, "push_on": False, "push_server": "https://ntfy.sh", "push_topic": "", "push_crash": True, "push_start": False,
     "push_join": True, "push_leave": False, "push_chunky": True, "push_update": False,
@@ -666,6 +667,47 @@ TPS_RE = re.compile(r"TPS from last ([\w, ]+):\s*(.+)$")
 JOIN_RE = re.compile(r"^(?:System chat: )?(\S+) joined the game$")
 LEAVE_RE = re.compile(r"^(?:System chat: )?(\S+) left the game$")
 DONE_RE = re.compile(r"Done \([\d.,]+s\)!")
+
+
+def analyze_startup(lines):
+    """Leest de regels uit het logboek van het opstarten en geeft een lijst (ernst, tekst) terug. 'r' = serieus, 'y' = let op.
+    Een lege lijst betekent: geen problemen gevonden."""
+    out, seen, covered = [], set(), set()
+
+    def add(sev, text, key):
+        if key not in seen:
+            seen.add(key)
+            out.append((sev, text))
+    rules = (
+        (r"Could not load '(?:plugins[/\\])?([^']+?)(?:\.jar)?'", "r", "Plugin {0} kon niet geladen worden (bekijk de console voor de reden)"),
+        (r"Error occurred while enabling ([\w.\-]+)", "r", "Plugin {0} kon niet starten"),
+        (r"Ambiguous plugin name `([^']+)'", "y", "Twee bestanden voor plugin {0}: verwijder het oude bestand uit plugins"),
+        (r"FAILED TO BIND TO PORT|Perhaps a server is already running", "r", "De poort is al in gebruik: draait er al een server?"),
+        (r"agree to the EULA|eula\.txt", "r", "De EULA is nog niet geaccepteerd (eula.txt)"),
+        (r"OutOfMemoryError", "r", "De server kreeg te weinig geheugen (OutOfMemoryError): geef hem meer RAM"),
+        (r"Failed to start the minecraft server", "r", "De server kon niet goed opstarten"),
+        (r"Encountered an unexpected exception|Exception in thread", "r", "Er is een onverwachte fout opgetreden tijdens het opstarten"),
+        (r"Failed to load (?:world|level)|Failed to read level", "r", "De wereld kon niet geladen worden"),
+        (r"Unsupported (?:Java|class file)|UnsupportedClassVersionError", "y", "Een plugin past niet bij de gebruikte Java-versie"),
+    )
+    other = []
+    for lvl, msg in lines:
+        hit = False
+        for rx, sev, tpl in rules:
+            m = re.search(rx, msg)
+            if m:
+                hit = True
+                add(sev, tpl.format(*[g.strip() for g in m.groups()]) if m.groups() else tpl, (rx, m.group(1) if m.groups() else ""))
+                break
+        if not hit and lvl in ("ERROR", "SEVERE", "FATAL"):
+            other.append(msg)
+    covered_n = len(out)
+    other = [m for m in other if not re.match(r"^\s*(at |Caused by|\.\.\. )", m)]
+    if other:
+        first = re.sub(r"\s+", " ", other[0])[:140]
+        add("y", f"{len(other)} foutmelding{'en' if len(other) != 1 else ''} in het logboek van het opstarten, bijvoorbeeld: {first}", "generic")
+    return out
+
 CONT_RE = re.compile(r"^(\s+|at |Caused by|\.\.\. \d+ more)")
 
 STATE_UI = {"stopped": ("● Gestopt", "#6b7280"), "starting": ("● Starten…", "#d97706"),
@@ -5697,6 +5739,7 @@ V.ov=()=>{$('view').innerHTML=`<section class="mid"><div class="card"><h3>Belast
 async function attBackup(){const j=await go('/api/backuper');if(!j||!$('att'))return;cur.bkInfo=j.backups&&j.backups.length?{ago:ago(j.backups[0].mtime),size:fb2(j.backups[0].size)}:(j.jar?{none:1}:null);drawAtt()}
 function att(cls,icon,text,right,btn){return `<div class="att"><span class="ic ${cls}">${icon}</span><span class="tx">${text}</span>${btn||''}${right?`<span class="rt">${right}</span>`:''}</div>`}
 function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
+ const sc=j.startcheck;if(sc){if(sc.ok)h+=att('',OKI,'Opstarten zonder problemen','');else sc.items.forEach(it=>{h+=att(it.sev=='r'?'r':'y',WARNI,esc(it.text),'',`<button class="sm" onclick="setTab('con')">Console</button>`)})}
  if(j.selfupd)h+=att('y',WARNI,'Nieuwe programmaversie '+esc(j.selfupd),'',`<button class="sm" onclick="setTab('upd')">Bekijken</button>`);
  if(j.paperupd)h+=att('y',WARNI,'Paper-update beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
  if(j.pupd)h+=att('y',WARNI,j.pupd+' plugin-update'+(j.pupd>1?'s':'')+' beschikbaar','',`<button class="sm" onclick="setTab('plug')">Bekijken</button>`);
@@ -6006,14 +6049,14 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
  put('s_java',hint('Het geheugen kun je ook instellen via de knop hierboven.')+txt('java_xms','Min. geheugen (bijv. 1G)')+txt('java_xmx','Max. geheugen (bijv. 4G)')+txt('java_extra','Extra Java-opties'));
  put('s_upd',chk('selfupdate_check','Automatisch zoeken naar updates')+chk('selfupdate_auto','Updates automatisch installeren'));
  put('s_bak',chk('keep_server_backups','Backups van server.jar bewaren')+num('server_backups_max','Aantal server.jar-backups')+chk('keep_plugin_backups','Backups van plugins bewaren')+num('plugin_backups_max','Aantal plugin-backups'));
- put('s_mel',hint('Een melding rechtsonder in Windows, zolang het programma draait.')+chk('notify_crash','Server onverwacht gestopt (crash)')+chk('notify_start','Server is klaar met opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren van een gebied klaar')+chk('notify_update','Update van het programma beschikbaar')+
+ put('s_mel',hint('Een melding rechtsonder in Windows, zolang het programma draait.')+chk('notify_crash','Server onverwacht gestopt (crash)')+chk('notify_start','Server is klaar met opstarten')+chk('notify_startcheck','Er lijkt iets mis bij het opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren van een gebied klaar')+chk('notify_update','Update van het programma beschikbaar')+
   txt('notify_ignore','Namen zonder melding (komma\'s)','bijv. jij, vriend')+hint('Deze namenlijst geldt ook voor meldingen op je telefoon.'));
  const top=v('push_topic');
  put('s_push',hint('Krijg een bericht op je telefoon, ook als je niet thuis bent. Dit werkt via de gratis app <b>ntfy</b> (Android en iPhone).')+chk('push_on','Meldingen naar mijn telefoon sturen')+
   `<label class="lab"><span>Kanaal (topic)</span><input id="ptop" value="${esc(top)}" placeholder="bijv. mcsm-k3j9x2" onchange="setSet('push_topic',this.value);setTimeout(setLoad,300)"></label>
    <div class="row" style="margin:6px 0"><button onclick="pushNew()">Nieuw kanaal maken</button><button class="pri" onclick="pushTest()" ${top?'':'disabled'}>Testmelding sturen</button></div>`+
   txt('push_server','Pushserver','https://ntfy.sh')+
-  `<div style="margin-top:8px;font-weight:600;font-size:13px">Stuur een bericht bij…</div>`+chk('push_join','Speler komt binnen')+chk('push_leave','Speler gaat weg')+chk('push_start','Server is klaar met opstarten')+chk('push_crash','Crash')+chk('push_chunky','Genereren klaar')+chk('push_update','Programma-update')+
+  `<div style="margin-top:8px;font-weight:600;font-size:13px">Stuur een bericht bij…</div>`+chk('push_join','Speler komt binnen')+chk('push_leave','Speler gaat weg')+chk('push_start','Server is klaar met opstarten')+chk('push_startcheck','Er lijkt iets mis bij het opstarten')+chk('push_crash','Crash')+chk('push_chunky','Genereren klaar')+chk('push_update','Programma-update')+
   hint(`<b>Zo stel je het in:</b> 1) Installeer de app ntfy op je telefoon. 2) Kies “+” en abonneer op het kanaal <b>${esc(top||'(maak eerst een kanaal)')}</b>. 3) Druk op “Testmelding sturen”.<br>Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik daarom het gegenereerde, willekeurige kanaal en deel het niet.`))}
 function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
 async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
@@ -6356,11 +6399,11 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
  const num=(k,l)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" inputmode="numeric" onchange="setSet('${k}',this.value)"></label>`;
  const txt=(k,l,ph)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" placeholder="${ph||''}" autocapitalize="off" onchange="setSet('${k}',this.value)"></label>`;
  const put=(id,h)=>{const e=$(id);if(e){e.classList.remove('mut');e.innerHTML=h}};const days=String(v('sleep_days')||'1234567'),DN=['Ma','Di','Wo','Do','Vr','Za','Zo'];
- put('s_mel',chk('notify_crash','Crash')+chk('notify_start','Server klaar met opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren klaar')+chk('notify_update','Programma-update')+txt('notify_ignore','Namen zonder melding (komma\'s)'));
+ put('s_mel',chk('notify_crash','Crash')+chk('notify_start','Server klaar met opstarten')+chk('notify_startcheck','Iets mis bij opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren klaar')+chk('notify_update','Programma-update')+txt('notify_ignore','Namen zonder melding (komma\'s)'));
  const top=v('push_topic');
  put('s_push',`<div class="mut" style="font-size:13px;margin-bottom:6px">Een bericht op je telefoon via de gratis app <b>ntfy</b>: installeer die, abonneer op je kanaal en druk op "Testmelding".</div>`+chk('push_on','Meldingen naar mijn telefoon')+txt('push_topic','Kanaal (topic)','bijv. mcsm-k3j9x2')+
   `<div class="row" style="margin:6px 0"><button class="sm" onclick="pushNew()">Nieuw kanaal maken</button><button class="sm pri" onclick="pushTest()" ${top?'':'disabled'}>Testmelding</button></div>`+txt('push_server','Pushserver','https://ntfy.sh')+
-  chk('push_join','Bij: speler komt binnen')+chk('push_leave','Bij: speler gaat weg')+chk('push_start','Bij: server klaar')+chk('push_crash','Bij: crash')+chk('push_chunky','Bij: genereren klaar')+chk('push_update','Bij: programma-update')+
+  chk('push_join','Bij: speler komt binnen')+chk('push_leave','Bij: speler gaat weg')+chk('push_start','Bij: server klaar')+chk('push_startcheck','Bij: iets mis bij opstarten')+chk('push_crash','Bij: crash')+chk('push_chunky','Bij: genereren klaar')+chk('push_update','Bij: programma-update')+
   `<div class="mut" style="font-size:12px;margin-top:6px">Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik het willekeurige kanaal en deel het niet.</div>`);
  put('s_gedr',chk('clean_console','Schone console')+num('console_max_lines','Maximaal aantal consoleregels')+num('graph_minutes','Grafiek-tijdvenster (min)')+chk('confirm','Bevestiging vragen voor updates')+chk('auto_restart','Automatisch herstarten na een crash')+num('stop_timeout','Wachttijd bij stoppen (sec)')+num('poll_secs','Spelers/TPS verversen (sec, 0 = uit)'));
  put('s_slp',num('sleep_minutes','Minuten zonder spelers')+chk('sleep_sched','Alleen op bepaalde tijden')+`<label class="lab"><span>Van</span><input type="time" value="${esc(v('sleep_from'))}" onchange="setSet('sleep_from',this.value)"></label><label class="lab"><span>Tot</span><input type="time" value="${esc(v('sleep_to'))}" onchange="setSet('sleep_to',this.value)"></label>
@@ -6444,13 +6487,13 @@ class RemoteServer:
         "health_ram": ("bool", "Waarschuwen als het geheugen bijna op is"), "health_ram_pct": ("int", "Geheugen: waarschuwen boven (%)", 50, 100),
         "clean_console": ("bool", "Schone console"), "console_max_lines": ("int", "Maximaal aantal consoleregels", 500, 50000),
         "temp_enabled": ("bool", "Temperatuur tonen"), "temp_warn": ("int", "Temperatuurwaarschuwing (°C)", 50, 110),
-        "notify_crash": ("bool", "Melding bij crash"), "notify_start": ("bool", "Melding als de server klaar is met starten"),
+        "notify_crash": ("bool", "Melding bij crash"), "notify_start": ("bool", "Melding als de server klaar is met starten"), "notify_startcheck": ("bool", "Melding als er iets mis lijkt bij het opstarten"),
         "notify_join": ("bool", "Melding als een speler binnenkomt"), "notify_leave": ("bool", "Melding als een speler weggaat"),
         "notify_chunky": ("bool", "Melding als genereren klaar is"), "notify_update": ("bool", "Melding bij programma-update"),
         "notify_ignore": ("str", "Namen zonder melding (komma's)"),
         "restart_after_update": ("bool", "Server weer starten na een update"),
         "push_on": ("bool", "Meldingen naar je telefoon"), "push_server": ("str", "Push-server (ntfy)"), "push_topic": ("str", "Push-kanaal (topic)"),
-        "push_crash": ("bool", "Telefoon: bij crash"), "push_start": ("bool", "Telefoon: server klaar met starten"),
+        "push_crash": ("bool", "Telefoon: bij crash"), "push_start": ("bool", "Telefoon: server klaar met starten"), "push_startcheck": ("bool", "Telefoon: iets mis bij opstarten"),
         "push_join": ("bool", "Telefoon: speler komt binnen"), "push_leave": ("bool", "Telefoon: speler gaat weg"),
         "push_chunky": ("bool", "Telefoon: genereren klaar"), "push_update": ("bool", "Telefoon: programma-update"),
     }
@@ -6573,6 +6616,7 @@ class RemoteServer:
             pb = a.pbar
             snap = {"state": a.srv_state, "stats": {k: a.sv[k].get() for k in ("uptime", "cpu", "ram", "tps", "players", "temp")},
                     "players": pl, "graphs": {"cpu": series(a.spark_cpu), "ram": series(a.spark_ram), "tps": series(a.spark_tps)},
+                    "startcheck": getattr(a, "startcheck", None) if a.srv_state == "online" else None,
                     "boot": ({"elapsed": round(time.time() - a.srv_t0, 1), "est": a.boot_estimate()} if a.srv_state == "starting" else None),
                     "stopb": ({"elapsed": round(time.time() - a._stop_sent_t, 1) if getattr(a, "_stop_sent_t", None) else 0,
                                "est": a.stop_estimate(), "wait": bool(getattr(a, "_pending_stop", False)) or not getattr(a, "_stop_sent_t", None)} if a.srv_state == "stopping" else None),
@@ -8012,7 +8056,7 @@ class BeheerTab(ttk.Frame):
                             "Nog geen spelers gevonden. Kies je servermap (Instellingen) of wacht tot er iemand is binnengekomen.")
 
     # ---------- meldingen ----------
-    NOTIFY = (("notify_crash", "Als de server onverwacht stopt (crash)"), ("notify_start", "Als de server klaar is met opstarten"),
+    NOTIFY = (("notify_crash", "Als de server onverwacht stopt (crash)"), ("notify_start", "Als de server klaar is met opstarten"), ("notify_startcheck", "Als er iets mis lijkt bij het opstarten"),
               ("notify_join", "Als een speler binnenkomt"), ("notify_leave", "Als een speler weggaat"),
               ("notify_chunky", "Als het genereren van een gebied klaar is"), ("notify_update", "Als er een update van het programma is"))
 
@@ -9746,6 +9790,8 @@ class App(tk.Tk):
             return
         self.srv_proc = proc
         self.srv_t0 = time.time()
+        self._boot_log = []
+        self.startcheck = None
         self._user_stop = False
         self._restart_pending = False
         self._after_exit = None
@@ -10375,6 +10421,29 @@ class App(tk.Tk):
         self._plug_cache = (pdir, time.time(), sorted(set(cmds)), sorted(set(names), key=str.lower))
         return self._plug_cache[2], self._plug_cache[3]
 
+    def _startup_check(self):
+        """Na het opstarten: het logboek van het opstarten doorlopen en zeggen of er iets mis is."""
+        if self.srv_state != "online":
+            return
+        items = analyze_startup(list(getattr(self, "_boot_log", [])))
+        self.startcheck = {"ok": not items, "items": [{"sev": s, "text": t} for s, t in items], "t": time.time()}
+        if not items:
+            self.log("Opstartcontrole: geen problemen gevonden in het logboek.", "ok")
+            return
+        for sev, t in items:
+            self.log("Opstartcontrole: " + t, "error" if sev == "r" else "warn")
+        head = "De server is gestart, maar er is iets mis" if any(sv == "r" for sv, _ in items) else "De server is gestart, let wel even op"
+        text = "\n".join("• " + t for _, t in items[:4]) + (f"\n… en {len(items) - 4} meer" if len(items) > 4 else "")
+        try:
+            self.tab_beheer.notify("notify_startcheck", head, text)
+        except Exception:
+            pass
+        for srv in (self.desk, self.remote):
+            try:
+                srv.note(head + ": " + "; ".join(t for _, t in items[:4]), "warn")
+            except Exception:
+                pass
+
     def _learn_commands(self):
         """Vraagt de server stil om zijn commandolijst: eerst /help (lijst met plugins), dan /help <plugin> voor elk (daar staan de commando's)."""
         if self.srv_state != "online":
@@ -10688,6 +10757,14 @@ class App(tk.Tk):
         m = LOG_RE.match(raw)
         msg = m.group(4) if m else raw
         now = time.time()
+        if self.srv_state == "starting" or now < getattr(self, "_startup_until", 0):
+            bl = self.__dict__.setdefault("_boot_log", [])
+            if len(bl) < 400:
+                lv = ((m.group(2) or m.group(3) or "") if m else "").upper()
+                if lv in ("WARN", "WARNING", "ERROR", "SEVERE", "FATAL"):
+                    bl.append((lv, msg))
+                elif not m and ("Exception" in raw or raw.startswith("Caused by") or "OutOfMemory" in raw):
+                    bl.append(("ERROR", raw.strip()))
         suppress = False
         polline = mine = False
         cap = self._plm_cap
@@ -10776,6 +10853,7 @@ class App(tk.Tk):
             self.after(30000, self.tab_map.prewarm)   # squaremap is dan klaar: kaart alvast laden
             self.after(12000, self._learn_commands)
             self._startup_until = time.time() + 10
+            self.after(11000, self._startup_check)
             if self.reach_auto_var.get():
                 self.after(20000, self._auto_net_check)
             self.after(3000, lambda: self._auto_poll() if self.srv_state == "online" else None)
@@ -12263,7 +12341,7 @@ class SettingsDialog(tk.Toplevel):
             if k in ("loaders", "folder", "jar", "unstable", "update_folder", "noise_filters", "startup_keep", "clean_console",
                      "compact_console", "console_autoscroll", "reach_host", "reach_port", "reach_check_bedrock",
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
-                     "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
+                     "notify_crash", "notify_start", "notify_startcheck", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
                      "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only",
                      "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats") or k.startswith("push_") or k in ("restart_after_update", "start_after_restart", "boot_times", "stop_times"):
                 continue

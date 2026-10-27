@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.77
+- **Opstartcontrole:** na het opstarten leest het programma het logboek van het opstarten door en laat weten of er iets mis is: een plugin die niet laadt of niet start, twee bestanden voor dezelfde plugin, poort al in gebruik, EULA niet geaccepteerd, te weinig geheugen of andere foutmeldingen. Is alles goed, dan staat er onder *Aandacht* "Opstarten zonder problemen". Bij problemen krijg je een melding, een regel onder *Aandacht* en (als je dat aanzet) een bericht op je telefoon. Aan/uit te zetten onder *Meldingen*.
+
 ## 2.76
 - **Tab-aanvulling** in de console wacht nu langer op het antwoord van de server (3 s in plaats van 1,2 s), zodat het ook werkt als de server even traag is (opstarten, kaart renderen).
 
