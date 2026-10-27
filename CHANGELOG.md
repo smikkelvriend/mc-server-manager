@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.69
+- **Voortgangsbalk bij het opstarten** van de server, met de geschatte resterende tijd (op de pc en op de telefoon). De schatting komt van de laatste opstarttijden van jouw server; de eerste keer rekent hij met 45 seconden.
+- Nieuwe optie bij Updates: **Server automatisch weer starten na een update**. Geldt voor Paper-updates, plugin-updates en programma-updates: draaide de server toen de update begon, dan start hij daarna vanzelf weer.
+- Deze versie vereist een herstart.
+
 ## 2.68
 - Fix: een `stop` terwijl de server nog aan het opstarten was gaf in Paper `Command exception: /stop ... NullPointerException`; de server bleef dan draaien terwijl het programma op *Stoppen…* bleef staan. Nu wacht het programma tot de server klaar is met opstarten en stopt hem dan. Weigert Paper het toch, dan probeert het programma het tot drie keer opnieuw.
 - Het antwoord op je eigen commando's in de schone console blijft nu 2 seconden zichtbaar (was 6).

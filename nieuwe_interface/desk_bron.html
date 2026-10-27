@@ -100,6 +100,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
   <button class="go" id="bStart" onclick="act('start')">Starten</button><button id="bRestart" onclick="act('restart')">Herstarten</button><button class="bad" id="bStop" onclick="act('stop')">Stoppen</button></header>
  <div id="busy" class="hide"><i style="width:0"></i></div>
+ <div id="boot" class="ubox ins hide" style="margin:0"><div class="uh"><span class="spin"></span><span id="bootTx">Server opstarten…</span><span class="upct" id="bootPct"></span></div><div class="ubar"><i id="bootBar" style="width:0"></i></div></div>
  <div id="view" style="display:flex;flex-direction:column;gap:18px;flex:1;min-height:0"></div>
 </main>
 <div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
@@ -367,6 +368,8 @@ window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keep
 /* ---------- Server-acties ---------- */
 async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
 /* ---------- Tekenen met live gegevens ---------- */
+function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot;e.classList.toggle('hide',!b);if(!b)return;const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
+ $('bootBar').style.width=pct+'%';$('bootPct').textContent=pct+'%';$('bootTx').textContent=b.elapsed>b.est?'Server opstarten… duurt iets langer dan normaal':'Server opstarten… nog ongeveer '+left+' s'}
 function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.sleep.sleeping;
  const m=sl?['Slaapstand','b']:{online:['Online','' ],starting:['Opstarten…','y'],stopping:['Stoppen…','y'],stopped:['Gestopt','r']}[st]||[st,'y'];
  $('pill').className='pill '+(m[1]||'');$('pillTx').textContent=m[0]+(st=='online'&&j.stats.uptime&&j.stats.uptime!='-'?' · '+j.stats.uptime:'');
@@ -374,7 +377,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
  $('sname').textContent=j.folder||'Server';$('sver').textContent=[j.mc,j.build?'build '+j.build:''].filter(Boolean).join(' · ')||'Paper';
  $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=!(sl||st=='online');$('btnSleep').textContent=sl?'Uit slaapstand halen':'Nu in slaapstand';$('btnSleep').className=sl?'go':'';
  $('sleepTx').textContent=j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:'Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.';
- const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
+ bootUI(j);const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
  const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}const bu=$('bd-upd');if(bu){bu.classList.toggle('hide',!j.selfupd);bu.textContent='1'}
  const g=j.graphs||{};
  if($('cBig')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);

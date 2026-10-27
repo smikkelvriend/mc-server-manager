@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.68"
+APP_VERSION = "2.69"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.69 - Voortgangsbalk bij het opstarten van de server, met de geschatte resterende tijd (op de pc en op de telefoon). De schatting komt van de laatste opstarttijden van jouw server; de eerste keer rekent hij met 45 seconden. Nieuwe optie bij Updates: 'Server automatisch weer starten na een update'. Geldt voor Paper-updates, plugin-updates en programma-updates: draaide de server toen de update begon, dan start hij daarna vanzelf weer.
 2.68 - Fix: een 'stop' terwijl de server nog aan het opstarten was gaf in Paper de foutmelding 'Command exception: /stop ... NullPointerException', waarna de server gewoon bleef draaien terwijl het programma op 'Stoppen…' bleef staan. Nu wacht het programma tot de server klaar is met opstarten en stopt hem dan; en als Paper het toch weigert, probeert het programma het tot drie keer opnieuw. Het antwoord op je eigen commando's in de schone console blijft nu 2 seconden zichtbaar (was 6).
 2.67 - Fix: bij automatisch installeren van een programma-update bleef de balk op 45% hangen. Het programma stelde een 'Nu herstarten?'-vraag in het verborgen hoofdvenster en wachtte daar eindeloos op. Nu wordt er met het nieuwe scherm niet meer gevraagd; als er spelers online zijn wacht de update tot de server leeg is (je krijgt daar een melding van) en installeert dan zelf. De schone console toont nu altijd het antwoord op commando's die je zelf intypt (bijvoorbeeld list of tps), ook als die regels normaal verborgen worden.
 2.66 - Snelknoppen per speler in het kaartje Spelers online (Overzicht en tabblad Spelers): bericht sturen, spelmodus wijzigen, teleporteren naar een andere speler, kicken, en een knop met alle acties (ban, op, whitelist…).
@@ -238,7 +239,7 @@ DEFAULTS = {
     "squaremap_url": "http://localhost:8080",
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
-    "push_on": False, "push_server": "https://ntfy.sh", "push_topic": "", "push_crash": True, "push_start": False,
+    "boot_times": [], "restart_after_update": True, "start_after_restart": False, "push_on": False, "push_server": "https://ntfy.sh", "push_topic": "", "push_crash": True, "push_start": False,
     "push_join": True, "push_leave": False, "push_chunky": True, "push_update": False,
     "chunky_autopause": True, "chunky_autoresume": True,
     "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False, "sleep_enabled": False, "sleep_minutes": 10,
@@ -5619,6 +5620,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
   <button class="go" id="bStart" onclick="act('start')">Starten</button><button id="bRestart" onclick="act('restart')">Herstarten</button><button class="bad" id="bStop" onclick="act('stop')">Stoppen</button></header>
  <div id="busy" class="hide"><i style="width:0"></i></div>
+ <div id="boot" class="ubox ins hide" style="margin:0"><div class="uh"><span class="spin"></span><span id="bootTx">Server opstarten…</span><span class="upct" id="bootPct"></span></div><div class="ubar"><i id="bootBar" style="width:0"></i></div></div>
  <div id="view" style="display:flex;flex-direction:column;gap:18px;flex:1;min-height:0"></div>
 </main>
 <div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
@@ -5779,7 +5781,8 @@ async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))retu
  $('u1').innerHTML=`<h3>Paper (Minecraft ${esc(j.mc)}, build ${esc(j.build)})</h3><div style="color:${j.paper.color||'inherit'}">${esc(j.paper.text)}</div>
  <div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('all')">Alles controleren</button><button class="sm go" onclick="uInst('paper')">Paper updaten</button></div>
  <label class="lab"><span>Ook bèta/alpha-versies</span><input type="checkbox" ${j.unstable?'checked':''} onchange="go('/api/updates/opt',{unstable:this.checked})"></label>
- <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>`;
+ <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>
+ <label class="lab"><span>Server automatisch weer starten na een update</span><input type="checkbox" ${j.restartafter?'checked':''} onchange="go('/api/settings',{key:'restart_after_update',value:this.checked},'Opgeslagen')"></label>`;
  const n=j.rows.filter(r=>r.tag=='update').length;
  $('u2').innerHTML=`<h3>Plugins <span>${n?`<button class="sm go" onclick="uInst('plugins')">Alle ${n} updaten</button>`:''}</span></h3>`+j.rows.map(r=>`<div class="li"><div><b>${esc(r.name)}</b><small>${esc(r.cur)} → ${esc(r.latest)} • ${esc(r.source)}</small></div><span class="${r.tag=='update'?'yel':r.tag=='ok'?'ok':r.tag=='error'?'err':'mut'}" style="font-size:12px;max-width:40%;text-align:right">${esc(r.status)}</span></div>`).join('')+
  `<div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('plugins')">Plugins controleren</button></div>`}
@@ -6006,6 +6009,8 @@ window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keep
 /* ---------- Server-acties ---------- */
 async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
 /* ---------- Tekenen met live gegevens ---------- */
+function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot;e.classList.toggle('hide',!b);if(!b)return;const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
+ $('bootBar').style.width=pct+'%';$('bootPct').textContent=pct+'%';$('bootTx').textContent=b.elapsed>b.est?'Server opstarten… duurt iets langer dan normaal':'Server opstarten… nog ongeveer '+left+' s'}
 function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.sleep.sleeping;
  const m=sl?['Slaapstand','b']:{online:['Online','' ],starting:['Opstarten…','y'],stopping:['Stoppen…','y'],stopped:['Gestopt','r']}[st]||[st,'y'];
  $('pill').className='pill '+(m[1]||'');$('pillTx').textContent=m[0]+(st=='online'&&j.stats.uptime&&j.stats.uptime!='-'?' · '+j.stats.uptime:'');
@@ -6013,7 +6018,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
  $('sname').textContent=j.folder||'Server';$('sver').textContent=[j.mc,j.build?'build '+j.build:''].filter(Boolean).join(' · ')||'Paper';
  $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=!(sl||st=='online');$('btnSleep').textContent=sl?'Uit slaapstand halen':'Nu in slaapstand';$('btnSleep').className=sl?'go':'';
  $('sleepTx').textContent=j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:'Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.';
- const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
+ bootUI(j);const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
  const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}const bu=$('bd-upd');if(bu){bu.classList.toggle('hide',!j.selfupd);bu.textContent='1'}
  const g=j.graphs||{};
  if($('cBig')){const cpu=num(j.stats.cpu),tps=num(j.stats.tps),tmp=num(j.stats.temp);const ram=num(j.stats.ram);
@@ -6084,7 +6089,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 .lab{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--b)}.lab:first-child{border-top:0}.lab span{flex:1}.lab input:not([type=checkbox]){width:46%;flex:none}
 </style></head><body>
 <div id="login" class="card hide"><h3>MC Server Manager</h3><input id="pw" type="password" placeholder="Wachtwoord" autocomplete="current-password"><button class="go" style="width:100%" onclick="login()">Inloggen</button><div id="lerr" class="err" style="margin-top:8px"></div></div>
-<div id="app" class="hide"><header><span class="dot" id="dot"></span><b id="st">…</b><span id="up" class="mut"></span></header><main id="main"></main>
+<div id="app" class="hide"><header><span class="dot" id="dot"></span><b id="st">…</b><span id="up" class="mut"></span></header><div id="boot" class="ubox ins hide" style="margin:8px 12px 0"><div class="uh"><span class="spin"></span><span id="bootTx">Server opstarten…</span><span class="upct" id="bootPct"></span></div><div class="ubar"><i id="bootBar" style="width:0"></i></div></div><main id="main"></main>
 <nav id="nav"></nav></div><div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
 <script>
 const PV='@@APPV@@';const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=localStorage.getItem('tab')||'srv',LOG=[],cur={};
@@ -6169,7 +6174,8 @@ async function updRender(){const j=await go('/api/updates');if(!j||!$('u1'))retu
  $('u1').innerHTML=`<h3>Paper (Minecraft ${esc(j.mc)}, build ${esc(j.build)})</h3><div style="color:${j.paper.color||'inherit'}">${esc(j.paper.text)}</div>
  <div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('all')">Alles controleren</button><button class="sm go" onclick="uInst('paper')">Paper updaten</button></div>
  <label class="lab"><span>Ook bèta/alpha-versies</span><input type="checkbox" ${j.unstable?'checked':''} onchange="go('/api/updates/opt',{unstable:this.checked})"></label>
- <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>`;
+ <label class="lab"><span>Gedownloade bestanden in map 'updates' bewaren</span><input type="checkbox" ${j.updfolder?'checked':''} onchange="go('/api/updates/opt',{updfolder:this.checked})"></label>
+ <label class="lab"><span>Server automatisch weer starten na een update</span><input type="checkbox" ${j.restartafter?'checked':''} onchange="go('/api/settings',{key:'restart_after_update',value:this.checked},'Opgeslagen')"></label>`;
  const n=j.rows.filter(r=>r.tag=='update').length;
  $('u2').innerHTML=`<h3>Plugins <span>${n?`<button class="sm go" onclick="uInst('plugins')">Alle ${n} updaten</button>`:''}</span></h3>`+j.rows.map(r=>`<div class="li"><div><b>${esc(r.name)}</b><small>${esc(r.cur)} → ${esc(r.latest)} • ${esc(r.source)}</small></div><span class="${r.tag=='update'?'yel':r.tag=='ok'?'ok':r.tag=='error'?'err':'mut'}" style="font-size:12px;max-width:40%;text-align:right">${esc(r.status)}</span></div>`).join('')+
  `<div class="row" style="margin-top:10px"><button class="sm" onclick="uCheck('plugins')">Plugins controleren</button></div>
@@ -6343,6 +6349,8 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
 async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
+function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot;e.classList.toggle('hide',!b);if(!b)return;const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
+ $('bootBar').style.width=pct+'%';$('bootPct').textContent=pct+'%';$('bootTx').textContent=b.elapsed>b.est?'Server opstarten… duurt iets langer dan normaal':'Server opstarten… nog ongeveer '+left+' s'}
 /* ---------- poll ---------- */
 let btT=0;
 async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);if(j.version&&PV[0]!='@'&&j.version!==PV){location.reload();return}S=j;
@@ -6350,6 +6358,7 @@ async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?si
  $('st').textContent=m[0];$('dot').style.background=m[1];$('up').textContent=j.stats.uptime&&j.stats.uptime!='-'?j.stats.uptime:'';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>400)LOG.shift();if(tab=='srv')addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='more')addAlog(l)});
+ bootUI(j);
  const bd=$('bd-upd');if(bd){bd.classList.toggle('hide',!j.selfupd);bd.textContent='!'}
  if(tab=='beh'&&Date.now()-btT>4000){btT=Date.now();behT()}
  if(tab=='upd')progBarP();
@@ -6414,6 +6423,7 @@ class RemoteServer:
         "notify_join": ("bool", "Melding als een speler binnenkomt"), "notify_leave": ("bool", "Melding als een speler weggaat"),
         "notify_chunky": ("bool", "Melding als genereren klaar is"), "notify_update": ("bool", "Melding bij programma-update"),
         "notify_ignore": ("str", "Namen zonder melding (komma's)"),
+        "restart_after_update": ("bool", "Server weer starten na een update"),
         "push_on": ("bool", "Meldingen naar je telefoon"), "push_server": ("str", "Push-server (ntfy)"), "push_topic": ("str", "Push-kanaal (topic)"),
         "push_crash": ("bool", "Telefoon: bij crash"), "push_start": ("bool", "Telefoon: server klaar met starten"),
         "push_join": ("bool", "Telefoon: speler komt binnen"), "push_leave": ("bool", "Telefoon: speler gaat weg"),
@@ -6538,6 +6548,7 @@ class RemoteServer:
             pb = a.pbar
             snap = {"state": a.srv_state, "stats": {k: a.sv[k].get() for k in ("uptime", "cpu", "ram", "tps", "players", "temp")},
                     "players": pl, "graphs": {"cpu": series(a.spark_cpu), "ram": series(a.spark_ram), "tps": series(a.spark_tps)},
+                    "boot": ({"elapsed": round(time.time() - a.srv_t0, 1), "est": a.boot_estimate()} if a.srv_state == "starting" else None),
                     "busy": bool(a.busy), "status": a.status_var.get(), "clean": bool(a.clean_var.get()),
                     "progress": [float(pb.cget("value") or 0), float(pb.cget("maximum") or 1), str(pb.cget("mode"))],
                     "selfupd": (a._upd or {}).get("version") if getattr(a, "_upd", None) else None,
@@ -6893,7 +6904,7 @@ class RemoteServer:
                 rows.append({"id": iid, "name": v[0], "file": v[1], "cur": v[2], "latest": v[3], "source": v[4], "status": v[5], "tag": tag})
             return {"paper": {"text": a.paper_label.cget("text"), "color": a.paper_label.cget("fg")}, "mc": a.mc_var.get(),
                     "build": a.build_var.get(), "rows": rows, "unstable": bool(a.unstable_var.get()),
-                    "updfolder": bool(a.updfolder_var.get()), "selfupd": (a._upd or {}).get("version") if getattr(a, "_upd", None) else None,
+                    "updfolder": bool(a.updfolder_var.get()), "restartafter": bool(a.cfg.get("restart_after_update", True)), "selfupd": (a._upd or {}).get("version") if getattr(a, "_upd", None) else None,
                     "version": APP_VERSION}
         return 200, self.call_main(get)
 
@@ -9344,6 +9355,7 @@ class App(tk.Tk):
         self.after(2000, self._sleep_stats_show)
         if self.cfg.get("desk_main", True):
             self.after(300, self._open_desk_main)
+        self.after(6000, self._maybe_start_after_update)
         self._console_add("Welkom! Klik op 'Starten' om je server te starten. Wat de server meldt verschijnt hier; "
                           "typ onderaan een commando en druk op Enter (Tab vult aan, pijltje omhoog haalt het vorige terug).", own=True)
         if self.folder_var.get() and os.path.isdir(self.folder_var.get()):
@@ -9537,6 +9549,11 @@ class App(tk.Tk):
         self._set_state("stopped")
 
     # ---------- status / knoppen ----------
+    def boot_estimate(self):
+        """Geschatte opstarttijd in seconden: het gemiddelde van de laatste keren (of 45 s als er nog geen ervaring is)."""
+        bt = [float(x) for x in (self.cfg.get("boot_times") or []) if isinstance(x, (int, float)) and 3 < x < 900]
+        return max(10.0, round(sum(bt) / len(bt), 1)) if bt else 45.0
+
     def srv_running(self):
         return self.srv_proc is not None and self.srv_proc.poll() is None
 
@@ -10406,6 +10423,16 @@ class App(tk.Tk):
         self._desk_app = open_app_window(f"http://127.0.0.1:{self.desk.port}/desk?t={self.desk.desk_token}")
         return True
 
+    def _maybe_start_after_update(self):
+        """Na een programma-update: draaide de server toen de update begon, dan starten we hem weer (als dat is ingesteld)."""
+        if not self.cfg.get("start_after_restart"):
+            return
+        self.cfg["start_after_restart"] = False
+        self._save_cfg()
+        if self.cfg.get("restart_after_update", True) and not self.srv_running():
+            self.log("Het programma is bijgewerkt: de server wordt weer gestart.", "ok")
+            self.srv_start()
+
     def _open_desk_main(self, tries=0):
         """Start het eigen scherm. Staat er na een herstart nog een venster open, dan pakt dat de nieuwe sessie zelf weer op; anders openen we er een."""
         if not self.desk.running and not self.desk.start(8799, "127.0.0.1", True):
@@ -10625,6 +10652,12 @@ class App(tk.Tk):
             self.log("De server weigerde 'stop' (hij was nog niet helemaal klaar). Nog een keer proberen…", "warn")
             self.after(4000, self._send_stop_now)
         if DONE_RE.search(msg) and self.srv_state == "starting":
+            try:        # hoe lang duurde het opstarten? Daarmee schatten we de voortgangsbalk de volgende keer
+                bt = (list(self.cfg.get("boot_times") or []) + [round(now - self.srv_t0, 1)])[-5:]
+                self.cfg["boot_times"] = bt
+                save_config(self.cfg)
+            except Exception:
+                pass
             self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
             self._idle_since = time.time()
@@ -11538,6 +11571,7 @@ class App(tk.Tk):
             self._ust("idle", 100, "")
 
     def _restart_self(self):
+        self.cfg["start_after_restart"] = bool(self.srv_running() and self.cfg.get("restart_after_update", True))
         if self.srv_running():
             self._ust("install", 50, "Server veilig stoppen (de wereld wordt opgeslagen)…")
             self._stop_blocking()
@@ -11643,7 +11677,7 @@ class App(tk.Tk):
             self._save_cfg()
 
             def go():
-                self._restart_after_update = True
+                self._restart_after_update = bool(self.cfg.get("restart_after_update", True))
                 self.run_bg(self.w_paper_update, self.ctx())
 
             self.srv_stop(after=go)
@@ -11673,7 +11707,7 @@ class App(tk.Tk):
             self._save_cfg()
 
             def go():
-                self._restart_after_update = True
+                self._restart_after_update = bool(self.cfg.get("restart_after_update", True))
                 self.run_bg(self.w_plugins_update, self.ctx(), targets)
 
             self.srv_stop(after=go)
@@ -12091,7 +12125,7 @@ class SettingsDialog(tk.Toplevel):
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
                      "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
                      "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only",
-                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats") or k.startswith("push_"):
+                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats") or k.startswith("push_") or k in ("restart_after_update", "start_after_restart", "boot_times"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))
