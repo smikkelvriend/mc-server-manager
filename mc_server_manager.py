@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.65"
+APP_VERSION = "2.66"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.66 - Snelknoppen per speler in het kaartje Spelers online (Overzicht en tabblad Spelers): bericht sturen, spelmodus wijzigen, teleporteren naar een andere speler, kicken, en een knop met alle acties (ban, op, whitelist…).
 2.65 - Fix: meldingen (op de pc en op je telefoon) kwamen niet als iemand joinde of wegging, omdat Paper 26.x de regel als 'System chat: Naam joined the game' schrijft en het programma die niet herkende. Nu worden join en leave weer goed herkend (ook voor de spelerslijst en het activiteitenlogboek).
 2.64 - Moeilijkheid en standaard spelmodus zijn nu een keuzemenu in Instellingen, Server. Fix: de testmelding naar je telefoon gaf 'certificate has expired' op Windows-pc's met verouderde certificaten; het programma probeert dan nog één keer zonder certificaatcontrole en meldt dat erbij. Fix: de server kon op 'Stoppen…' blijven staan terwijl hij al uit was (en een update bleef hangen). De berichtenlus van het programma kan niet meer stilvallen door één foutief bericht, het programma merkt zelf dat de server gestopt is, en een mislukte update toont nu een foutmelding in plaats van te blijven hangen.
 2.63 - Meldingen naar je telefoon: je krijgt een bericht (bijvoorbeeld als er iemand online komt) via de gratis app ntfy. Maak in Instellingen, Meldingen een kanaal, abonneer erop in de app en kies per gebeurtenis of je een bericht wilt (speler komt binnen/gaat weg, server klaar, crash, genereren klaar, programma-update). Met een testknop. De lijst 'Namen zonder melding' geldt ook hier. De Instellingen in de nieuwe interface zijn opnieuw ingedeeld in tabbladen (Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk, Programma). Fix: TPS en geheugengebruik onder Prestaties en geheugen bleven op hun oude waarde staan; ze verversen nu vanzelf. Telefoon-app bijgewerkt: voortgangsbalk bij programma-updates, melding en 'uitgeladen'-status bij PlugManX, .jar-bestanden uploaden, hot-loaden na installeren, en de instellingen staan nu in nette groepen. De telefoonpagina laadt zichzelf opnieuw na een programma-update.
@@ -5562,7 +5563,7 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--a);padding:0;flex
 .leg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--m2);font-weight:400}.leg i{width:10px;height:3px;border-radius:2px}
 canvas.big{flex:1;min-height:0;width:100%;display:block}
 .pl{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--b)}.pl:first-of-type{border-top:0}
-.pl .n{flex:1;min-width:0}.pl .n b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis}.pl .n small{display:block;font-size:12px;color:var(--m)}
+.qa{display:flex;gap:4px;flex:none}.qa button{padding:4px 8px;font-size:14px;line-height:1}.pl .n{flex:1;min-width:0}.pl .n b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis}.pl .n small{display:block;font-size:12px;color:var(--m)}
 .skin{position:relative;width:34px;height:34px;border-radius:7px;image-rendering:pixelated;background:#222a34;flex:none;display:flex;align-items:center;justify-content:center;font-weight:600;overflow:hidden}
 .skin img{width:100%;height:100%;display:block;image-rendering:pixelated}
 .skin.sm{width:22px;height:22px;border-radius:5px;font-size:11px}
@@ -5713,6 +5714,16 @@ async function srch(){$('sinfo').textContent='Zoeken…';const j=await go('/api/
  $('sres').innerHTML=j.rows.map(r=>`<div><span class="mut">${esc(r[0])} ${esc(r[1])}</span>  ${esc(r[2].replace(/^\[[\d:]+\]\s*/,''))}</div>`).join('')||'<div class="mut">Niets gevonden.</div>';
  $('sinfo').textContent=`${j.rows.length}${j.limit?'+':''} regels gevonden in ${j.files} logbestand${j.files==1?'':'en'}${j.limit?' (maximaal 500 getoond, maak je zoekopdracht specifieker)':''}.`}
 /* ---------- Spelers ---------- */
+function qaBtns(p){const w=document.createElement('span');w.className='qa';
+ const mk=(ic,tt,fn,cls)=>{const b=document.createElement('button');b.className='sm '+(cls||'');b.textContent=ic;b.title=tt;b.setAttribute('aria-label',tt);b.onclick=fn;w.appendChild(b)};
+ mk('✉','Bericht sturen',()=>qa(p.name,'msg'));mk('🎮','Spelmodus wijzigen',()=>qa(p.name,'gm'));mk('➜','Teleporteren naar een andere speler',()=>qa(p.name,'tp'));mk('👢','Kicken',()=>qa(p.name,'kick'),'warn');mk('⋯','Alle acties (ban, op, whitelist…)',()=>plDlg(p.name,p.type));return w}
+async function qa(n,a){let arg='';
+ if(a=='msg'){arg=(prompt('Bericht aan '+n+':')||'').trim();if(!arg)return}
+ else if(a=='gm'){arg=await choose('Spelmodus van '+n,[['Annuleren',false],['Survival','survival'],['Creative','creative'],['Adventure','adventure'],['Spectator','spectator']]);if(!arg)return}
+ else if(a=='tp'){const o=(S.players||[]).filter(x=>x.name!=n);if(!o.length)return toast('Er is geen andere speler online om naartoe te gaan');
+  arg=await choose('Teleporteer '+n+' naar…',[['Annuleren',false]].concat(o.map(x=>[x.name,x.name])));if(!arg)return}
+ else if(a=='kick'){if(!await ask(n+' van de server zetten?','Kick'))return;arg=prompt('Reden (mag leeg):')||''}
+ go('/api/player',{name:n,action:a,arg},{msg:'Bericht verstuurd',gm:'Spelmodus aangepast',tp:'Teleporteren…',kick:n+' is gekickt'}[a])}
 function plDlg(n,t){const acts=[['kick','Kick'],['ban','Ban'],['pardon','Pardon'],['op','Op'],['deop','Deop'],['whitelist_add','Whitelist +'],['whitelist_remove','Whitelist −'],['gm','Gamemode'],['tp','Tp naar speler'],['msg','Bericht']];
  $('dmsg').textContent='Speler: '+n;$('dbtn').innerHTML='';
  for(const [a,tt] of acts){const b=document.createElement('button');b.className='sm';b.textContent=tt;b.onclick=async()=>{let arg='';
@@ -5726,7 +5737,7 @@ V.pl=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-di
  behP();listsLoad()};
 function plOnline(){const e=$('plOn');if(!e)return;$('pn').textContent='('+S.players.length+')';const sig=S.players.map(p=>p.name+'|'+p.type).join(',');e.querySelectorAll('small').forEach((el,i)=>{const p=S.players[i];if(p)el.textContent=(p.type||'Java')+(p.since?' · '+p.since:'')});if(e.dataset.sig===sig)return;e.dataset.sig=sig;e.innerHTML=S.players.length?'':'<span class="mut">Niemand online.</span>';
  for(const p of S.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));const n=document.createElement('span');n.className='n';n.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(n);
-  const b=document.createElement('button');b.className='sm';b.textContent='Beheren';b.onclick=()=>plDlg(p.name,p.type);d.appendChild(b);e.appendChild(d)}}
+  d.appendChild(qaBtns(p));e.appendChild(d)}}
 async function listsLoad(){const j=await go('/api/lists');if(!j||!$('L-bans'))return;cur.lists=j;if($('wlOn'))$('wlOn').checked=!!j.whitelist_on;
  const mk=(k,ph,rsn)=>{const arr=j[k]||[];const key=e=>k=='ips'?e.ip:e.name;
   return (arr.length?arr.map(e=>`<div class="li">${k=='ips'?'':skinHtml(e.name,'','sm')}<div><b>${esc(key(e))}</b>${k=='bans'||k=='ips'?`<small>${esc(e.reason||'')}${e.created?' · '+esc(String(e.created).slice(0,10)):''}</small>`:''}</div><button class="sm ghost" onclick="listRm('${k}','${esc(key(e)).replace(/'/g,"\\'")}')">Verwijderen</button></div>`).join(''):'<span class="mut">Leeg.</span>')+
@@ -6011,7 +6022,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
   const pc=j.players.length,pm=String(j.stats.players||'').split('/')[1];$('plCnt').textContent='('+pc+(pm?' / '+pm.trim():'')+')';
   if(j.gd){CH.dt=j.gd.dt;CH.ts=j.gd.ts;CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx;if(j.now){const o=j.now-Date.now()/1000;CH.off=CH.off==null?o:CH.off+(o-CH.off)*0.1}}
   const e=$('ovPl'),sig=j.players.map(p=>p.name+'|'+p.type).join(',');if(e)e.querySelectorAll('small').forEach((el,i)=>{const p=j.players[i];if(p)el.textContent=(p.type||'Java')+(p.since?' · '+p.since:'')});if(e&&e.dataset.sig!==sig){e.dataset.sig=sig;e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
-   const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
+   const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);d.appendChild(qaBtns(p));e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
  if(tab=='pl')plOnline();
  if($('clean')&&document.activeElement!==$('clean'))$('clean').checked=CLEAN==null?!!j.clean:CLEAN}

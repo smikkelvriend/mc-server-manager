@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.66
+- **Snelknoppen per speler** in het kaartje Spelers online (Overzicht en tabblad Spelers): bericht sturen, spelmodus wijzigen, teleporteren naar een andere speler, kicken, en een knop met alle acties (ban, op, whitelist…).
+- Deze versie vereist een herstart.
+
 ## 2.65
 - Fix: meldingen (op de pc en op je telefoon) kwamen niet als iemand joinde of wegging. Paper 26.x schrijft `System chat: Naam joined the game` en dat herkende het programma niet. Join en leave worden nu weer goed herkend, ook voor de spelerslijst en het activiteitenlogboek.
 - Deze versie vereist een herstart.
