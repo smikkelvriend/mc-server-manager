@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.81
+- Fix: de **kaart op de telefoon** kon een verkeerde tegel blijven tonen: een stuk op de verkeerde plek of op de dubbele schaal, terwijl dezelfde tegel in squaremap klopte. Tegels werden na het laden nooit ververst, dus een tegel uit een tussentijds moment (tijdens het renderen) bleef staan tot je de pagina herlaadde. Zichtbare tegels worden nu elke 30 seconden opnieuw opgehaald.
+
 ## 2.80
 - **Kaart:** onder de kaart staat een link *Tegelinfo tonen/verbergen*. Die tekent per tegel zijn laag en positie (bijvoorbeeld `3/-2_1`) en onderaan het zoomniveau, om te kunnen zien waar een verkeerd stuk op de kaart vandaan komt.
 

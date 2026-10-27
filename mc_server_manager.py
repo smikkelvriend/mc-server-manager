@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.80"
+APP_VERSION = "2.81"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.81 - Fix: de kaart op de telefoon kon een tegel van een andere laag blijven tonen (een stuk op een verkeerde plek of schaal) omdat tegels na het laden nooit ververst werden. Zichtbare tegels worden nu elke 30 seconden opnieuw opgehaald.
 2.80 - Kaart: onder de kaart staat een link Tegelinfo tonen/verbergen. Die tekent per tegel zijn laag en positie en het zoomniveau, om te zien waar een verkeerd stuk vandaan komt.
 2.79 - Kaart (telefoon en nieuw scherm): tegels die niet laden worden opnieuw geprobeerd (eerst elke 4 s, later elke 20 s; dit herstel zat eerder niet in het bestand) en na het bijwerken van de kaart (genereren klaar) worden alle tegels opnieuw geladen, zodat je geen oude of zwarte stukken overhoudt.
 2.78 - Opstartcontrole meldt nu ook plugins die geen updates kunnen opzoeken (bijv. GitHub 403) en kijkt 40 seconden na het opstarten nog een keer voor late meldingen.
@@ -5874,6 +5875,7 @@ async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=awa
  if(first||!m.worlds.length){m.worlds=j.worlds;$('mw').innerHTML=j.worlds.map(w=>`<option value="${esc(w.name)}">${esc(w.display)}</option>`).join('');
   if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
  if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
+ m.rt=(m.rt||0)+1;if(m.rt%10==0)refreshTiles(m);
  m.dirty=true;genUI()}
 function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.w=w;m.zl=m.zt=Math.min(w.def,w.max+w.extra);m.anc=null;m.cx=w.spawn.x||0;m.cz=w.spawn.z||0;m.imgs.clear();$('mw').value=n;m.dirty=true}
 function mapHome(){const m=cur.m;if(m.w){m.cx=m.w.spawn.x||0;m.cz=m.w.spawn.z||0;m.dirty=true}}
@@ -5897,10 +5899,11 @@ function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=nul
  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
  cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
 function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv)mapAnim(m);if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
-function tileImg(m,key){let t=m.imgs.get(key);
+function tileImg(m,key){let t=m.imgs.get(key);if(t)t.seen=Date.now();
  if(t&&t.bad&&Date.now()-t.bt>(t.n<8?4000:20000)){t.n++;t.bad=false;t.img.src='/map/tile/'+key+'.png?r='+t.n}
  if(!t){t={img:new Image(),ok:false,n:0,bt:0};t.img.onload=()=>{t.ok=true;t.bad=false;m.dirty=true};t.img.onerror=()=>{t.bad=true;t.bt=Date.now();setTimeout(()=>{m.dirty=true},t.n<8?4200:20200)};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
   if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
+function refreshTiles(m){const now=Date.now();m.imgs.forEach((t,key)=>{if(!t.ok||t.rf||now-(t.seen||0)>6000)return;t.rf=1;const im=new Image();im.onload=()=>{t.img=im;t.rf=0;m.dirty=true};im.onerror=()=>{t.rf=0};im.src='/map/tile/'+key+'.png?v='+now})}
 function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}
  const w=m.w,nat=Math.min(Math.ceil(m.zl-1e-6),w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
@@ -6278,6 +6281,7 @@ async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=awa
  if(first||!m.worlds.length){m.worlds=j.worlds;$('mw').innerHTML=j.worlds.map(w=>`<option value="${esc(w.name)}">${esc(w.display)}</option>`).join('');
   if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
  if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
+ m.rt=(m.rt||0)+1;if(m.rt%10==0)refreshTiles(m);
  m.dirty=true;genUI()}
 function mapWorld(n){const m=cur.m,w=m.worlds.find(w=>w.name==n);if(!w)return;m.w=w;m.zl=m.zt=Math.min(w.def,w.max+w.extra);m.anc=null;m.cx=w.spawn.x||0;m.cz=w.spawn.z||0;m.imgs.clear();$('mw').value=n;m.dirty=true}
 function mapHome(){const m=cur.m;if(m.w){m.cx=m.w.spawn.x||0;m.cz=m.w.spawn.z||0;m.dirty=true}}
@@ -6301,10 +6305,11 @@ function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=nul
  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
  cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
 function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv)mapAnim(m);if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
-function tileImg(m,key){let t=m.imgs.get(key);
+function tileImg(m,key){let t=m.imgs.get(key);if(t)t.seen=Date.now();
  if(t&&t.bad&&Date.now()-t.bt>(t.n<8?4000:20000)){t.n++;t.bad=false;t.img.src='/map/tile/'+key+'.png?r='+t.n}
  if(!t){t={img:new Image(),ok:false,n:0,bt:0};t.img.onload=()=>{t.ok=true;t.bad=false;m.dirty=true};t.img.onerror=()=>{t.bad=true;t.bt=Date.now();setTimeout(()=>{m.dirty=true},t.n<8?4200:20200)};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
   if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
+function refreshTiles(m){const now=Date.now();m.imgs.forEach((t,key)=>{if(!t.ok||t.rf||now-(t.seen||0)>6000)return;t.rf=1;const im=new Image();im.onload=()=>{t.img=im;t.rf=0;m.dirty=true};im.onerror=()=>{t.rf=0};im.src='/map/tile/'+key+'.png?v='+now})}
 function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}
  const w=m.w,nat=Math.min(Math.ceil(m.zl-1e-6),w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
