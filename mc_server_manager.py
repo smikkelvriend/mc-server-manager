@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.58"
+APP_VERSION = "2.59"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.59 - Fix: de grafiek in de nieuwe interface tekende een schuine lijn dwars door een onderbreking (bijvoorbeeld de herstart van het programma) en toonde links te weinig geschiedenis. Een onderbreking is nu een echte onderbreking en de grafiek heeft de laatste ~5 minuten tot de linkerrand.
 2.58 - Tabblad Updates duidelijker: je ziet dat er gezocht wordt (draaiende indicator en een balk met percentage tijdens het downloaden) en het installeren heeft een voortgangsbalk met stappen (reservekopie, server veilig stoppen, herstarten). Staat het scherm al op dat tabblad, dan komt er geen apart venster meer bij. Plugin installeren: kies nu 'Later laden', 'Hot-loaden (eigen risico, via PlugManX)' of 'Server herstarten'.
 2.57 - Na een update laadt het open venster zichzelf nu opnieuw (het bleef de oude schermcode draaien, waardoor nieuwe functies niet werkten). Een venster met oude code wordt geweigerd; het nieuwe programma opent dan zelf een vers venster. Het zwarte consolevenster op de achtergrond is weg: start je het programma met python.exe, dan herstart het zichzelf direct zonder venster (pythonw.exe).
 2.56 - Updates worden niet meer "zonder herstart" toegepast: het programma herstart zichzelf na het installeren.
@@ -5640,18 +5641,21 @@ function spark(id,d,col,lo,hi){const c=$(id);if(!c)return;const w=c.clientWidth|
 const CH={ts:[],cpu:[],ram:[],tps:[],temp:[],xmx:0,off:null,W:300};
 /* De lijn wordt op tijd getekend: een paar seconden achter de werkelijkheid, zodat de nieuwste meting er altijd al is en de lijn nooit springt. */
 function chartLoop(){if(tab!='ov'||!$('cBig'))return;const now=performance.now();if(now-(CH.last||0)>30){CH.last=now;
- if(CH.off!=null){const T=Date.now()/1000+CH.off-LAG(),rp=CH.ram.map(v=>CH.xmx?v/CH.xmx*100:v);
+ if(CH.off!=null){const T=Date.now()/1000+CH.off-LAG(),rp=CH.ram.map(v=>v==null?null:CH.xmx?v/CH.xmx*100:v);
   bigChart('cBig',[[tail(rp,T),'#6ea8fe'],[tail(CH.cpu,T),'#f5a524'],[tail((CH.tps||[]).map(v=>v==null?null:v*5),T),'#3ddc97'],[tail((CH.temp||[]).map(v=>v==null?null:v/110*100),T),'#f87171']])}}
  requestAnimationFrame(chartLoop)}
 const LAG=()=>2.6;
-function tail(d,T){const ts=CH.ts,n=Math.min(ts.length,d.length);if(n<2)return null;const W=CH.W,pts=[];let last=null;
- for(let i=0;i<n;i++){if(ts[i]>T)break;if(d[i]!=null){pts.push([(ts[i]-(T-W))/W,d[i]]);last=i}}
- for(let i=0;i<n-1;i++){if(ts[i]<=T&&ts[i+1]>T&&d[i]!=null&&d[i+1]!=null){pts.push([1,d[i]+(d[i+1]-d[i])*(T-ts[i])/(ts[i+1]-ts[i])]);return pts}}
- if(last!=null&&last<n){const x=(ts[last]-(T-W))/W;if(x<1)pts.push([1,d[last]])}return pts}
+function tail(d,T){const ts=CH.ts,n=Math.min(ts.length,d.length);if(n<2)return null;const W=CH.W,G=Math.max(8,(CH.dt||2)*4),pts=[];let last=null;
+ const brk=()=>{if(pts.length&&pts[pts.length-1]!==null)pts.push(null)};
+ for(let i=0;i<n;i++){if(ts[i]>T)break;if(d[i]==null){brk();last=null;continue}
+  if(last!=null&&ts[i]-ts[last]>G)brk();
+  pts.push([(ts[i]-(T-W))/W,d[i]]);last=i}
+ for(let i=0;i<n-1;i++){if(ts[i]<=T&&ts[i+1]>T&&d[i]!=null&&d[i+1]!=null&&ts[i+1]-ts[i]<=G){pts.push([1,d[i]+(d[i+1]-d[i])*(T-ts[i])/(ts[i+1]-ts[i])]);return pts}}
+ if(last!=null&&T-ts[last]<=G){const x=(ts[last]-(T-W))/W;if(x<1)pts.push([1,d[last]])}return pts}
 function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||600,h=c.clientHeight||150,dpr=window.devicePixelRatio||1;c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
  x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
  
- x.save();x.beginPath();x.rect(0,0,w,h);x.clip();for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();let first=1;for(const [px,v] of d){const X=px*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);if(X<-5)continue;first?x.moveTo(X,Y):x.lineTo(X,Y);first=0}x.stroke()}x.restore()}
+ x.save();x.beginPath();x.rect(0,0,w,h);x.clip();for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();let first=1;for(const pt of d){if(pt===null){first=1;continue}const [px,v]=pt,X=px*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);if(X<-5)continue;first?x.moveTo(X,Y):x.lineTo(X,Y);first=0}x.stroke()}x.restore()}
 function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();let tried=0;im.src=hd(n,t);im.alt='';im.onerror=()=>{if(!tried++){setTimeout(()=>{im.src=hd(n,t)+'&r='+Date.now()},4000);d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase();d.appendChild(im);im.style.display='none';im.onload=()=>{d.firstChild&&d.firstChild.nodeType==3&&d.removeChild(d.firstChild);im.style.display=''}}};d.appendChild(im);return d}
 function skinHtml(n,t,cls){const L=esc((String(n).replace(/^\./,'')[0]||'?').toUpperCase());return `<span class="skin ${cls||''}">${L}<img src="${hd(n,t)}" alt="" style="position:absolute;inset:0" onerror="this.remove()"></span>`}
 function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
@@ -5937,7 +5941,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
   $('lgTps').textContent=tps==null?'':String(tps).replace('.',',');
   $('lgTmp').textContent=tmp==null?'':Math.round(tmp)+' °C';
   const pc=j.players.length,pm=String(j.stats.players||'').split('/')[1];$('plCnt').textContent='('+pc+(pm?' / '+pm.trim():'')+')';
-  if(j.gd){CH.ts=j.gd.ts;CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx;if(j.now){const o=j.now-Date.now()/1000;CH.off=CH.off==null?o:CH.off+(o-CH.off)*0.1}}
+  if(j.gd){CH.dt=j.gd.dt;CH.ts=j.gd.ts;CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx;if(j.now){const o=j.now-Date.now()/1000;CH.off=CH.off==null?o:CH.off+(o-CH.off)*0.1}}
   const e=$('ovPl'),sig=j.players.map(p=>p.name+'|'+p.type).join(',');if(e)e.querySelectorAll('small').forEach((el,i)=>{const p=j.players[i];if(p)el.textContent=(p.type||'Java')+(p.since?' · '+p.since:'')});if(e&&e.dataset.sig!==sig){e.dataset.sig=sig;e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
@@ -6359,19 +6363,21 @@ class RemoteServer:
                     "version": APP_VERSION}
             snap["graphs"]["temp"] = series(a.spark_temp)
             def align(sk, ref):
-                """Waarde van een andere meetreeks op de tijdstippen van de CPU-reeks (laatste bekende waarde)."""
+                """Waarde van een andere meetreeks op de tijdstippen van de CPU-reeks (laatste bekende waarde); een onderbreking blijft een onderbreking."""
                 src, i, last, out = list(sk.data), 0, None, []
                 for t, v in ref:
                     while i < len(src) and src[i][0] <= t:
                         last = src[i][1]
                         i += 1
-                    if v is not None:
-                        out.append(last)
+                    out.append(None if v is None else last)
                 return out
             d = list(a.spark_cpu.data)
+            if d:                      # de laatste ~6 minuten op tijd (niet op aantal), onderbrekingen (None) blijven staan zodat de lijn er niet dwars doorheen loopt
+                lim = d[-1][0] - 330
+                d = [x for x in d if x[0] >= lim][-500:]
             snap["gd"] = {"t": d[-1][0] if d else 0, "dt": min(10.0, max(0.5, d[-1][0] - d[-2][0])) if len(d) > 1 else 2.0,
-                          "ts": [t for t, v in d[-150:] if v is not None], "cpu": [v for _t, v in d[-150:] if v is not None], "ram": [v for _t, v in list(a.spark_ram.data)[-150:] if v is not None],
-                          "tps": align(a.spark_tps, d[-150:]), "temp": align(a.spark_temp, d[-150:])}
+                          "ts": [t for t, v in d], "cpu": [v for _t, v in d], "ram": align(a.spark_ram, d),
+                          "tps": align(a.spark_tps, d), "temp": align(a.spark_temp, d)}
             snap["stats"]["sleep"] = a.sv["sleep"].get()
             try:
                 free = shutil.disk_usage(a.folder_var.get().strip() or ".").free / 1e9

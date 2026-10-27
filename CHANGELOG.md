@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.59
+- Fix: de grafiek in de nieuwe interface tekende een schuine lijn dwars door een onderbreking (bijvoorbeeld tijdens het herstarten van het programma of de server) en toonde links te weinig geschiedenis. Een onderbreking blijft nu een onderbreking in de lijn, en het programma stuurt de laatste ~5 minuten mee in plaats van de laatste 150 metingen, zodat de grafiek tot de linkerrand gevuld is.
+- Deze versie vereist een herstart.
+
 ## 2.58
 - Tabblad **Updates** is duidelijker: bij het zoeken zie je een draaiende indicator en een balk met het percentage van het downloaden (en minstens een paar tellen zichtbaar, zodat je ziet dat hij echt zoekt). Bij installeren staat er een voortgangsbalk met de stappen: reservekopie maken, nieuwe versie opslaan, server veilig stoppen, instellingen opslaan en herstarten. Een mislukte poging toont de reden op de pagina.
 - Sta je al op het tabblad Updates, dan komt er geen apart venster meer met 'nieuwe versie beschikbaar', 'up-to-date' of 'herstarten?'.
