@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.67
+- Fix: bij **automatisch installeren** van een programma-update bleef de balk op 45% hangen. Het programma stelde een "Nu herstarten?"-vraag in het verborgen hoofdvenster en wachtte daar eindeloos op. Met het nieuwe scherm wordt er nu niet meer gevraagd. Zijn er spelers online, dan wacht de update tot de server leeg is (je krijgt daar een melding van) en installeert dan zelf.
+- De **schone console** toont nu altijd het antwoord op commando's die je zelf intypt (bijvoorbeeld `list` of `tps`), ook als die regels normaal verborgen worden.
+- Deze versie vereist een herstart.
+
 ## 2.66
 - **Snelknoppen per speler** in het kaartje Spelers online (Overzicht en tabblad Spelers): bericht sturen, spelmodus wijzigen, teleporteren naar een andere speler, kicken, en een knop met alle acties (ban, op, whitelist…).
 - Deze versie vereist een herstart.

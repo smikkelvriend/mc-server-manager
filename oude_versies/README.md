@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.65
+## Versies 2.2 t/m 2.66
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -37,6 +37,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.63`](mc_server_manager_2.63.py) | Telefoonmeldingen, instellingen in tabbladen |
 | [`2.64`](mc_server_manager_2.64.py) | Keuzemenu moeilijkheid, stop/update-hang robuuster |
 | [`2.65`](mc_server_manager_2.65.py) | Join/leave-meldingen herkend |
+| [`2.66`](mc_server_manager_2.66.py) | Snelknoppen per speler |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

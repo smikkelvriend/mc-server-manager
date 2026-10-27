@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.66"
+APP_VERSION = "2.67"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.67 - Fix: bij automatisch installeren van een programma-update bleef de balk op 45% hangen. Het programma stelde een 'Nu herstarten?'-vraag in het verborgen hoofdvenster en wachtte daar eindeloos op. Nu wordt er met het nieuwe scherm niet meer gevraagd; als er spelers online zijn wacht de update tot de server leeg is (je krijgt daar een melding van) en installeert dan zelf. De schone console toont nu altijd het antwoord op commando's die je zelf intypt (bijvoorbeeld list of tps), ook als die regels normaal verborgen worden.
 2.66 - Snelknoppen per speler in het kaartje Spelers online (Overzicht en tabblad Spelers): bericht sturen, spelmodus wijzigen, teleporteren naar een andere speler, kicken, en een knop met alle acties (ban, op, whitelist…).
 2.65 - Fix: meldingen (op de pc en op je telefoon) kwamen niet als iemand joinde of wegging, omdat Paper 26.x de regel als 'System chat: Naam joined the game' schrijft en het programma die niet herkende. Nu worden join en leave weer goed herkend (ook voor de spelerslijst en het activiteitenlogboek).
 2.64 - Moeilijkheid en standaard spelmodus zijn nu een keuzemenu in Instellingen, Server. Fix: de testmelding naar je telefoon gaf 'certificate has expired' op Windows-pc's met verouderde certificaten; het programma probeert dan nog één keer zonder certificaatcontrole en meldt dat erbij. Fix: de server kon op 'Stoppen…' blijven staan terwijl hij al uit was (en een update bleef hangen). De berichtenlus van het programma kan niet meer stilvallen door één foutief bericht, het programma merkt zelf dat de server gestopt is, en een mislukte update toont nu een foutmelding in plaats van te blijven hangen.
@@ -9928,6 +9929,7 @@ class App(tk.Tk):
         except (OSError, ValueError):
             return False
         if echo:
+            self._user_until = time.time() + 6      # je hebt dit zelf gevraagd: het antwoord blijft zichtbaar, ook in de schone console
             self._console_add("> " + cmd, own=True)
         return True
 
@@ -10117,8 +10119,10 @@ class App(tk.Tk):
             text = f"{e['time']}  {sym}{e['msg']}"
         return text, e["tag"]
 
-    def _console_add(self, raw, own=False):
+    def _console_add(self, raw, own=False, keep=False):
         e = self._parse_line(raw, own)
+        if keep:
+            e["player"] = True          # antwoord op een eigen commando: nooit als ruis verbergen
         self.srv_lines.append(e)
         noise = e["kind"] != "own" and self._is_noise(e)
         self.remote.push(e, noise)       # de schermen filteren zelf (schone console), zodat het vinkje direct ook oude regels aanpast
@@ -10603,8 +10607,8 @@ class App(tk.Tk):
             if self.reach_auto_var.get():
                 self.after(20000, self._auto_net_check)
             self.after(3000, lambda: self._auto_poll() if self.srv_state == "online" else None)
-        if not suppress:
-            self._console_add(raw)
+        if not suppress or (now < getattr(self, "_user_until", 0) and not mm and now >= self._learn_until):
+            self._console_add(raw, keep=now < getattr(self, "_user_until", 0))
 
     def _on_list(self, lm):
         try:
@@ -11402,12 +11406,34 @@ class App(tk.Tk):
             self._upd_notified = info["version"]
             self.tab_beheer.notify("notify_update", "Update beschikbaar", f"MC Server Manager {info['version']} is beschikbaar.")
         if self.cfg.get("selfupdate_auto") and not manual:
-            self.selfupdate_install(confirm=not on_tab)
+            self._auto_install_when_idle()
         elif manual or self._upd_prompted != info["version"]:
             if on_tab:
                 self._upd_prompted = info["version"]      # je kijkt er al naar: geen apart venster
             else:
                 self._selfupd_ask()
+
+    def _auto_install_when_idle(self):
+        """Automatisch installeren. Met het eigen scherm in gebruik mag er geen vraag in het (verborgen) hoofdvenster komen:
+        die bleef eindeloos wachten op een antwoord (de balk bleef op 45% staan). Er wordt dan niet gevraagd, maar de update
+        wacht tot er niemand meer online is, zodat niemand van de server valt."""
+        self._auto_job = None
+        info = self._upd
+        if not info or (self._upd_st or {}).get("phase") == "install":
+            return
+        desk = self.desk.running and (time.time() - self.desk.last_poll < 15 or self._desk_on_upd())
+        if not desk:
+            self.selfupdate_install(confirm=True)
+            return
+        if self.players:
+            if getattr(self, "_auto_wait_ver", None) != info["version"]:
+                self._auto_wait_ver = info["version"]
+                msg = f"Versie {info['version']} staat klaar en wordt geïnstalleerd zodra er niemand meer online is."
+                self.log(msg, "info")
+                self.desk.note(msg, "info")
+            self._auto_job = self.after(60000, self._auto_install_when_idle)
+            return
+        self.selfupdate_install(confirm=False)
 
     def _hot_ok(self, info):
         """Kan deze update zonder herstart? (alleen als het .py-bestand draait en de code-vergelijking dat toestaat)"""
