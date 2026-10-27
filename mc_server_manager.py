@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.78"
+APP_VERSION = "2.79"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.79 - Kaart (telefoon en nieuw scherm): tegels die niet laden worden opnieuw geprobeerd (eerst elke 4 s, later elke 20 s; dit herstel zat eerder niet in het bestand) en na het bijwerken van de kaart (genereren klaar) worden alle tegels opnieuw geladen, zodat je geen oude of zwarte stukken overhoudt.
 2.78 - Opstartcontrole meldt nu ook plugins die geen updates kunnen opzoeken (bijv. GitHub 403) en kijkt 40 seconden na het opstarten nog een keer voor late meldingen.
 2.77 - Opstartcontrole: na het opstarten leest het programma het logboek door en meldt als er iets mis is (plugin die niet laadt of start, poort in gebruik, EULA, te weinig geheugen, andere foutmeldingen). Je ziet het onder Aandacht, in een melding en optioneel op je telefoon. Staat onder Meldingen aan/uit.
 2.76 - Tab-aanvulling in de console wacht nu langer op het antwoord van de server (3 s i.p.v. 1,2 s), zodat het ook werkt als de server even traag is.
@@ -5867,7 +5868,8 @@ V.map=async()=>{$('view').innerHTML=`<div class="card"><div class="row"><select 
  const m=cur.m={worlds:[],players:[],w:null,zl:2,zt:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
  mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
 async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
- m.players=j.players||[];m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
+ m.players=j.players||[];const pst=m.gst;m.gst=(j.gen||{}).state;if(pst=='rendering'&&m.gst!='rendering'){m.imgs.clear();setTimeout(()=>{if(!m.dead){m.imgs.clear();m.dirty=true}},20000)}
+ m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
  if(first||!m.worlds.length){m.worlds=j.worlds;$('mw').innerHTML=j.worlds.map(w=>`<option value="${esc(w.name)}">${esc(w.display)}</option>`).join('');
   if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
  if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
@@ -5894,7 +5896,9 @@ function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=nul
  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
  cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
 function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv)mapAnim(m);if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
-function tileImg(m,key){let t=m.imgs.get(key);if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.onerror=()=>{t.bad=true};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
+function tileImg(m,key){let t=m.imgs.get(key);
+ if(t&&t.bad&&Date.now()-t.bt>(t.n<8?4000:20000)){t.n++;t.bad=false;t.img.src='/map/tile/'+key+'.png?r='+t.n}
+ if(!t){t={img:new Image(),ok:false,n:0,bt:0};t.img.onload=()=>{t.ok=true;t.bad=false;m.dirty=true};t.img.onerror=()=>{t.bad=true;t.bt=Date.now();setTimeout(()=>{m.dirty=true},t.n<8?4200:20200)};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
   if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
 function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}
@@ -6264,7 +6268,8 @@ V.map=async()=>{$('main').innerHTML=`<div class="card"><div class="row"><select 
  const m=cur.m={worlds:[],players:[],w:null,zl:2,zt:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
  mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
 async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
- m.players=j.players||[];m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
+ m.players=j.players||[];const pst=m.gst;m.gst=(j.gen||{}).state;if(pst=='rendering'&&m.gst!='rendering'){m.imgs.clear();setTimeout(()=>{if(!m.dead){m.imgs.clear();m.dirty=true}},20000)}
+ m.gen=j.gen||{};m.info=j.gen_info;m.chunky=j.chunky;m.ap=j.autopause;
  if(first||!m.worlds.length){m.worlds=j.worlds;$('mw').innerHTML=j.worlds.map(w=>`<option value="${esc(w.name)}">${esc(w.display)}</option>`).join('');
   if(j.worlds.length){const w=j.worlds.find(w=>w.type=='normal')||j.worlds[0];mapWorld(w.name)}$('mmsg').textContent=j.msg||''}
  if(j.disk)$('mmsg').textContent='Server uit: opgeslagen kaart';else if(!j.msg)$('mmsg').textContent='';
@@ -6291,7 +6296,9 @@ function mapInit(m){const cv=$('mc');const pts=new Map();let last=null,start=nul
  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
  cv.addEventListener('wheel',e=>{e.preventDefault();mapZoom(e.deltaY<0?1:-1,e.offsetX,e.offsetY)},{passive:false})}
 function mapLoop(m){if(m.dead)return;const cv=$('mc');if(cv)mapAnim(m);if(cv&&m.dirty){m.dirty=false;mapDraw(m,cv)}requestAnimationFrame(()=>mapLoop(m))}
-function tileImg(m,key){let t=m.imgs.get(key);if(!t){t={img:new Image(),ok:false};t.img.onload=()=>{t.ok=true;m.dirty=true};t.img.onerror=()=>{t.bad=true};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
+function tileImg(m,key){let t=m.imgs.get(key);
+ if(t&&t.bad&&Date.now()-t.bt>(t.n<8?4000:20000)){t.n++;t.bad=false;t.img.src='/map/tile/'+key+'.png?r='+t.n}
+ if(!t){t={img:new Image(),ok:false,n:0,bt:0};t.img.onload=()=>{t.ok=true;t.bad=false;m.dirty=true};t.img.onerror=()=>{t.bad=true;t.bt=Date.now();setTimeout(()=>{m.dirty=true},t.n<8?4200:20200)};t.img.src='/map/tile/'+key+'.png';m.imgs.set(key,t);
   if(m.imgs.size>300){const k=m.imgs.keys().next().value;m.imgs.delete(k)}}return t}
 function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}
  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.fillStyle='#0b1220';x.fillRect(0,0,W,H);if(!m.w){x.fillStyle='#94a3b8';x.fillText('Kaart laden…',14,24);return}

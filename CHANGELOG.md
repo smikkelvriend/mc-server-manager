@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.79
+- **Kaart (telefoon en nieuw scherm):** tegels die niet laden (zwarte stukken) worden nu echt opnieuw geprobeerd, eerst elke 4 seconden en later elke 20 seconden. Dit herstel uit 2.70 bleek niet in het bestand te zitten. Na het bijwerken van de kaart (genereren klaar) worden alle tegels opnieuw geladen, zodat je geen oude of ontbrekende stukken overhoudt.
+
 ## 2.78
 - **Opstartcontrole** meldt nu ook plugins die **geen updates kunnen opzoeken** (bijvoorbeeld *Failed to look for updates … HTTP 403* van GitHub) en kijkt 40 seconden na het opstarten nog een keer, omdat plugins dit soms pas later melden.
 
