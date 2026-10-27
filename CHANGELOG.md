@@ -2,6 +2,13 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.52
+- Nieuwe interface: spelerskoppen die traag binnenkomen (vooral Bedrock-spelers) verschijnen nu wel. De spelerslijst werd elke seconde opnieuw opgebouwd, waardoor het laden van een kop steeds werd afgebroken. Nu wordt de lijst alleen opnieuw opgebouwd als er een speler bijkomt of weggaat; alleen de duur wordt bijgewerkt. Per speler wordt een kop ook maar één keer tegelijk gedownload. Mislukt een kop toch, dan staat er de beginletter en probeert het scherm het na 4 seconden nog eens.
+- Deze versie vereist een herstart.
+
+## 2.51
+- Nieuwe interface: de knop onder Auto slaapstand heet **Uit slaapstand halen** zolang de server slaapt en start dan meteen de server (zonder dat er iemand hoeft te joinen). Draait de server, dan is het weer **Nu in slaapstand**.
+
 ## 2.50
 - Nieuwe interface, Instellingen: de **Slaapstand** (minuten zonder spelers, alleen op bepaalde tijden, van/tot en dagen) en de **Gezondheidscontrole** (schijf, lage TPS, geheugen) hebben nu eigen kaarten. Die instellingen waren alleen in het oude scherm te vinden, dat niet meer te zien is.
 - Deze versie vereist een herstart.

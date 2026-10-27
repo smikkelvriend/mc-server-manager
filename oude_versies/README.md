@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.49
+## Versies 2.2 t/m 2.50
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -23,6 +23,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.47`](mc_server_manager_2.47.py) | Overzicht op één scherm, gecombineerde grafiek |
 | [`2.48`](mc_server_manager_2.48.py) | Nieuwe interface als enige interface |
 | [`2.49`](mc_server_manager_2.49.py) | Soepele grafiek, venster blijft verbonden na herstart |
+| [`2.50`](mc_server_manager_2.50.py) | Slaapstand- en gezondheidsinstellingen in de nieuwe interface |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

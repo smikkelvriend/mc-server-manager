@@ -53,12 +53,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.50"
+APP_VERSION = "2.52"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.52 - Nieuwe interface: spelerskoppen die traag binnenkomen (vooral Bedrock) verschijnen nu wel. De lijst werd elke seconde opnieuw opgebouwd, waardoor het laden steeds werd afgebroken; nu wordt hij alleen aangepast als er echt iets verandert. Mislukt een kop, dan staat er de beginletter van de speler. Het scherm probeert het na een paar seconden nog eens.
+2.51 - Nieuwe interface: de knop onder Auto slaapstand heet "Uit slaapstand halen" zolang de server slaapt en start dan meteen de server. Draait de server, dan is het weer "Nu in slaapstand".
 2.50 - Nieuwe interface, Instellingen: de instellingen van de slaapstand (minuten, rooster met tijden en dagen) en de gezondheidscontrole (schijf, TPS, geheugen) staan er nu in. Die waren alleen in het oude scherm te vinden.
 2.49 - Nieuwe interface: de grafiek in het Overzicht hapert niet meer. De lijn wordt nu op tijd getekend (met een korte vertraging van een paar seconden) in plaats van te springen zodra er een nieuwe meting binnenkomt, en het scherm ververst elke seconde. Na een update met herstart blijft het bestaande venster verbonden in plaats van dat er een tweede opent.
 2.48 - De nieuwe interface is nu de enige interface: het klassieke scherm is niet meer te zien. Het programma sluit als je het venster sluit (als de server niet draait), of via de knop Afsluiten onderin de zijbalk.
@@ -4752,6 +4754,7 @@ class Heads:
         self.q = queue.Queue()
         self.on_change = []
         self.lock = threading.Lock()
+        self.locks = {}
 
     def _key(self, name):
         return name.lower()
@@ -4818,10 +4821,17 @@ class Heads:
         k = self._key(name)
         d = self.png.get(k) or self._load_disk(name)
         if d is None and not self._miss_recent(name):
-            d = self._fetch(name, self.is_bedrock(name, typ))
-            if d:
-                self.png[k] = d
+            with self._fetch_lock(k):          # per naam maar één download tegelijk; een tweede aanvraag wacht op de eerste
+                d = self.png.get(k) or self._load_disk(name)
+                if d is None and not self._miss_recent(name):
+                    d = self._fetch(name, self.is_bedrock(name, typ))
+                    if d:
+                        self.png[k] = d
         return d or head_placeholder(name)
+
+    def _fetch_lock(self, k):
+        with self.lock:
+            return self.locks.setdefault(k, threading.Lock())
 
     def photo(self, name, typ=""):
         """Hoofdje als afbeelding voor Tk (alleen hoofdthread). Zolang de skin er niet is: een eigen hoofdje."""
@@ -5519,7 +5529,7 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--a);padding:0;flex
 canvas.big{flex:1;min-height:0;width:100%;display:block}
 .pl{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--b)}.pl:first-of-type{border-top:0}
 .pl .n{flex:1;min-width:0}.pl .n b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis}.pl .n small{display:block;font-size:12px;color:var(--m)}
-.skin{width:34px;height:34px;border-radius:7px;image-rendering:pixelated;background:#222a34;flex:none;display:flex;align-items:center;justify-content:center;font-weight:600;overflow:hidden}
+.skin{position:relative;width:34px;height:34px;border-radius:7px;image-rendering:pixelated;background:#222a34;flex:none;display:flex;align-items:center;justify-content:center;font-weight:600;overflow:hidden}
 .skin img{width:100%;height:100%;display:block;image-rendering:pixelated}
 .skin.sm{width:22px;height:22px;border-radius:5px;font-size:11px}
 .con{background:#0a0d11;border:1px solid var(--b);border-radius:14px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
@@ -5559,7 +5569,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <nav id="nav"></nav>
  <div class="sleepbox"><div class="h">Auto slaapstand<div class="sw" id="swSleep" onclick="sleepAuto()" role="switch" tabindex="0"></div></div>
   <small id="sleepTx">Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.</small>
-  <button id="btnSleep" onclick="sleepNow()">Nu in slaapstand</button></div>
+  <button id="btnSleep" onclick="sleepBtn()">Nu in slaapstand</button></div>
  <button class="ghost sm" onclick="quitApp()">Afsluiten</button>
 </aside>
 <main>
@@ -5611,8 +5621,8 @@ function bigChart(id,series){const c=$(id);if(!c)return;const w=c.clientWidth||6
  x.strokeStyle='#232a33';x.lineWidth=1;for(let i=0;i<4;i++){const y=10+i*(h-20)/3;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
  
  x.save();x.beginPath();x.rect(0,0,w,h);x.clip();for(const [d,col] of series){if(!d||d.length<2)continue;x.strokeStyle=col;x.lineWidth=2.5;x.lineJoin='round';x.beginPath();let first=1;for(const [px,v] of d){const X=px*w,Y=h-10-Math.min(Math.max(v,0),100)/100*(h-20);if(X<-5)continue;first?x.moveTo(X,Y):x.lineTo(X,Y);first=0}x.stroke()}x.restore()}
-function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();im.src=hd(n,t);im.alt='';im.onerror=()=>{im.remove();d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase()};d.appendChild(im);return d}
-function skinHtml(n,t,cls){return `<span class="skin ${cls||''}"><img src="${hd(n,t)}" alt="" onerror="this.remove();"></span>`}
+function skin(n,t,cls){const d=document.createElement('span');d.className='skin '+(cls||'');const im=new Image();let tried=0;im.src=hd(n,t);im.alt='';im.onerror=()=>{if(!tried++){setTimeout(()=>{im.src=hd(n,t)+'&r='+Date.now()},4000);d.textContent=(n.replace(/^\./,'')[0]||'?').toUpperCase();d.appendChild(im);im.style.display='none';im.onload=()=>{d.firstChild&&d.firstChild.nodeType==3&&d.removeChild(d.firstChild);im.style.display=''}}};d.appendChild(im);return d}
+function skinHtml(n,t,cls){const L=esc((String(n).replace(/^\./,'')[0]||'?').toUpperCase());return `<span class="skin ${cls||''}">${L}<img src="${hd(n,t)}" alt="" style="position:absolute;inset:0" onerror="this.remove()"></span>`}
 function ago(ts){const s=Math.max(0,Date.now()/1000-ts);return s<90?'zojuist':s<5400?Math.round(s/60)+' min geleden':s<172800?Math.round(s/3600)+' uur geleden':Math.round(s/86400)+' dagen geleden'}
 const fb2=n=>n>1e9?(n/1e9).toFixed(1).replace('.',',')+' GB':n>1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' kB';
 const dt=t=>new Date(t*1000).toLocaleString('nl',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
@@ -5669,7 +5679,7 @@ V.pl=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-di
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Whitelist <span class="sp"></span><label class="mut" style="font-weight:400;display:flex;gap:6px;align-items:center;font-size:13px">Whitelist actief<input type="checkbox" id="wlOn" onchange="wlToggle(this.checked)"></label></h3><div id="L-whitelist"></div></div>
  <div class="card"><h3>Gebande spelers</h3><div id="L-bans"></div></div><div class="card"><h3>Gebande IP-adressen</h3><div id="L-ips"></div></div><div class="card"><h3>Operators</h3><div id="L-ops"></div></div></div></div>`;
  behP();listsLoad()};
-function plOnline(){const e=$('plOn');if(!e)return;$('pn').textContent='('+S.players.length+')';e.innerHTML=S.players.length?'':'<span class="mut">Niemand online.</span>';
+function plOnline(){const e=$('plOn');if(!e)return;$('pn').textContent='('+S.players.length+')';const sig=S.players.map(p=>p.name+'|'+p.type).join(',');e.querySelectorAll('small').forEach((el,i)=>{const p=S.players[i];if(p)el.textContent=(p.type||'Java')+(p.since?' · '+p.since:'')});if(e.dataset.sig===sig)return;e.dataset.sig=sig;e.innerHTML=S.players.length?'':'<span class="mut">Niemand online.</span>';
  for(const p of S.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));const n=document.createElement('span');n.className='n';n.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(n);
   const b=document.createElement('button');b.className='sm';b.textContent='Beheren';b.onclick=()=>plDlg(p.name,p.type);d.appendChild(b);e.appendChild(d)}}
 async function listsLoad(){const j=await go('/api/lists');if(!j||!$('L-bans'))return;cur.lists=j;if($('wlOn'))$('wlOn').checked=!!j.whitelist_on;
@@ -5834,6 +5844,7 @@ async function progCheck(){await go('/api/selfupdate',{action:'check'},'Controle
 async function progInst(){if(!await ask('Het programma updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'},'Bezig…')}
 /* ---------- Instellingen ---------- */
 async function sleepAuto(){const on=!$('swSleep').classList.contains('on');$('swSleep').classList.toggle('on',on);await go('/api/sleep',{action:'auto',on});setTimeout(poll,300)}
+async function sleepBtn(){if(S.sleep&&S.sleep.sleeping){await go('/api/sleep',{action:'wake'});setTimeout(poll,800)}else sleepNow()}
 async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
 async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
 const PROPL={'motd':'Bericht in serverlijst (MOTD)','max-players':'Maximaal aantal spelers','difficulty':'Moeilijkheid (peaceful, easy, normal, hard)','gamemode':'Standaard spelmodus','pvp':'PvP','white-list':'Whitelist','online-mode':'Online modus (Mojang-login)','allow-flight':'Vliegen toestaan','view-distance':'Zichtafstand','simulation-distance':'Simulatieafstand','spawn-protection':'Spawn-bescherming (blokken)'};
@@ -5875,7 +5886,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
  $('pill').className='pill '+(m[1]||'');$('pillTx').textContent=m[0]+(st=='online'&&j.stats.uptime&&j.stats.uptime!='-'?' · '+j.stats.uptime:'');
  $('bStart').classList.toggle('hide',st!='stopped'||sl);$('bRestart').classList.toggle('hide',st!='online');$('bStop').classList.toggle('hide',!(st=='online'||st=='starting'));
  $('sname').textContent=j.folder||'Server';$('sver').textContent=[j.mc,j.build?'build '+j.build:''].filter(Boolean).join(' · ')||'Paper';
- $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=st!='online'||sl;
+ $('swSleep').classList.toggle('on',!!(j.sleep&&j.sleep.on));$('btnSleep').disabled=!(sl||st=='online');$('btnSleep').textContent=sl?'Uit slaapstand halen':'Nu in slaapstand';$('btnSleep').className=sl?'go':'';
  $('sleepTx').textContent=j.stats.sleep&&j.stats.sleep!='-'?j.stats.sleep:'Server stopt na een tijd zonder spelers en start vanzelf bij de eerste join.';
  const bz=$('busy');bz.classList.toggle('hide',!j.busy);if(j.busy){const p=j.progress||[0,1,'determinate'];bz.classList.toggle('ind',p[2]=='indeterminate');bz.firstChild.style.width=(p[2]=='indeterminate'?40:Math.min(100,p[0]/(p[1]||1)*100))+'%'}
  const bp=$('bd-plug'),n=(j.pupd||0)+(j.paperupd?1:0);if(bp){bp.classList.toggle('hide',!n);bp.textContent=n}const bu=$('bd-upd');if(bu){bu.classList.toggle('hide',!j.selfupd);bu.textContent='1'}
@@ -5887,7 +5898,7 @@ function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.slee
   $('lgTmp').textContent=tmp==null?'':Math.round(tmp)+' °C';
   const pc=j.players.length,pm=String(j.stats.players||'').split('/')[1];$('plCnt').textContent='('+pc+(pm?' / '+pm.trim():'')+')';
   if(j.gd){CH.ts=j.gd.ts;CH.cpu=j.gd.cpu;CH.ram=j.gd.ram;CH.tps=j.gd.tps;CH.temp=j.gd.temp;CH.xmx=j.xmx;if(j.now){const o=j.now-Date.now()/1000;CH.off=CH.off==null?o:CH.off+(o-CH.off)*0.1}}
-  const e=$('ovPl');if(e){e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
+  const e=$('ovPl'),sig=j.players.map(p=>p.name+'|'+p.type).join(',');if(e)e.querySelectorAll('small').forEach((el,i)=>{const p=j.players[i];if(p)el.textContent=(p.type||'Java')+(p.since?' · '+p.since:'')});if(e&&e.dataset.sig!==sig){e.dataset.sig=sig;e.innerHTML=j.players.length?'':'<span class="mut">Niemand online.</span>';for(const p of j.players){const d=document.createElement('div');d.className='pl';d.appendChild(skin(p.name,p.type));
    const nn=document.createElement('span');nn.className='n';nn.innerHTML=`<b>${esc(p.name)}</b><small>${esc(p.type||'Java')}${p.since?' · '+esc(p.since):''}</small>`;d.appendChild(nn);e.appendChild(d)}}
   $('cleanTx').textContent=j.clean?'Schoon':'';drawAtt()}
  if(tab=='pl')plOnline();
@@ -6899,6 +6910,11 @@ class RemoteServer:
                 return 200, {"ok": False, "msg": "De server draait niet (of slaapt al)"}
             self.call_main(a.sleep_now, auto=True)
             return 200, {"ok": True, "msg": "Slaapstand gestart"}
+        if act == "wake":
+            if not self.call_main(lambda: bool(getattr(a, "_sleeping", False)) and not a.srv_running()):
+                return 200, {"ok": False, "msg": "De server slaapt niet"}
+            self.call_main(lambda: a._wake("handmatig"))
+            return 200, {"ok": True, "msg": "Server wordt gestart…"}
         if act == "auto":
             def go():
                 a.sleep_var.set(bool(body.get("on")))
@@ -9430,8 +9446,11 @@ class App(tk.Tk):
         st = self._sleep_stats()
         st["wakes"] = st.get("wakes", 0) + 1
         st["last_who"], st["last_at"] = who, time.strftime("%d-%m %H:%M")
-        self.tab_beheer.notify("notify_join", "Slaapstand voorbij", f"{who} wekt de server.", who)
-        self.log(f"Slaapstand: {who} probeert te joinen. De server wordt gestart…", "ok")
+        if who == "handmatig":
+            self.log("Slaapstand: handmatig beëindigd. De server wordt gestart…", "ok")
+        else:
+            self.tab_beheer.notify("notify_join", "Slaapstand voorbij", f"{who} wekt de server.", who)
+            self.log(f"Slaapstand: {who} probeert te joinen. De server wordt gestart…", "ok")
         self._wake_stop()
         self._set_state("stopped")
         self.after(1200, self.srv_start)
