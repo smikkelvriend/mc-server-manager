@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.62
+- Fix: het programma kon `stop` twee keer naar de server sturen (bijvoorbeeld bij afsluiten of bijwerken terwijl de server al aan het stoppen was). Paper geeft dan de foutmelding `Command exception: /stop ... NullPointerException`. Nu wordt er maar één keer gestopt; een tweede verzoek past alleen aan wat er daarna moet gebeuren (herstarten of niet).
+- PLM-controle na laden/uitladen gebruikt nu eerst `/plm list` (de juiste lijst van PlugManX) en pas daarna `/plugins`.
+- De melding boven de pluginlijst blijft niet meer eeuwig staan: een geslaagde melding verdwijnt na 15 seconden, een foutmelding na 45 seconden, of meteen met het kruisje.
+- Deze versie vereist een herstart.
+
 ## 2.61
 - **Plugins slepen en neerzetten:** sleep een of meer `.jar`-bestanden op het tabblad Plugins (of kies ze met de knop *Bestand kiezen…*). Het programma controleert dat het echt een plugin is (er moet een `plugin.yml` of `paper-plugin.yml` in zitten), zet hem in de plugins-map en toont wat er is toegevoegd. Is er al een bestand met dezelfde naam, dan gaat het oude naar `verwijderde_plugins`. Staat dezelfde plugin al onder een andere bestandsnaam in de map, dan krijg je een waarschuwing.
 - Draait de server, dan kies je daarna: **later laden**, **hot-loaden** (op eigen risico, via PlugManX) of **de server herstarten**.

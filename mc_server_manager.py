@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.61"
+APP_VERSION = "2.62"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.62 - Fix: het programma kon 'stop' twee keer naar de server sturen (bijvoorbeeld bij afsluiten of bijwerken terwijl de server al aan het stoppen was). Paper geeft dan de foutmelding 'Command exception: /stop ... NullPointerException'. Nu wordt er maar één keer gestopt. PLM-controle gebruikt nu eerst /plm list (daarna pas /plugins), en de melding boven de pluginlijst verdwijnt vanzelf (succes na 15 s, fout na 45 s) of met het kruisje.
 2.61 - Plugins toevoegen door een .jar-bestand op het tabblad Plugins te slepen (of via de knop 'Bestand kiezen…'). Het programma controleert dat het echt een plugin is (plugin.yml), zet hem in de plugins-map (een bestand met dezelfde naam gaat eerst naar verwijderde_plugins), waarschuwt als dezelfde plugin al onder een andere bestandsnaam staat, en vraagt daarna: later laden, hot-loaden (eigen risico) of de server herstarten.
 2.60 - Fix: de knoppen PLM laden/uitladen deden niets in de nieuwe interface (het programma las een verouderde pluginlijst van het verborgen klassieke scherm). Nu staat er altijd een duidelijke melding als er niets te doen is, en na het laden/uitladen vraagt het programma de pluginlijst van de server op en toont op het scherm of de plugin echt is geladen of uitgeladen (balk boven de lijst, melding en label Uitgeladen).
 2.59 - Fix: de grafiek in de nieuwe interface tekende een schuine lijn dwars door een onderbreking (bijvoorbeeld de herstart van het programma) en toonde links te weinig geschiedenis. Een onderbreking is nu een echte onderbreking en de grafiek heeft de laatste ~5 minuten tot de linkerrand.
@@ -5863,7 +5864,9 @@ async function behLogs(){if(!await ask('Logs ouder dan 7 dagen en crash-reports 
 function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name,'nl',{sensitivity:'base'}));const on=items.filter(i=>i.enabled).length;
  const row=i=>`<label class="li" style="${i.enabled?'':'opacity:.55'}"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b>${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div>
   ${i.enabled&&i.loaded===false?'<span class="pill y" style="background:#3a2a0c;color:var(--y);padding:3px 10px;font-size:12px" title="Staat in de map aan, maar de server heeft hem uitgeladen tot de volgende herstart"><i></i>Uitgeladen</span>':`<span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span>`}</label>`;
- const pr=j.plmres,banner=pr?`<div class="ubox ${pr.state=='pending'?'chk':pr.ok===false?'err':'ins'}" style="padding:10px 14px;margin:0 0 10px"><div class="uh" style="font-size:14px">${pr.state=='pending'?'<span class="spin"></span>':''}${esc(pr.msg)}</div></div>`:'';
+ let pr=j.plmres;const show=Math.max(0,(pr&&pr.state=='done'?(pr.ok===false?45:15):600)-(pr?pr.age:0));if(!pr||window.PLM_DISMISS===pr.t||!show)pr=null;
+ const banner=pr?`<div id="plmban" class="ubox ${pr.state=='pending'?'chk':pr.ok===false?'err':'ins'}" style="padding:10px 14px;margin:0 0 10px"><div class="uh" style="font-size:14px">${pr.state=='pending'?'<span class="spin"></span>':''}<span>${esc(pr.msg)}</span><button class="sm" style="margin-left:auto" title="Sluiten" onclick="window.PLM_DISMISS=${pr.t};this.closest('.ubox').remove()">×</button></div></div>`:'';
+ if(pr&&pr.state=='done'){clearTimeout(window.PLM_T);window.PLM_T=setTimeout(()=>{const e=$('plmban');if(e)e.remove()},show*1000)}
  const hint=`<div class="row" style="margin-bottom:8px;align-items:center"><span class="mut" style="font-size:13px">Sleep een .jar-bestand hierheen om een plugin toe te voegen</span><span class="sp"></span><button class="sm" onclick="plPick()">Bestand kiezen…</button></div>`;
  $('pls').innerHTML=banner+hint+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
   <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.')}
@@ -9750,8 +9753,18 @@ class App(tk.Tk):
             self._console_add("> " + cmd, own=True)
         return True
 
+    def _stop_in_progress(self):
+        return self.srv_state == "stopping" and time.time() - getattr(self, "_stop_t", 0) < 120
+
     def srv_stop(self, after=None, restart=False):
         if not self.srv_running():
+            return
+        if self._stop_in_progress():
+            # Er is al een 'stop' gestuurd. Een tweede 'stop' terwijl Paper al afsluit geeft daar een foutmelding
+            # (NullPointerException in /stop); we passen alleen aan wat er daarna moet gebeuren.
+            if after is not None:
+                self._after_exit = after
+            self._restart_pending = bool(restart)
             return
         self._user_stop = True
         self._after_exit = after
@@ -9794,7 +9807,10 @@ class App(tk.Tk):
         """Veilig stoppen bij het afsluiten van het programma (wacht tot de server klaar is)."""
         self.status("Server wordt veilig gestopt…")
         self._user_stop, self._restart_pending, self._after_exit = True, False, None
-        self.srv_send("stop", echo=False)
+        if not self._stop_in_progress():
+            self._stop_t = time.time()
+            self._set_state("stopping")
+            self.srv_send("stop", echo=False)
         end = time.time() + int(self.cfg.get("stop_timeout", 60))
         last_nl = time.time()
         t0 = time.time()
@@ -10251,37 +10267,46 @@ class App(tk.Tk):
 
     # ---------- regels van de server verwerken ----------
     def plm_verify(self, names, unload):
-        """Na /plm load of /plm unload: de pluginlijst van de server opvragen en laten zien of het echt gelukt is."""
-        self._plm_cap = cap = {"on": False, "until": 0, "lines": [], "names": list(names), "unload": bool(unload)}
+        """Na /plm load of /plm unload: de pluginlijst van de server opvragen (met /plm list, anders /plugins) en laten zien of het echt gelukt is."""
         self._plm_res = {"t": time.time(), "state": "pending", "unload": bool(unload), "names": list(names), "ok": None,
                          "msg": ("Uitladen" if unload else "Laden") + " is naar de server gestuurd, even controleren…"}
+        self.after(2500, lambda: self._plm_ask("plm list", names, unload))
 
-        def ask():
-            cap["on"], cap["until"] = True, time.time() + 4
-            if not self.srv_send("plugins", echo=False):
-                self._plm_cap = None
-                self._plm_res.update(state="done", ok=None, msg="De server draait niet meer, kon het resultaat niet controleren.")
-                return
-            self.after(4300, lambda: self._plm_finish(cap))
-        self.after(2500, ask)
+    def _plm_ask(self, cmd, names, unload):
+        self._plm_cap = cap = {"on": True, "until": time.time() + 3, "lines": [], "names": list(names), "unload": bool(unload), "cmd": cmd}
+        if not self.srv_send(cmd, echo=False):
+            self._plm_cap = None
+            self._plm_res.update(state="done", ok=None, msg="De server draait niet meer, kon het resultaat niet controleren.")
+            return
+        self.after(3300, lambda: self._plm_finish(cap))
+
+    @staticmethod
+    def _parse_plugin_list(lines):
+        """Haalt de pluginnamen uit de uitvoer van /plm list ("Plugins (13): A, B (1.0), C") of /plugins (meerdere regels)."""
+        loaded, header = set(), False
+        for ln in lines:
+            sx = re.sub(r"§.", "", ln).strip()
+            if re.search(r"Plugins? \(\d+\)", sx):
+                header = True
+                sx = sx.split(":", 1)[1].strip() if ":" in sx else ""
+            else:
+                sx = re.sub(r"^[-•*]\s*", "", sx)
+                if ":" in sx and "lugins" in sx:
+                    sx = sx.split(":", 1)[1].strip()
+            for part in sx.split(","):
+                word = part.strip().split(" ")[0] if part.strip() else ""
+                if word and re.fullmatch(r"[A-Za-z0-9_.\-]+", word):
+                    loaded.add(word.lower())
+        return header, loaded
 
     def _plm_finish(self, cap):
         if self._plm_cap is not cap:
             return
         self._plm_cap = None
-        loaded, header = set(), False
-        for ln in cap["lines"]:
-            sx = re.sub(r"§.", "", ln).strip()
-            if re.search(r"Plugins \(\d+\)", sx):
-                header = True
-                continue
-            sx = re.sub(r"^[-•*]\s*", "", sx)
-            if ":" in sx and "lugins" in sx:
-                sx = sx.split(":", 1)[1].strip()
-            for part in sx.split(","):
-                part = part.strip()
-                if part and re.fullmatch(r"[A-Za-z0-9_.\-]+", part):
-                    loaded.add(part.lower())
+        header, loaded = self._parse_plugin_list(cap["lines"])
+        if (not header or not loaded) and cap.get("cmd") == "plm list":
+            self.after(100, lambda: self._plm_ask("plugins", cap["names"], cap["unload"]))      # val terug op het gewone /plugins
+            return
         res = self._plm_res
         if not header or not loaded:
             res.update(state="done", ok=None, msg="Opdracht verstuurd, maar de pluginlijst van de server was niet te lezen. Kijk in de console of het gelukt is.")
