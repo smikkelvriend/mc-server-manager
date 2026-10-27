@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.83
+## Versies 2.2 t/m 2.84
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -55,6 +55,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.81`](mc_server_manager_2.81.py) | Kaarttegels elke 30 s verversen |
 | [`2.82`](mc_server_manager_2.82.py) | Geen lijntjes op tegelnaden |
 | [`2.83`](mc_server_manager_2.83.py) | Telefoon-app instellen in het nieuwe scherm |
+| [`2.84`](mc_server_manager_2.84.py) | Schone console aanpassen in het nieuwe scherm |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

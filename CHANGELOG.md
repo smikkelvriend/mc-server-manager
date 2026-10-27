@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.85
+- **Fix: automatisch updaten bleef hangen op 45%.** Als het scherm even niet meldde dat het open stond (bijvoorbeeld een tabblad op de achtergrond), kwam er toch een ja/nee-vraag in het verborgen oude venster, waar niemand op kon antwoorden. Het programma stelt die vraag nu nooit meer als dat venster verborgen is; het installeert en herstart gewoon (zodra er niemand meer online is).
+
 ## 2.84
 - **Schone console aanpassen in het nieuwe scherm** (Instellingen → Algemeen → *Schone console: wat wordt verborgen*): de lijst *Altijd verborgen* en de lijst met opstartregels die blijven staan, met een knop om de standaardlijst terug te zetten. Een filter is een stuk tekst (hoofdletters maken niet uit) of begint met `re:` voor een regex; een ongeldige regex wordt geweigerd.
 - **Dubbelklik op een regel in de console** om zulke regels te verbergen: je kunt de tekst nog inkorten en hij komt in de lijst.

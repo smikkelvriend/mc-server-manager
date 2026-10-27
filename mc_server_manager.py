@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.84"
+APP_VERSION = "2.85"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.85 - Fix: automatisch updaten bleef soms hangen op 45%, door een vraag in het verborgen oude venster. Die komt er niet meer.
 2.84 - De filters van de schone console zijn nu aan te passen in het nieuwe scherm (Instellingen > Algemeen > Schone console) en je kunt een consoleregel dubbelklikken om zulke regels te verbergen.
 2.83 - De telefoon-app aan- en uitzetten kan nu in het nieuwe scherm (Instellingen > Netwerk > Telefoon-app): aan/uit, poort, wachtwoord, alleen eigen netwerk en het adres voor op je telefoon. Daarvoor was het oude scherm nodig.
 2.82 - Kaart: dunne lijntjes op de naden tussen tegels (bij uitzoomen) zijn weg: de rand van een tegel wordt niet meer met transparantie vermengd.
@@ -11815,7 +11816,11 @@ class App(tk.Tk):
         info = self._upd
         if not info or (self._upd_st or {}).get("phase") == "install":
             return
-        desk = self.desk.running and (time.time() - self.desk.last_poll < 15 or self._desk_on_upd())
+        try:
+            hidden = not self.winfo_viewable()      # het klassieke venster is verborgen: daar kan niemand een vraag beantwoorden
+        except Exception:
+            hidden = True
+        desk = hidden or (self.desk.running and (time.time() - self.desk.last_poll < 15 or self._desk_on_upd()))
         if not desk:
             self.selfupdate_install(confirm=True)
             return
@@ -11897,6 +11902,11 @@ class App(tk.Tk):
                 return
             except Exception as e:  # noqa
                 self.log(f"Direct toepassen mislukt ({e}); herstart het programma om de nieuwe versie te gebruiken.", "warn")
+        try:
+            if not self.winfo_viewable():
+                confirm = False
+        except Exception:
+            confirm = False
         if not confirm or messagebox.askyesno(APP_NAME, f"Versie {info['version']} is geïnstalleerd.\n\n"
                                          + (f"Wat is er nieuw:\n{notes}\n\n" if notes else "") + "Nu herstarten om hem te gebruiken?"
                                          + ("\n(De server wordt eerst veilig gestopt.)" if self.srv_running() else "")):
