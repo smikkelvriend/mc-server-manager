@@ -40,8 +40,8 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.66`](mc_server_manager_2.66.py) | Snelknoppen per speler |
 | [`2.67`](mc_server_manager_2.67.py) | Auto-update hangt niet meer, eigen commando's in schone console |
 | [`2.68`](mc_server_manager_2.68.py) | Stop wacht tot opstarten klaar is |
-| [`2.70`](mc_server_manager_2.70.py) | Nettere backuplijst, kaarttegels opnieuw proberen |
 | [`2.69`](mc_server_manager_2.69.py) | Opstart-voortgangsbalk, server weer starten na update |
+| [`2.70`](mc_server_manager_2.70.py) | Nettere backuplijst, kaarttegels opnieuw proberen |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |
