@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.64"
+APP_VERSION = "2.65"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.65 - Fix: meldingen (op de pc en op je telefoon) kwamen niet als iemand joinde of wegging, omdat Paper 26.x de regel als 'System chat: Naam joined the game' schrijft en het programma die niet herkende. Nu worden join en leave weer goed herkend (ook voor de spelerslijst en het activiteitenlogboek).
 2.64 - Moeilijkheid en standaard spelmodus zijn nu een keuzemenu in Instellingen, Server. Fix: de testmelding naar je telefoon gaf 'certificate has expired' op Windows-pc's met verouderde certificaten; het programma probeert dan nog één keer zonder certificaatcontrole en meldt dat erbij. Fix: de server kon op 'Stoppen…' blijven staan terwijl hij al uit was (en een update bleef hangen). De berichtenlus van het programma kan niet meer stilvallen door één foutief bericht, het programma merkt zelf dat de server gestopt is, en een mislukte update toont nu een foutmelding in plaats van te blijven hangen.
 2.63 - Meldingen naar je telefoon: je krijgt een bericht (bijvoorbeeld als er iemand online komt) via de gratis app ntfy. Maak in Instellingen, Meldingen een kanaal, abonneer erop in de app en kies per gebeurtenis of je een bericht wilt (speler komt binnen/gaat weg, server klaar, crash, genereren klaar, programma-update). Met een testknop. De lijst 'Namen zonder melding' geldt ook hier. De Instellingen in de nieuwe interface zijn opnieuw ingedeeld in tabbladen (Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk, Programma). Fix: TPS en geheugengebruik onder Prestaties en geheugen bleven op hun oude waarde staan; ze verversen nu vanzelf. Telefoon-app bijgewerkt: voortgangsbalk bij programma-updates, melding en 'uitgeladen'-status bij PlugManX, .jar-bestanden uploaden, hot-loaden na installeren, en de instellingen staan nu in nette groepen. De telefoonpagina laadt zichzelf opnieuw na een programma-update.
 2.62 - Fix: het programma kon 'stop' twee keer naar de server sturen (bijvoorbeeld bij afsluiten of bijwerken terwijl de server al aan het stoppen was). Paper geeft dan de foutmelding 'Command exception: /stop ... NullPointerException'. Nu wordt er maar één keer gestopt. PLM-controle gebruikt nu eerst /plm list (daarna pas /plugins), en de melding boven de pluginlijst verdwijnt vanzelf (succes na 15 s, fout na 45 s) of met het kruisje.
@@ -651,8 +652,8 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
 LOG_RE = re.compile(r"^\[(\d{2}:\d{2}:\d{2})(?:\s+(\w+)\]|\]\s*\[[^\]/]*/(\w+)\])\s*:?\s*(.*)$")
 LIST_RE = re.compile(r"There are (\d+) of a max of (\d+) players online:?\s*(.*)$")
 TPS_RE = re.compile(r"TPS from last ([\w, ]+):\s*(.+)$")
-JOIN_RE = re.compile(r"^(\S+) joined the game$")
-LEAVE_RE = re.compile(r"^(\S+) left the game$")
+JOIN_RE = re.compile(r"^(?:System chat: )?(\S+) joined the game$")
+LEAVE_RE = re.compile(r"^(?:System chat: )?(\S+) left the game$")
 DONE_RE = re.compile(r"Done \([\d.,]+s\)!")
 CONT_RE = re.compile(r"^(\s+|at |Caused by|\.\.\. \d+ more)")
 

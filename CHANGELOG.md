@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.65
+- Fix: meldingen (op de pc en op je telefoon) kwamen niet als iemand joinde of wegging. Paper 26.x schrijft `System chat: Naam joined the game` en dat herkende het programma niet. Join en leave worden nu weer goed herkend, ook voor de spelerslijst en het activiteitenlogboek.
+- Deze versie vereist een herstart.
+
 ## 2.64
 - Moeilijkheid en standaard spelmodus zijn nu een **keuzemenu** (Instellingen, Server).
 - Fix: de testmelding naar je telefoon gaf `certificate has expired` op Windows-pc's met verouderde certificaten. Het programma probeert het dan nog één keer zonder certificaatcontrole en zegt dat erbij (er staat niets geheims in de berichten).
