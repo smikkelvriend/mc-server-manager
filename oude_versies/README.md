@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.61
+## Versies 2.2 t/m 2.62
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -33,6 +33,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.59`](mc_server_manager_2.59.py) | Grafiek breekt bij onderbrekingen |
 | [`2.60`](mc_server_manager_2.60.py) | PLM laden/uitladen werkt weer, met zichtbare controle |
 | [`2.61`](mc_server_manager_2.61.py) | Plugins toevoegen door .jar te slepen |
+| [`2.62`](mc_server_manager_2.62.py) | Stop maar één keer sturen, betere PLM-controle |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

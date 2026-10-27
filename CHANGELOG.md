@@ -2,6 +2,14 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.63
+- **Meldingen naar je telefoon** (bijvoorbeeld als er iemand online komt) via de gratis app [ntfy](https://ntfy.sh). Instellingen, Meldingen: maak een kanaal, abonneer erop in de app en kies per gebeurtenis of je een bericht wilt: speler komt binnen, speler gaat weg, server klaar, crash, genereren klaar, programma-update. Met een testknop. De lijst *Namen zonder melding* geldt ook voor de telefoon.
+- De Instellingen van de nieuwe interface zijn opnieuw ingedeeld in tabbladen: Algemeen, **Meldingen**, Server, Slaap en gezondheid, Netwerk en Programma.
+- Fix: *TPS (nu)* en *Geheugengebruik (nu)* onder Prestaties en geheugen bleven op hun oude waarde staan; ze verversen nu elke paar seconden.
+- Telefoon-app bijgewerkt: voortgangsbalk bij programma-updates, melding en *uitgeladen*-status bij PlugManX, `.jar`-bestanden uploaden, hot-loaden na installeren, nette groepen in de instellingen, en de pagina laadt zichzelf opnieuw na een programma-update.
+- Let op: de pushberichten gaan via een openbare server (ntfy.sh). Iedereen die de naam van je kanaal weet kan meelezen; gebruik daarom het gegenereerde, willekeurige kanaal.
+- Deze versie vereist een herstart.
+
 ## 2.62
 - Fix: het programma kon `stop` twee keer naar de server sturen (bijvoorbeeld bij afsluiten of bijwerken terwijl de server al aan het stoppen was). Paper geeft dan de foutmelding `Command exception: /stop ... NullPointerException`. Nu wordt er maar één keer gestopt; een tweede verzoek past alleen aan wat er daarna moet gebeuren (herstarten of niet).
 - PLM-controle na laden/uitladen gebruikt nu eerst `/plm list` (de juiste lijst van PlugManX) en pas daarna `/plugins`.

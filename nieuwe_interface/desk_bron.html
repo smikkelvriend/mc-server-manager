@@ -296,13 +296,21 @@ async function sleepBtn(){if(S.sleep&&S.sleep.sleeping){await go('/api/sleep',{a
 async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
 async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
 const PROPL={'motd':'Bericht in serverlijst (MOTD)','max-players':'Maximaal aantal spelers','difficulty':'Moeilijkheid (peaceful, easy, normal, hard)','gamemode':'Standaard spelmodus','pvp':'PvP','white-list':'Whitelist','online-mode':'Online modus (Mojang-login)','allow-flight':'Vliegen toestaan','view-distance':'Zichtafstand','simulation-distance':'Simulatieafstand','spawn-protection':'Spawn-bescherming (blokken)'};
-V.set=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Slaapstand</h3><div id="slp" class="mut">Laden…</div></div>
- <div class="card"><h3>Gezondheidscontrole</h3><div id="hlt" class="mut">Laden…</div></div><div class="card"><h3>Server (server.properties)</h3><div id="props" class="mut">Laden…</div></div>
- <div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>
- <div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div></div>
- <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Programma</h3><div id="set" class="mut">Laden…</div></div>
- <div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:220px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div></div></div>`;
- propsLoad();behT();netLoad();setLoad();LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')};
+let btT=0;
+const SSEC=[['alg','Algemeen'],['mel','Meldingen'],['srv','Server'],['sl','Slaap en gezondheid'],['net','Netwerk'],['prg','Programma']];
+let ssec=(()=>{try{return localStorage.getItem('ssec')||'alg'}catch(e){return'alg'}})();
+const scard=(t,id,x)=>`<div class="card"><h3>${t}</h3><div id="${id}" class="mut">Laden…</div>${x||''}</div>`;
+const scol=(...c)=>`<div style="display:flex;flex-direction:column;gap:14px;min-width:0">${c.join('')}</div>`;
+const SPAGE={
+ alg:()=>scol(scard('Console en weergave','s_con'))+scol(scard('Gedrag van het programma','s_gedr')),
+ mel:()=>scol(scard('Op deze computer (Windows-meldingen)','s_mel'))+scol(scard('Op je telefoon (push)','s_push')),
+ srv:()=>scol(scard('Server (server.properties)','props'))+scol(`<div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>`,scard('Java-opties','s_java')),
+ sl:()=>scol(scard('Slaapstand','slp'))+scol(scard('Gezondheidscontrole en temperatuur','hlt')),
+ net:()=>scol(scard('Bereikbaarheid','net')),
+ prg:()=>scol(scard('Updates van het programma','s_upd'),scard('Backups','s_bak'))+scol(`<div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:260px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div>`)};
+function setSec(k){ssec=k;try{localStorage.setItem('ssec',k)}catch(e){}V.set()}
+V.set=()=>{if(!SPAGE[ssec])ssec='alg';$('view').innerHTML=`<div class="seg" style="align-self:flex-start;flex-wrap:wrap">${SSEC.map(x=>`<button class="${x[0]==ssec?'on':''}" onclick="setSec('${x[0]}')">${x[1]}</button>`).join('')}</div><div class="two">${SPAGE[ssec]()}</div>`;
+ if($('props'))propsLoad();if($('bt'))behT();if($('net'))netLoad();setLoad();if($('alog')){LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')}};
 async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
 const propSet=(key,value)=>go('/api/props',{key,value});
 const addAlog=l=>{const c=$('alog');if(!c)return;const d=document.createElement('div');d.className={error:'e',warn:'w',ok:'o'}[l[3]]||'';d.textContent=`[${l[1]}] ${l[2]}`;c.appendChild(d);c.scrollTop=c.scrollHeight};
@@ -312,15 +320,33 @@ async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
  <div class="row" style="margin-top:8px"><button onclick="netChk(false)" ${j.busy?'disabled':''}>Controleer</button><button onclick="netChk(true)" ${j.busy?'disabled':''}>Alleen lokaal</button></div>`}
 async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport:$('np').value,local},'Controleren…');setTimeout(netLoad,3500);setTimeout(netLoad,8000)}
 const DAYN=['Ma','Di','Wo','Do','Vr','Za','Zo'];
-async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;const by={};j.items.forEach(i=>by[i.key]=i);const v=k=>by[k]?by[k].value:'';
+async function setLoad(){const j=await go('/api/settings');if(!j)return;const by={};j.items.forEach(i=>by[i.key]=i);const v=k=>by[k]?by[k].value:'';
  const chk=(k,l)=>`<label class="lab"><span>${l}</span><input type="checkbox" ${v(k)?'checked':''} onchange="setSet('${k}',this.checked)"></label>`;
  const num=(k,l)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" inputmode="numeric" onchange="setSet('${k}',this.value)"></label>`;
+ const txt=(k,l,ph)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" placeholder="${ph||''}" onchange="setSet('${k}',this.value)"></label>`;
+ const hint=t=>`<div class="mut" style="font-size:12.5px;margin:2px 0 6px">${t}</div>`;
+ const put=(id,h)=>{const e=$(id);if(e){e.classList.remove('mut');e.innerHTML=h}};
  const days=String(v('sleep_days')||'1234567');
- $('slp').innerHTML=`<div class="mut" style="font-size:13px;margin-bottom:4px">Zet je server in slaapstand als er een tijd niemand online is. Hij start vanzelf weer bij de eerste join. De aan/uit-schakelaar staat linksonder.</div>`+num('sleep_minutes','Minuten zonder spelers voor de slaapstand')+chk('sleep_sched','Alleen op bepaalde tijden')+
+ put('slp',hint('Zet je server in slaapstand als er een tijd niemand online is. Hij start vanzelf weer bij de eerste join. De aan/uit-schakelaar staat linksonder.')+num('sleep_minutes','Minuten zonder spelers voor de slaapstand')+chk('sleep_sched','Alleen op bepaalde tijden')+
   `<label class="lab"><span>Van</span><input type="time" value="${esc(v('sleep_from'))}" onchange="setSet('sleep_from',this.value)"></label><label class="lab"><span>Tot</span><input type="time" value="${esc(v('sleep_to'))}" onchange="setSet('sleep_to',this.value)"></label>
-   <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DAYN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`;
- $('hlt').innerHTML=chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (minuten)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (% van het maximum)');
- $('set').innerHTML=j.items.filter(i=>!/^(sleep_|health_)/.test(i.key)).map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
+   <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DAYN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`);
+ put('hlt',chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (minuten)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (% van het maximum)')+chk('temp_enabled','Temperatuur tonen')+num('temp_warn','Temperatuurwaarschuwing (°C)'));
+ put('s_con',chk('clean_console','Schone console (verbergt ruis)')+num('console_max_lines','Maximaal aantal consoleregels')+num('graph_minutes','Grafiek-tijdvenster (minuten)'));
+ put('s_gedr',chk('confirm','Bevestiging vragen voor updates')+chk('auto_restart','Automatisch herstarten na een crash')+num('stop_timeout','Wachttijd bij stoppen (seconden)')+num('poll_secs','Spelers/TPS verversen (seconden, 0 = uit)'));
+ put('s_java',hint('Het geheugen kun je ook instellen via de knop hierboven.')+txt('java_xms','Min. geheugen (bijv. 1G)')+txt('java_xmx','Max. geheugen (bijv. 4G)')+txt('java_extra','Extra Java-opties'));
+ put('s_upd',chk('selfupdate_check','Automatisch zoeken naar updates')+chk('selfupdate_auto','Updates automatisch installeren'));
+ put('s_bak',chk('keep_server_backups','Backups van server.jar bewaren')+num('server_backups_max','Aantal server.jar-backups')+chk('keep_plugin_backups','Backups van plugins bewaren')+num('plugin_backups_max','Aantal plugin-backups'));
+ put('s_mel',hint('Een melding rechtsonder in Windows, zolang het programma draait.')+chk('notify_crash','Server onverwacht gestopt (crash)')+chk('notify_start','Server is klaar met opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren van een gebied klaar')+chk('notify_update','Update van het programma beschikbaar')+
+  txt('notify_ignore','Namen zonder melding (komma\'s)','bijv. jij, vriend')+hint('Deze namenlijst geldt ook voor meldingen op je telefoon.'));
+ const top=v('push_topic');
+ put('s_push',hint('Krijg een bericht op je telefoon, ook als je niet thuis bent. Dit werkt via de gratis app <b>ntfy</b> (Android en iPhone).')+chk('push_on','Meldingen naar mijn telefoon sturen')+
+  `<label class="lab"><span>Kanaal (topic)</span><input id="ptop" value="${esc(top)}" placeholder="bijv. mcsm-k3j9x2" onchange="setSet('push_topic',this.value);setTimeout(setLoad,300)"></label>
+   <div class="row" style="margin:6px 0"><button onclick="pushNew()">Nieuw kanaal maken</button><button class="pri" onclick="pushTest()" ${top?'':'disabled'}>Testmelding sturen</button></div>`+
+  txt('push_server','Pushserver','https://ntfy.sh')+
+  `<div style="margin-top:8px;font-weight:600;font-size:13px">Stuur een bericht bij…</div>`+chk('push_join','Speler komt binnen')+chk('push_leave','Speler gaat weg')+chk('push_start','Server is klaar met opstarten')+chk('push_crash','Crash')+chk('push_chunky','Genereren klaar')+chk('push_update','Programma-update')+
+  hint(`<b>Zo stel je het in:</b> 1) Installeer de app ntfy op je telefoon. 2) Kies “+” en abonneer op het kanaal <b>${esc(top||'(maak eerst een kanaal)')}</b>. 3) Druk op “Testmelding sturen”.<br>Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik daarom het gegenereerde, willekeurige kanaal en deel het niet.`))}
+function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
+async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.':(j.error||'Versturen mislukt'),6000)}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 /* ---------- Afsluiten ---------- */
@@ -357,6 +383,7 @@ function setClean(on){CLEAN=on;go('/api/clean',{on});since=0;LOG=[];const c=$('c
 async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?pv=${PV}&since=${since}&nsince=${nsince}&asince=${asince}&tab=${tab}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));if(j.version&&j.version!==PV){location.reload();return}S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
+ if(tab=='set'&&Date.now()-btT>4000){btT=Date.now();behT()}
  draw();if(tab=='upd')progBar();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent=(S.upd&&S.upd.phase=='install'&&S.upd.pct>=80)?'Het programma herstart met de nieuwe versie… dit scherm laadt vanzelf opnieuw.':'Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
 build();poll();setInterval(poll,1000);window.addEventListener('resize',()=>{if(S.stats)draw()});
 </script></body></html>

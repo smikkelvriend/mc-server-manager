@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.62"
+APP_VERSION = "2.63"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.63 - Meldingen naar je telefoon: je krijgt een bericht (bijvoorbeeld als er iemand online komt) via de gratis app ntfy. Maak in Instellingen, Meldingen een kanaal, abonneer erop in de app en kies per gebeurtenis of je een bericht wilt (speler komt binnen/gaat weg, server klaar, crash, genereren klaar, programma-update). Met een testknop. De lijst 'Namen zonder melding' geldt ook hier. De Instellingen in de nieuwe interface zijn opnieuw ingedeeld in tabbladen (Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk, Programma). Fix: TPS en geheugengebruik onder Prestaties en geheugen bleven op hun oude waarde staan; ze verversen nu vanzelf. Telefoon-app bijgewerkt: voortgangsbalk bij programma-updates, melding en 'uitgeladen'-status bij PlugManX, .jar-bestanden uploaden, hot-loaden na installeren, en de instellingen staan nu in nette groepen. De telefoonpagina laadt zichzelf opnieuw na een programma-update.
 2.62 - Fix: het programma kon 'stop' twee keer naar de server sturen (bijvoorbeeld bij afsluiten of bijwerken terwijl de server al aan het stoppen was). Paper geeft dan de foutmelding 'Command exception: /stop ... NullPointerException'. Nu wordt er maar één keer gestopt. PLM-controle gebruikt nu eerst /plm list (daarna pas /plugins), en de melding boven de pluginlijst verdwijnt vanzelf (succes na 15 s, fout na 45 s) of met het kruisje.
 2.61 - Plugins toevoegen door een .jar-bestand op het tabblad Plugins te slepen (of via de knop 'Bestand kiezen…'). Het programma controleert dat het echt een plugin is (plugin.yml), zet hem in de plugins-map (een bestand met dezelfde naam gaat eerst naar verwijderde_plugins), waarschuwt als dezelfde plugin al onder een andere bestandsnaam staat, en vraagt daarna: later laden, hot-loaden (eigen risico) of de server herstarten.
 2.60 - Fix: de knoppen PLM laden/uitladen deden niets in de nieuwe interface (het programma las een verouderde pluginlijst van het verborgen klassieke scherm). Nu staat er altijd een duidelijke melding als er niets te doen is, en na het laden/uitladen vraagt het programma de pluginlijst van de server op en toont op het scherm of de plugin echt is geladen of uitgeladen (balk boven de lijst, melding en label Uitgeladen).
@@ -231,6 +232,8 @@ DEFAULTS = {
     "squaremap_url": "http://localhost:8080",
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
+    "push_on": False, "push_server": "https://ntfy.sh", "push_topic": "", "push_crash": True, "push_start": False,
+    "push_join": True, "push_leave": False, "push_chunky": True, "push_update": False,
     "chunky_autopause": True, "chunky_autoresume": True,
     "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False, "sleep_enabled": False, "sleep_minutes": 10,
     "sleep_sched": False, "sleep_from": "22:00", "sleep_to": "08:00", "sleep_days": "1234567", "sleep_stats": {},
@@ -5926,13 +5929,21 @@ async function sleepBtn(){if(S.sleep&&S.sleep.sleeping){await go('/api/sleep',{a
 async function sleepNow(){if(!await ask('De server veilig stoppen en vanzelf weer starten zodra iemand probeert te joinen? Spelers die nog online zijn worden van de server gezet.'))return;await go('/api/sleep',{action:'now'});setTimeout(poll,800)}
 async function ramDlg(){const v=prompt('Maximaal geheugen voor Java (bijv. 4G):');if(!v)return;const r=await ask('Toepassen? De server moet herstarten om het nieuwe geheugen te gebruiken. Nu herstarten als hij draait?','Ja, herstart','Alleen opslaan');await go('/api/ram',{value:v,restart:r},'Opgeslagen')}
 const PROPL={'motd':'Bericht in serverlijst (MOTD)','max-players':'Maximaal aantal spelers','difficulty':'Moeilijkheid (peaceful, easy, normal, hard)','gamemode':'Standaard spelmodus','pvp':'PvP','white-list':'Whitelist','online-mode':'Online modus (Mojang-login)','allow-flight':'Vliegen toestaan','view-distance':'Zichtafstand','simulation-distance':'Simulatieafstand','spawn-protection':'Spawn-bescherming (blokken)'};
-V.set=()=>{$('view').innerHTML=`<div class="two"><div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Slaapstand</h3><div id="slp" class="mut">Laden…</div></div>
- <div class="card"><h3>Gezondheidscontrole</h3><div id="hlt" class="mut">Laden…</div></div><div class="card"><h3>Server (server.properties)</h3><div id="props" class="mut">Laden…</div></div>
- <div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>
- <div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div></div>
- <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Programma</h3><div id="set" class="mut">Laden…</div></div>
- <div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:220px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div></div></div>`;
- propsLoad();behT();netLoad();setLoad();LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')};
+let btT=0;
+const SSEC=[['alg','Algemeen'],['mel','Meldingen'],['srv','Server'],['sl','Slaap en gezondheid'],['net','Netwerk'],['prg','Programma']];
+let ssec=(()=>{try{return localStorage.getItem('ssec')||'alg'}catch(e){return'alg'}})();
+const scard=(t,id,x)=>`<div class="card"><h3>${t}</h3><div id="${id}" class="mut">Laden…</div>${x||''}</div>`;
+const scol=(...c)=>`<div style="display:flex;flex-direction:column;gap:14px;min-width:0">${c.join('')}</div>`;
+const SPAGE={
+ alg:()=>scol(scard('Console en weergave','s_con'))+scol(scard('Gedrag van het programma','s_gedr')),
+ mel:()=>scol(scard('Op deze computer (Windows-meldingen)','s_mel'))+scol(scard('Op je telefoon (push)','s_push')),
+ srv:()=>scol(scard('Server (server.properties)','props'))+scol(`<div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>`,scard('Java-opties','s_java')),
+ sl:()=>scol(scard('Slaapstand','slp'))+scol(scard('Gezondheidscontrole en temperatuur','hlt')),
+ net:()=>scol(scard('Bereikbaarheid','net')),
+ prg:()=>scol(scard('Updates van het programma','s_upd'),scard('Backups','s_bak'))+scol(`<div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:260px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div>`)};
+function setSec(k){ssec=k;try{localStorage.setItem('ssec',k)}catch(e){}V.set()}
+V.set=()=>{if(!SPAGE[ssec])ssec='alg';$('view').innerHTML=`<div class="seg" style="align-self:flex-start;flex-wrap:wrap">${SSEC.map(x=>`<button class="${x[0]==ssec?'on':''}" onclick="setSec('${x[0]}')">${x[1]}</button>`).join('')}</div><div class="two">${SPAGE[ssec]()}</div>`;
+ if($('props'))propsLoad();if($('bt'))behT();if($('net'))netLoad();setLoad();if($('alog')){LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')}};
 async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
 const propSet=(key,value)=>go('/api/props',{key,value});
 const addAlog=l=>{const c=$('alog');if(!c)return;const d=document.createElement('div');d.className={error:'e',warn:'w',ok:'o'}[l[3]]||'';d.textContent=`[${l[1]}] ${l[2]}`;c.appendChild(d);c.scrollTop=c.scrollHeight};
@@ -5942,15 +5953,33 @@ async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
  <div class="row" style="margin-top:8px"><button onclick="netChk(false)" ${j.busy?'disabled':''}>Controleer</button><button onclick="netChk(true)" ${j.busy?'disabled':''}>Alleen lokaal</button></div>`}
 async function netChk(local){await go('/api/net/check',{host:$('nh').value,jport:$('np').value,local},'Controleren…');setTimeout(netLoad,3500);setTimeout(netLoad,8000)}
 const DAYN=['Ma','Di','Wo','Do','Vr','Za','Zo'];
-async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))return;const by={};j.items.forEach(i=>by[i.key]=i);const v=k=>by[k]?by[k].value:'';
+async function setLoad(){const j=await go('/api/settings');if(!j)return;const by={};j.items.forEach(i=>by[i.key]=i);const v=k=>by[k]?by[k].value:'';
  const chk=(k,l)=>`<label class="lab"><span>${l}</span><input type="checkbox" ${v(k)?'checked':''} onchange="setSet('${k}',this.checked)"></label>`;
  const num=(k,l)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" inputmode="numeric" onchange="setSet('${k}',this.value)"></label>`;
+ const txt=(k,l,ph)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" placeholder="${ph||''}" onchange="setSet('${k}',this.value)"></label>`;
+ const hint=t=>`<div class="mut" style="font-size:12.5px;margin:2px 0 6px">${t}</div>`;
+ const put=(id,h)=>{const e=$(id);if(e){e.classList.remove('mut');e.innerHTML=h}};
  const days=String(v('sleep_days')||'1234567');
- $('slp').innerHTML=`<div class="mut" style="font-size:13px;margin-bottom:4px">Zet je server in slaapstand als er een tijd niemand online is. Hij start vanzelf weer bij de eerste join. De aan/uit-schakelaar staat linksonder.</div>`+num('sleep_minutes','Minuten zonder spelers voor de slaapstand')+chk('sleep_sched','Alleen op bepaalde tijden')+
+ put('slp',hint('Zet je server in slaapstand als er een tijd niemand online is. Hij start vanzelf weer bij de eerste join. De aan/uit-schakelaar staat linksonder.')+num('sleep_minutes','Minuten zonder spelers voor de slaapstand')+chk('sleep_sched','Alleen op bepaalde tijden')+
   `<label class="lab"><span>Van</span><input type="time" value="${esc(v('sleep_from'))}" onchange="setSet('sleep_from',this.value)"></label><label class="lab"><span>Tot</span><input type="time" value="${esc(v('sleep_to'))}" onchange="setSet('sleep_to',this.value)"></label>
-   <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DAYN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`;
- $('hlt').innerHTML=chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (minuten)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (% van het maximum)');
- $('set').innerHTML=j.items.filter(i=>!/^(sleep_|health_)/.test(i.key)).map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
+   <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DAYN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`);
+ put('hlt',chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (minuten)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (% van het maximum)')+chk('temp_enabled','Temperatuur tonen')+num('temp_warn','Temperatuurwaarschuwing (°C)'));
+ put('s_con',chk('clean_console','Schone console (verbergt ruis)')+num('console_max_lines','Maximaal aantal consoleregels')+num('graph_minutes','Grafiek-tijdvenster (minuten)'));
+ put('s_gedr',chk('confirm','Bevestiging vragen voor updates')+chk('auto_restart','Automatisch herstarten na een crash')+num('stop_timeout','Wachttijd bij stoppen (seconden)')+num('poll_secs','Spelers/TPS verversen (seconden, 0 = uit)'));
+ put('s_java',hint('Het geheugen kun je ook instellen via de knop hierboven.')+txt('java_xms','Min. geheugen (bijv. 1G)')+txt('java_xmx','Max. geheugen (bijv. 4G)')+txt('java_extra','Extra Java-opties'));
+ put('s_upd',chk('selfupdate_check','Automatisch zoeken naar updates')+chk('selfupdate_auto','Updates automatisch installeren'));
+ put('s_bak',chk('keep_server_backups','Backups van server.jar bewaren')+num('server_backups_max','Aantal server.jar-backups')+chk('keep_plugin_backups','Backups van plugins bewaren')+num('plugin_backups_max','Aantal plugin-backups'));
+ put('s_mel',hint('Een melding rechtsonder in Windows, zolang het programma draait.')+chk('notify_crash','Server onverwacht gestopt (crash)')+chk('notify_start','Server is klaar met opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren van een gebied klaar')+chk('notify_update','Update van het programma beschikbaar')+
+  txt('notify_ignore','Namen zonder melding (komma\'s)','bijv. jij, vriend')+hint('Deze namenlijst geldt ook voor meldingen op je telefoon.'));
+ const top=v('push_topic');
+ put('s_push',hint('Krijg een bericht op je telefoon, ook als je niet thuis bent. Dit werkt via de gratis app <b>ntfy</b> (Android en iPhone).')+chk('push_on','Meldingen naar mijn telefoon sturen')+
+  `<label class="lab"><span>Kanaal (topic)</span><input id="ptop" value="${esc(top)}" placeholder="bijv. mcsm-k3j9x2" onchange="setSet('push_topic',this.value);setTimeout(setLoad,300)"></label>
+   <div class="row" style="margin:6px 0"><button onclick="pushNew()">Nieuw kanaal maken</button><button class="pri" onclick="pushTest()" ${top?'':'disabled'}>Testmelding sturen</button></div>`+
+  txt('push_server','Pushserver','https://ntfy.sh')+
+  `<div style="margin-top:8px;font-weight:600;font-size:13px">Stuur een bericht bij…</div>`+chk('push_join','Speler komt binnen')+chk('push_leave','Speler gaat weg')+chk('push_start','Server is klaar met opstarten')+chk('push_crash','Crash')+chk('push_chunky','Genereren klaar')+chk('push_update','Programma-update')+
+  hint(`<b>Zo stel je het in:</b> 1) Installeer de app ntfy op je telefoon. 2) Kies “+” en abonneer op het kanaal <b>${esc(top||'(maak eerst een kanaal)')}</b>. 3) Druk op “Testmelding sturen”.<br>Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik daarom het gegenereerde, willekeurige kanaal en deel het niet.`))}
+function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
+async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.':(j.error||'Versturen mislukt'),6000)}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 /* ---------- Afsluiten ---------- */
@@ -5987,6 +6016,7 @@ function setClean(on){CLEAN=on;go('/api/clean',{on});since=0;LOG=[];const c=$('c
 async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?pv=${PV}&since=${since}&nsince=${nsince}&asince=${asince}&tab=${tab}`+(CLEAN==null?'':`&clean=${CLEAN?1:0}`));if(j.version&&j.version!==PV){location.reload();return}S=j;fails=0;poll.off=0;$('off').style.display='none';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>600)LOG.shift();addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='set')addAlog(l)});
+ if(tab=='set'&&Date.now()-btT>4000){btT=Date.now();behT()}
  draw();if(tab=='upd')progBar();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){if(e!==0&&++fails>2){$('off').style.display='flex';$('off').firstChild.textContent=(S.upd&&S.upd.phase=='install'&&S.upd.pct>=80)?'Het programma herstart met de nieuwe versie… dit scherm laadt vanzelf opnieuw.':'Verbinding met het programma is weg.';if(!poll.off)poll.off=Date.now();if(Date.now()-poll.off>90000)window.close()}}busy=0}
 build();poll();setInterval(poll,1000);window.addEventListener('resize',()=>{if(S.stats)draw()});
 </script></body></html>
@@ -6029,13 +6059,17 @@ form,.f{display:flex;gap:8px;margin-top:8px}form input,.f input{flex:1}canvas.sp
 #mapbox{position:relative;height:62vh;min-height:320px;background:#0b1220;border-radius:12px;overflow:hidden;touch-action:none}#mapbox canvas{width:100%;height:100%;display:block}
 .mapbtn{position:absolute;right:8px;display:flex;flex-direction:column;gap:6px}.mapbtn button{width:42px;height:42px;padding:0;font-size:20px;background:#1e293bdd}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-top:1px solid var(--b);text-align:left}th{color:var(--m);font-weight:600;border:0}td.n,th.n{text-align:right}
+.ubox{border:1px solid #334155;background:var(--in);border-radius:12px;padding:12px 14px;margin:0 0 10px}.ubox.chk{border-color:#2d4a78}.ubox.ins{border-color:#2f6b52}.ubox.err{border-color:#7f1d1d}
+.ubox .uh{display:flex;align-items:center;gap:10px;font-weight:600}.ubox .um{color:var(--m);font-size:13px;margin-top:6px}.ubar{height:10px;border-radius:6px;background:#1c232b;overflow:hidden;margin-top:10px}.ubar i{display:block;height:100%;width:0;background:#3b82f6;transition:width .5s}.ubox.ins .ubar i{background:var(--g)}
+.ubar.ind i{width:35%!important;animation:ind 1.2s infinite ease-in-out}@keyframes ind{0%{margin-left:-35%}100%{margin-left:100%}}.upct{margin-left:auto;color:var(--m)}
+.spin{width:16px;height:16px;border-radius:50%;border:3px solid #2d4a78;border-top-color:#60a5fa;animation:rot .8s linear infinite;flex:none}@keyframes rot{to{transform:rotate(360deg)}}
 .lab{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--b)}.lab:first-child{border-top:0}.lab span{flex:1}.lab input:not([type=checkbox]){width:46%;flex:none}
 </style></head><body>
 <div id="login" class="card hide"><h3>MC Server Manager</h3><input id="pw" type="password" placeholder="Wachtwoord" autocomplete="current-password"><button class="go" style="width:100%" onclick="login()">Inloggen</button><div id="lerr" class="err" style="margin-top:8px"></div></div>
 <div id="app" class="hide"><header><span class="dot" id="dot"></span><b id="st">…</b><span id="up" class="mut"></span></header><main id="main"></main>
 <nav id="nav"></nav></div><div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
 <script>
-const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=localStorage.getItem('tab')||'srv',LOG=[],cur={};
+const PV='@@APPV@@';const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=localStorage.getItem('tab')||'srv',LOG=[],cur={};
 const hd=(n,t)=>'/head/'+encodeURIComponent(n)+'?t='+encodeURIComponent(t||'');
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 function toast(t,ms=4000){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)}
@@ -6234,17 +6268,101 @@ async function setLoad(){const j=await go('/api/settings');if(!j||!$('set'))retu
  $('set').innerHTML=j.items.map(i=>`<label class="lab"><span>${esc(i.label)}</span>${i.type=='bool'?`<input type="checkbox" ${i.value?'checked':''} onchange="setSet('${i.key}',this.checked)">`:`<input value="${esc(i.value)}" ${i.type=='int'?'inputmode="numeric"':''} onchange="setSet('${i.key}',this.value)">`}</label>`).join('')}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
 async function logout(){document.cookie='mcsess=;Max-Age=0;path=/';show(false)}
+/* ---------- Verbeterde onderdelen (komen na de eerdere versies en winnen dus) ---------- */
+function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name,'nl',{sensitivity:'base'}));const on=items.filter(i=>i.enabled).length;
+ let pr=j.plmres;const show=Math.max(0,(pr&&pr.state=='done'?(pr.ok===false?45:15):600)-(pr?pr.age:0));if(!pr||window.PLM_DISMISS===pr.t||!show)pr=null;
+ const banner=pr?`<div id="plmban" class="ubox ${pr.state=='pending'?'chk':pr.ok===false?'err':'ins'}"><div class="uh">${pr.state=='pending'?'<span class="spin"></span>':''}<span>${esc(pr.msg)}</span><button class="sm" style="margin-left:auto" onclick="window.PLM_DISMISS=${pr.t};this.closest('.ubox').remove()">×</button></div></div>`:'';
+ if(pr&&pr.state=='done'){clearTimeout(window.PLM_T);window.PLM_T=setTimeout(()=>{const e=$('plmban');if(e)e.remove()},show*1000)}
+ const row=i=>`<label class="li"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b class="${i.enabled?'':'mut'}">${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${!i.enabled?'<span class="tag">uit</span>':i.loaded===false?'<span class="tag yel">uitgeladen</span>':''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div></label>`;
+ $('pls').innerHTML=banner+`<div class="row" style="margin-bottom:8px"><button class="sm" onclick="plPick()">+ .jar toevoegen…</button></div>`+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div><div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.')}
+async function plLoad(u){const j=await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u});if(j){[1500,3500,6000,9000,13000].forEach(t=>setTimeout(()=>{if(tab=='plug')V.plug()},t))}}
+function plPick(){const i=document.createElement('input');i.type='file';i.accept='.jar';i.multiple=true;i.onchange=()=>plDrop([...i.files]);i.click()}
+async function plDrop(files){const jars=files.filter(f=>/\.jar$/i.test(f.name));if(!jars.length)return toast('Alleen .jar-bestanden kunnen worden toegevoegd');
+ const done=[],fail=[],warn=[];let n=0;
+ for(const f of jars){n++;toast(`Uploaden ${n}/${jars.length}: ${f.name}…`,120000);
+  try{const r=await fetch('/api/plugins/upload?name='+encodeURIComponent(f.name),{method:'POST',headers:{'X-MC':'1','Content-Type':'application/octet-stream'},body:f});const j=await r.json().catch(()=>({}));
+   if(!r.ok){fail.push(f.name+': '+(j.error||'mislukt'));continue}done.push(j);(j.dupes||[]).forEach(d=>warn.push(d))}catch(e){fail.push(f.name+': geen verbinding met de pc')}}
+ $('toast').style.display='none';if(tab=='plug')V.plug();
+ const sum=(done.length?'✓ Toegevoegd: '+done.map(j=>j.name+(j.version?' '+j.version:'')).join(', '):'')+(fail.length?'\n✗ '+fail.join('\n✗ '):'')+(warn.length?'\n⚠ '+warn.join('\n⚠ '):'');
+ if(!done.length){await choose(sum,[['OK',true,'pri']]);return}
+ if(!done[0].running){await choose(sum+'\n\nDe server draait niet: de plugin wordt geladen als je hem start.',[['OK',true,'pri']]);return}
+ const plm=done[0].plm;const mode=await choose(sum+'\n\nDe server draait. Hot-loaden (PlugManX) kan zonder herstart, maar op eigen risico.'+(plm?'':'\n\nHot-loaden kan nu niet: PlugManX staat niet op je server.'),
+  [['Later laden','later'],['Hot-loaden (eigen risico)','hot','',!plm],['Server herstarten','restart','pri']]);
+ if(mode=='hot')plLoad2(done.map(x=>x.file));else if(mode=='restart')go('/api/action',{name:'restart'},'Herstarten…')}
+async function plLoad2(files){const j=await go('/api/plugins/plm',{files,unload:false});if(j)[1500,3500,6000,9000,13000].forEach(t=>setTimeout(()=>{if(tab=='plug')V.plug()},t))}
+const _V_upd=V.upd;V.upd=async()=>{await _V_upd();if($('main'))$('main').insertAdjacentHTML('afterbegin','<div id="ustat"></div>');cur.ukey=null;progBarP()};
+function progBarP(){const e=$('ustat');if(!e)return;const u=S.upd||{phase:'idle'};const key=u.phase+'|'+u.pct+'|'+u.msg+'|'+u.err;if(cur.ukey===key)return;cur.ukey=key;
+ const bar=ind=>`<div class="ubar${ind?' ind':''}"><i style="width:${u.pct}%"></i></div>`;
+ if(u.phase=='check')e.innerHTML=`<div class="ubox chk"><div class="uh"><span class="spin"></span>Zoeken naar updates…<span class="upct">${u.pct>3?u.pct+'%':''}</span></div>${bar(u.pct<=3)}<div class="um">${esc(u.msg)}</div></div>`;
+ else if(u.phase=='install')e.innerHTML=`<div class="ubox ins"><div class="uh"><span class="spin"></span>Update installeren…<span class="upct">${u.pct}%</span></div>${bar(false)}<div class="um">${esc(u.msg)}</div><div class="mut" style="font-size:12px;margin-top:4px">Het programma herstart zelf; deze pagina laadt daarna vanzelf opnieuw.</div></div>`;
+ else if(u.phase=='error')e.innerHTML=`<div class="ubox err"><div class="uh err">Het is niet gelukt</div><div class="um err">${esc(u.err)}</div></div>`;else e.innerHTML=''}
+async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een herstart nodig is, wordt de server eerst veilig gestopt en kun je hier niets meer bedienen tot het programma terug is.'))return;await go('/api/selfupdate',{action:'install'});S.upd={phase:'install',pct:3,msg:'Starten…'};cur.ukey=null;progBarP();setTimeout(poll,200)}
+/* instellingen: netjes in groepen */
+V.more=()=>{$('main').innerHTML=`<div class="card"><h3>Meldingen op deze pc</h3><div id="s_mel" class="mut">Laden…</div></div><div class="card"><h3>Meldingen op je telefoon</h3><div id="s_push" class="mut">Laden…</div></div>
+<div class="card"><h3>Bereikbaarheid</h3><div id="net" class="mut">Laden…</div></div><div class="card"><h3>Gedrag en console</h3><div id="s_gedr" class="mut">Laden…</div></div>
+<div class="card"><h3>Slaapstand</h3><div id="s_slp" class="mut">Laden…</div></div><div class="card"><h3>Gezondheid en temperatuur</h3><div id="s_hlt" class="mut">Laden…</div></div>
+<div class="card"><h3>Java</h3><div id="s_java" class="mut">Laden…</div></div><div class="card"><h3>Updates en backups</h3><div id="s_upd" class="mut">Laden…</div></div>
+<div class="card"><h3>Logboek van het programma</h3><div class="con" id="alog" style="height:30vh"></div></div>
+<div class="card"><h3>Telefoon</h3><div class="row"><button onclick="logout()">Uitloggen</button></div><div class="mut" style="font-size:12px;margin-top:8px" id="ver"></div></div>`;
+ netLoad();setLoad();LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')};
+async function setLoad(){const j=await go('/api/settings');if(!j)return;const by={};j.items.forEach(i=>by[i.key]=i);const v=k=>by[k]?by[k].value:'';
+ const chk=(k,l)=>`<label class="lab"><span>${l}</span><input type="checkbox" ${v(k)?'checked':''} onchange="setSet('${k}',this.checked)"></label>`;
+ const num=(k,l)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" inputmode="numeric" onchange="setSet('${k}',this.value)"></label>`;
+ const txt=(k,l,ph)=>`<label class="lab"><span>${l}</span><input value="${esc(v(k))}" placeholder="${ph||''}" autocapitalize="off" onchange="setSet('${k}',this.value)"></label>`;
+ const put=(id,h)=>{const e=$(id);if(e){e.classList.remove('mut');e.innerHTML=h}};const days=String(v('sleep_days')||'1234567'),DN=['Ma','Di','Wo','Do','Vr','Za','Zo'];
+ put('s_mel',chk('notify_crash','Crash')+chk('notify_start','Server klaar met opstarten')+chk('notify_join','Speler komt binnen')+chk('notify_leave','Speler gaat weg')+chk('notify_chunky','Genereren klaar')+chk('notify_update','Programma-update')+txt('notify_ignore','Namen zonder melding (komma\'s)'));
+ const top=v('push_topic');
+ put('s_push',`<div class="mut" style="font-size:13px;margin-bottom:6px">Een bericht op je telefoon via de gratis app <b>ntfy</b>: installeer die, abonneer op je kanaal en druk op "Testmelding".</div>`+chk('push_on','Meldingen naar mijn telefoon')+txt('push_topic','Kanaal (topic)','bijv. mcsm-k3j9x2')+
+  `<div class="row" style="margin:6px 0"><button class="sm" onclick="pushNew()">Nieuw kanaal maken</button><button class="sm pri" onclick="pushTest()" ${top?'':'disabled'}>Testmelding</button></div>`+txt('push_server','Pushserver','https://ntfy.sh')+
+  chk('push_join','Bij: speler komt binnen')+chk('push_leave','Bij: speler gaat weg')+chk('push_start','Bij: server klaar')+chk('push_crash','Bij: crash')+chk('push_chunky','Bij: genereren klaar')+chk('push_update','Bij: programma-update')+
+  `<div class="mut" style="font-size:12px;margin-top:6px">Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik het willekeurige kanaal en deel het niet.</div>`);
+ put('s_gedr',chk('clean_console','Schone console')+num('console_max_lines','Maximaal aantal consoleregels')+num('graph_minutes','Grafiek-tijdvenster (min)')+chk('confirm','Bevestiging vragen voor updates')+chk('auto_restart','Automatisch herstarten na een crash')+num('stop_timeout','Wachttijd bij stoppen (sec)')+num('poll_secs','Spelers/TPS verversen (sec, 0 = uit)'));
+ put('s_slp',num('sleep_minutes','Minuten zonder spelers')+chk('sleep_sched','Alleen op bepaalde tijden')+`<label class="lab"><span>Van</span><input type="time" value="${esc(v('sleep_from'))}" onchange="setSet('sleep_from',this.value)"></label><label class="lab"><span>Tot</span><input type="time" value="${esc(v('sleep_to'))}" onchange="setSet('sleep_to',this.value)"></label>
+  <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`);
+ put('s_hlt',chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (min)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (%)')+chk('temp_enabled','Temperatuur tonen')+num('temp_warn','Temperatuurwaarschuwing (°C)'));
+ put('s_java',txt('java_xms','Min. geheugen (bijv. 1G)')+txt('java_xmx','Max. geheugen (bijv. 4G)')+txt('java_extra','Extra Java-opties'));
+ put('s_upd',chk('selfupdate_check','Automatisch zoeken naar updates')+chk('selfupdate_auto','Updates automatisch installeren')+chk('keep_server_backups','Backups van server.jar bewaren')+num('server_backups_max','Aantal server.jar-backups')+chk('keep_plugin_backups','Backups van plugins bewaren')+num('plugin_backups_max','Aantal plugin-backups'))}
+function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
+function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
+async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.':(j.error||'Versturen mislukt'),6000)}
 /* ---------- poll ---------- */
-async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);S=j;
+let btT=0;
+async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);if(j.version&&PV[0]!='@'&&j.version!==PV){location.reload();return}S=j;
  const m={online:['Online','var(--g)'],starting:['Opstarten…','var(--y)'],stopping:['Stoppen…','var(--y)'],stopped:['Gestopt','var(--r)']}[j.state]||[j.state,'var(--m)'];
  $('st').textContent=m[0];$('dot').style.background=m[1];$('up').textContent=j.stats.uptime&&j.stats.uptime!='-'?j.stats.uptime:'';
  j.lines.forEach(l=>{since=Math.max(since,l[0]);LOG.push(l);if(LOG.length>400)LOG.shift();if(tab=='srv')addLine(l)});
  j.notes.forEach(n=>{nsince=Math.max(nsince,n[0]);toast(n[2],7000)});j.alog.forEach(l=>{asince=Math.max(asince,l[0]);LOG2.push(l);if(LOG2.length>200)LOG2.shift();if(tab=='more')addAlog(l)});
  const bd=$('bd-upd');if(bd){bd.classList.toggle('hide',!j.selfupd);bd.textContent='!'}
+ if(tab=='beh'&&Date.now()-btT>4000){btT=Date.now();behT()}
+ if(tab=='upd')progBarP();
  if(tab=='srv')draw();if(tab=='map'&&cur.m&&j.gen){cur.m.gen=Object.assign({},cur.m.gen,j.gen);cur.m.info=j.gen_info;genUI();cur.m.dirty=true}}catch(e){}busy=0}
 fetch('/api/state?since=0',{headers:{'X-MC':'1'}}).then(r=>{show(r.status!=401);if(r.status!=401){build();poll()}});setInterval(poll,2000);
 </script></body></html>
 """
+
+
+def push_send(cfg, title, text, async_=False):
+    """Stuurt een melding naar de telefoon via ntfy (https://ntfy.sh of eigen server). Geeft (ok, fout) terug."""
+    def run():
+        try:
+            base = str(cfg.get("push_server") or "https://ntfy.sh").rstrip("/")
+            topic = re.sub(r"[^A-Za-z0-9_-]", "", str(cfg.get("push_topic") or ""))
+            if not topic:
+                return False, "Er is nog geen kanaal (topic) ingevuld."
+            data = json.dumps({"topic": topic, "title": str(title)[:200], "message": str(text)[:1000],
+                               "tags": ["video_game"], "priority": 3}).encode("utf-8")
+            req = urllib.request.Request(base, data=data, headers={"Content-Type": "application/json", "User-Agent": "MCServerManager"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                r.read()
+            return True, ""
+        except urllib.error.HTTPError as e:
+            return False, f"De pushserver weigerde het (HTTP {e.code})."
+        except Exception as e:
+            return False, f"Versturen mislukt: {e}"
+    if async_:
+        threading.Thread(target=run, daemon=True).start()
+        return True, ""
+    return run()
 
 
 class RemoteServer:
@@ -6269,6 +6387,10 @@ class RemoteServer:
         "notify_join": ("bool", "Melding als een speler binnenkomt"), "notify_leave": ("bool", "Melding als een speler weggaat"),
         "notify_chunky": ("bool", "Melding als genereren klaar is"), "notify_update": ("bool", "Melding bij programma-update"),
         "notify_ignore": ("str", "Namen zonder melding (komma's)"),
+        "push_on": ("bool", "Meldingen naar je telefoon"), "push_server": ("str", "Push-server (ntfy)"), "push_topic": ("str", "Push-kanaal (topic)"),
+        "push_crash": ("bool", "Telefoon: bij crash"), "push_start": ("bool", "Telefoon: server klaar met starten"),
+        "push_join": ("bool", "Telefoon: speler komt binnen"), "push_leave": ("bool", "Telefoon: speler gaat weg"),
+        "push_chunky": ("bool", "Telefoon: genereren klaar"), "push_update": ("bool", "Telefoon: programma-update"),
     }
 
     def __init__(self, app):
@@ -6898,6 +7020,11 @@ class RemoteServer:
         move, keep = b.plan_trim(area, dim)
         return 200, {"move": len(move), "keep": keep, "size": sum(s for _p, s in move), "running": running}
 
+    # --- telefoonmeldingen ---
+    def api_push_test(self, q, body):
+        ok, err = push_send(self.app.cfg, "Testmelding", "Dit is een test van MC Server Manager. Het werkt!")
+        return 200, {"ok": ok, "error": err}
+
     # --- instellingen ---
     def api_settings(self, q, body):
         a = self.app
@@ -6925,6 +7052,12 @@ class RemoteServer:
                 v = str(v).strip()[:300]
                 if k in ("sleep_from", "sleep_to") and not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", v):
                     return 400, {"error": "Vul een tijd in als UU:MM, bijvoorbeeld 22:00"}
+                if k == "push_server":
+                    v = v.rstrip("/") or "https://ntfy.sh"
+                    if not re.match(r"https?://[^\s/]+", v):
+                        return 400, {"error": "Vul een adres in zoals https://ntfy.sh"}
+                if k == "push_topic":
+                    v = re.sub(r"[^A-Za-z0-9_-]", "", v)[:64]
                 if k == "sleep_days":
                     v = "".join(sorted(set(c for c in v if c in "1234567")))
                     if not v:
@@ -6960,6 +7093,7 @@ class RemoteServer:
             ("GET", "/api/stats"): outer.api_stats, ("GET", "/api/tuning"): outer.api_tuning, ("POST", "/api/tuning/apply"): outer.api_tuning_apply,
             ("GET", "/api/world"): outer.api_world, ("POST", "/api/world/logs"): outer.api_world_logs, ("POST", "/api/world/trim"): outer.api_world_trim,
             ("GET", "/api/settings"): outer.api_settings, ("POST", "/api/settings"): outer.api_settings_set,
+            ("POST", "/api/push/test"): outer.api_push_test,
         }
         routes.update(outer.extra_routes())
 
@@ -7040,7 +7174,7 @@ class RemoteServer:
                             return self._send(200, DESK_PAGE.replace("@@APPV@@", APP_VERSION), "text/html")
                         return self._send(401, "Open dit scherm via de knop 'Nieuwe interface' in het programma.", "text/plain")
                     if path == "/":
-                        return self._send(200, REMOTE_PAGE, "text/html")
+                        return self._send(200, REMOTE_PAGE.replace("@@APPV@@", APP_VERSION), "text/html")
                     if path == "/icon.png":
                         return self._send(200, app_icon_png(192), "image/png")
                     if path == "/manifest.json":
@@ -7788,12 +7922,15 @@ class BeheerTab(ttk.Frame):
         save_config(self.app.cfg)
 
     def notify(self, key, title, text, name=None):
-        if not self.app.cfg.get(key, DEFAULTS.get(key, False)):
-            return
-        ign = {x.strip().lower() for x in str(self.app.cfg.get("notify_ignore", "")).split(",") if x.strip()}
+        cfg = self.app.cfg
+        ign = {x.strip().lower() for x in str(cfg.get("notify_ignore", "")).split(",") if x.strip()}
         if name and name.lower() in ign:
             return
-        toast(title, text)
+        if cfg.get(key, DEFAULTS.get(key, False)):
+            toast(title, text)
+        pk = "push_" + key[len("notify_"):]
+        if cfg.get("push_on") and cfg.get("push_topic") and cfg.get(pk, DEFAULTS.get(pk, False)):
+            push_send(cfg, title, text, async_=True)
 
     # ---------- tuning ----------
     def _build_tuning(self):
@@ -11843,7 +11980,7 @@ class SettingsDialog(tk.Toplevel):
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
                      "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
                      "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only",
-                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats"):
+                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats") or k.startswith("push_"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))
