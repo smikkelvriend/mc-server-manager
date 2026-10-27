@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.75"
+APP_VERSION = "2.76"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.76 - Tab-aanvulling in de console wacht nu langer op het antwoord van de server (3 s i.p.v. 1,2 s), zodat het ook werkt als de server even traag is.
 2.75 - Fix: als je zelf 'list' of 'tps' typt, kreeg je ook de controles van het programma erbij in de console. Nu zie je alleen jouw eigen antwoord.
 2.74 - Fix: na het gebruik van squaremap verschenen de lijsten met spelers (\"There are 0 of a max…\") en TPS-regels in de console. Antwoorden die door lag te laat binnenkomen worden nu ook verborgen.
 2.73 - Fix: rare strepen en stipjes op de kaart (telefoon en nieuw scherm). Squaremap schrijft tegels tijdens het renderen in delen weg; het programma stuurt nu alleen complete tegels door en probeert het anders opnieuw.
@@ -5705,10 +5706,16 @@ function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
  if(j.status&&j.state!='stopped'&&j.busy)h+=att('y',WARNI,esc(j.status),'');
  e.innerHTML=h||'<span class="mut">Alles in orde.</span>'}
 /* ---------- Console ---------- */
-const CMDS=['list','say ','whitelist add ','whitelist remove ','whitelist list','ban ','pardon ','kick ','op ','deop ','gamemode ','tp ','time set ','weather ','difficulty ','save-all','stop','tps','seed','give ','kill ','effect '];
 const HIST=(()=>{try{return JSON.parse(localStorage.getItem('dhist')||'[]')}catch(e){return[]}})();let hi=-1;
 function cmdKey(e){const i=e.target;if(e.key=='ArrowUp'){if(hi<HIST.length-1){hi++;i.value=HIST[hi]}e.preventDefault()}else if(e.key=='ArrowDown'){hi=Math.max(-1,hi-1);i.value=hi<0?'':HIST[hi];e.preventDefault()}
- else if(e.key=='Tab'){e.preventDefault();const v=i.value.toLowerCase();if(!v)return;const m=CMDS.filter(c=>c.startsWith(v));if(m.length==1)i.value=m[0];else if(m.length>1){let p=m[0];for(const c of m)while(!c.startsWith(p))p=p.slice(0,-1);i.value=p;toast(m.join('   '),3500)}}}
+ else if(e.key=='Tab'){e.preventDefault();tabKey(i)}}
+let tabSt=null;
+async function tabKey(i){const v=i.value;if(!v)return;if(tabSt&&v===tabSt.cur){tabSt.i=(tabSt.i+1)%tabSt.c.length;i.value=tabSt.cur=tabSt.c[tabSt.i];return}
+ const j=await go('/api/complete',{text:v}),c=(j&&j.cands)||[];if(i.value!==v)return;if(!c.length){toast('Geen aanvullingen',1500);return}
+ if(c.length==1){i.value=c[0];tabSt=null;return}
+ let p=c[0];for(const x of c)while(!x.toLowerCase().startsWith(p.toLowerCase()))p=p.slice(0,-1);
+ toast(c.slice(0,40).map(x=>x.split(' ').pop()).join('   ')+(c.length>40?' …':''),4000);
+ if(p.length>v.length){i.value=p;tabSt={c,i:-1,cur:p}}else{i.value=c[0];tabSt={c,i:0,cur:c[0]}}}
 function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HIST.splice(50);hi=-1;try{localStorage.setItem('dhist',JSON.stringify(HIST))}catch(e){}go('/api/cmd',{cmd:v}).then(j=>{if(j&&j.ok===false)toast(j.msg)});i.value='';setTimeout(poll,500)}return false}
 function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
  while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
@@ -6665,6 +6672,41 @@ class RemoteServer:
         ok = self.call_main(lambda: self.app.srv_send(c))
         return 200, {"ok": bool(ok), "msg": "" if ok else "De server draait niet"}
 
+    def api_complete(self, q, body):
+        """Tab-aanvulling voor het commandoveld: dezelfde als in het oude scherm (plugin-aanvulling van de server zelf, anders de eigen lijst)."""
+        text = str(body.get("text", ""))[:300]
+        app = self.app
+        items = None
+        if getattr(app, "_mcm_ok", False) and app.srv_state == "online":
+            web = app.__dict__.setdefault("_mcm_web", {})
+            app._mcm_seq = getattr(app, "_mcm_seq", 0) + 1
+            rid = f"w{app._mcm_seq}"
+            ev = web[rid] = [threading.Event(), None]
+            try:
+                self.call_main(lambda: app._mcm_ask(rid, text[1:] if text.startswith("/") else text))
+                if ev[0].wait(3.0):       # tijdens lag (render, opstarten) kan het antwoord van de server even duren
+                    items = ev[1]
+            finally:
+                web.pop(rid, None)
+        def build():
+            if items is not None:
+                head, sp, _last = text.rpartition(" ")
+                pre = head + sp
+                c = []
+                for it in items:
+                    if not sp:
+                        it = ("/" if text.startswith("/") else "") + it.lstrip("/")
+                        if ":" in it and ":" not in text:
+                            continue
+                        c.append(it)
+                    else:
+                        c.append(pre + it)
+                c = sorted({x for x in c if x.lower().startswith(text.lower())}, key=str.lower)
+                if c:
+                    return c
+            return app._tab_local(text)
+        return 200, {"cands": self.call_main(build)[:200]}
+
     def api_player(self, q, body):
         name, act, arg = str(body.get("name", "")), body.get("action"), str(body.get("arg", "")).replace("\n", " ").strip()[:200]
         if not re.fullmatch(r"[\w.\-]{1,40}", name):
@@ -7139,7 +7181,7 @@ class RemoteServer:
         outer = self
         self._install_shim()
         routes = {
-            ("GET", "/api/state"): outer.api_state, ("POST", "/api/action"): outer.api_action, ("POST", "/api/cmd"): outer.api_cmd,
+            ("GET", "/api/state"): outer.api_state, ("POST", "/api/action"): outer.api_action, ("POST", "/api/cmd"): outer.api_cmd, ("POST", "/api/complete"): outer.api_complete,
             ("POST", "/api/player"): outer.api_player, ("POST", "/api/clean"): outer.api_clean, ("POST", "/api/ram"): outer.api_ram,
             ("GET", "/api/plugins"): outer.api_plugins, ("POST", "/api/plugins/toggle"): outer.api_plugins_toggle,
             ("POST", "/api/plugins/remove"): outer.api_plugins_remove, ("POST", "/api/plugins/plm"): outer.api_plugins_plm, ("POST", "/api/plugins/upload"): outer.api_plugins_upload,
@@ -9938,6 +9980,11 @@ class App(tk.Tk):
 
     def _mcm_reply(self, rid, body):
         items = [x for x in body.split("\t") if x]
+        wb = getattr(self, "_mcm_web", {}).get(rid)
+        if wb:
+            wb[1] = [] if body.startswith("!") else items
+            wb[0].set()
+            return
         if rid.startswith("c"):
             self._mcm_ok = True
             if not body.startswith("!"):

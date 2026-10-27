@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.76
+- **Tab-aanvulling** in de console wacht nu langer op het antwoord van de server (3 s in plaats van 1,2 s), zodat het ook werkt als de server even traag is (opstarten, kaart renderen).
+
 ## 2.75
 - Fix: als je zelf `list` of `tps` typte, kreeg je ook de verborgen controles van het programma in de console te zien (meerdere keren dezelfde regel). Nu zie je alleen het antwoord op jouw eigen opdracht.
 

@@ -179,10 +179,16 @@ function drawAtt(){const e=$('att');if(!e||!S.stats)return;const j=S;let h='';
  if(j.status&&j.state!='stopped'&&j.busy)h+=att('y',WARNI,esc(j.status),'');
  e.innerHTML=h||'<span class="mut">Alles in orde.</span>'}
 /* ---------- Console ---------- */
-const CMDS=['list','say ','whitelist add ','whitelist remove ','whitelist list','ban ','pardon ','kick ','op ','deop ','gamemode ','tp ','time set ','weather ','difficulty ','save-all','stop','tps','seed','give ','kill ','effect '];
 const HIST=(()=>{try{return JSON.parse(localStorage.getItem('dhist')||'[]')}catch(e){return[]}})();let hi=-1;
 function cmdKey(e){const i=e.target;if(e.key=='ArrowUp'){if(hi<HIST.length-1){hi++;i.value=HIST[hi]}e.preventDefault()}else if(e.key=='ArrowDown'){hi=Math.max(-1,hi-1);i.value=hi<0?'':HIST[hi];e.preventDefault()}
- else if(e.key=='Tab'){e.preventDefault();const v=i.value.toLowerCase();if(!v)return;const m=CMDS.filter(c=>c.startsWith(v));if(m.length==1)i.value=m[0];else if(m.length>1){let p=m[0];for(const c of m)while(!c.startsWith(p))p=p.slice(0,-1);i.value=p;toast(m.join('   '),3500)}}}
+ else if(e.key=='Tab'){e.preventDefault();tabKey(i)}}
+let tabSt=null;
+async function tabKey(i){const v=i.value;if(!v)return;if(tabSt&&v===tabSt.cur){tabSt.i=(tabSt.i+1)%tabSt.c.length;i.value=tabSt.cur=tabSt.c[tabSt.i];return}
+ const j=await go('/api/complete',{text:v}),c=(j&&j.cands)||[];if(i.value!==v)return;if(!c.length){toast('Geen aanvullingen',1500);return}
+ if(c.length==1){i.value=c[0];tabSt=null;return}
+ let p=c[0];for(const x of c)while(!x.toLowerCase().startsWith(p.toLowerCase()))p=p.slice(0,-1);
+ toast(c.slice(0,40).map(x=>x.split(' ').pop()).join('   ')+(c.length>40?' …':''),4000);
+ if(p.length>v.length){i.value=p;tabSt={c,i:-1,cur:p}}else{i.value=c[0];tabSt={c,i:0,cur:c[0]}}}
 function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HIST.splice(50);hi=-1;try{localStorage.setItem('dhist',JSON.stringify(HIST))}catch(e){}go('/api/cmd',{cmd:v}).then(j=>{if(j&&j.ok===false)toast(j.msg)});i.value='';setTimeout(poll,500)}return false}
 function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
  while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
