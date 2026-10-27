@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.78
+- **Opstartcontrole** meldt nu ook plugins die **geen updates kunnen opzoeken** (bijvoorbeeld *Failed to look for updates … HTTP 403* van GitHub) en kijkt 40 seconden na het opstarten nog een keer, omdat plugins dit soms pas later melden.
+
 ## 2.77
 - **Opstartcontrole:** na het opstarten leest het programma het logboek van het opstarten door en laat weten of er iets mis is: een plugin die niet laadt of niet start, twee bestanden voor dezelfde plugin, poort al in gebruik, EULA niet geaccepteerd, te weinig geheugen of andere foutmeldingen. Is alles goed, dan staat er onder *Aandacht* "Opstarten zonder problemen". Bij problemen krijg je een melding, een regel onder *Aandacht* en (als je dat aanzet) een bericht op je telefoon. Aan/uit te zetten onder *Meldingen*.
 

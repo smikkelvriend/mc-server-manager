@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.77"
+APP_VERSION = "2.78"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.78 - Opstartcontrole meldt nu ook plugins die geen updates kunnen opzoeken (bijv. GitHub 403) en kijkt 40 seconden na het opstarten nog een keer voor late meldingen.
 2.77 - Opstartcontrole: na het opstarten leest het programma het logboek door en meldt als er iets mis is (plugin die niet laadt of start, poort in gebruik, EULA, te weinig geheugen, andere foutmeldingen). Je ziet het onder Aandacht, in een melding en optioneel op je telefoon. Staat onder Meldingen aan/uit.
 2.76 - Tab-aanvulling in de console wacht nu langer op het antwoord van de server (3 s i.p.v. 1,2 s), zodat het ook werkt als de server even traag is.
 2.75 - Fix: als je zelf 'list' of 'tps' typt, kreeg je ook de controles van het programma erbij in de console. Nu zie je alleen jouw eigen antwoord.
@@ -669,6 +670,9 @@ LEAVE_RE = re.compile(r"^(?:System chat: )?(\S+) left the game$")
 DONE_RE = re.compile(r"Done \([\d.,]+s\)!")
 
 
+UPD_FAIL_RE = re.compile(r"(?:Unable|Failed|Could not|Couldn't|Can(?:no|')t) (?:to )?(?:check|look) for (?:plugin )?updates?|update ?check failed|Failed to (?:check|look up|fetch) .{0,20}updates?", re.I)
+
+
 def analyze_startup(lines):
     """Leest de regels uit het logboek van het opstarten en geeft een lijst (ernst, tekst) terug. 'r' = serieus, 'y' = let op.
     Een lege lijst betekent: geen problemen gevonden."""
@@ -690,8 +694,14 @@ def analyze_startup(lines):
         (r"Failed to load (?:world|level)|Failed to read level", "r", "De wereld kon niet geladen worden"),
         (r"Unsupported (?:Java|class file)|UnsupportedClassVersionError", "y", "Een plugin past niet bij de gebruikte Java-versie"),
     )
-    other = []
+    other, noupd = [], []
     for lvl, msg in lines:
+        if UPD_FAIL_RE.search(msg):
+            pm = re.match(r"\s*\[([^\]]{1,40})\]", msg)
+            n = pm.group(1) if pm else "een plugin"
+            if n not in noupd:
+                noupd.append(n)
+            continue
         hit = False
         for rx, sev, tpl in rules:
             m = re.search(rx, msg)
@@ -701,7 +711,9 @@ def analyze_startup(lines):
                 break
         if not hit and lvl in ("ERROR", "SEVERE", "FATAL"):
             other.append(msg)
-    covered_n = len(out)
+    if noupd:
+        add("y", f"{len(noupd)} plugin{'s kunnen' if len(noupd) != 1 else ' kan'} geen updates opzoeken: {', '.join(noupd[:6])}"
+                 " (geen internet of de GitHub-limiet is bereikt; de plugin werkt gewoon, alleen de updatecontrole niet)", "noupd")
     other = [m for m in other if not re.match(r"^\s*(at |Caused by|\.\.\. )", m)]
     if other:
         first = re.sub(r"\s+", " ", other[0])[:140]
@@ -10421,13 +10433,18 @@ class App(tk.Tk):
         self._plug_cache = (pdir, time.time(), sorted(set(cmds)), sorted(set(names), key=str.lower))
         return self._plug_cache[2], self._plug_cache[3]
 
-    def _startup_check(self):
-        """Na het opstarten: het logboek van het opstarten doorlopen en zeggen of er iets mis is."""
+    def _startup_check(self, again=False):
+        """Na het opstarten: het logboek van het opstarten doorlopen en zeggen of er iets mis is. Na 40 s nog een keer voor late meldingen."""
         if self.srv_state != "online":
             return
         items = analyze_startup(list(getattr(self, "_boot_log", [])))
+        old = {i["text"] for i in ((getattr(self, "startcheck", None) or {}).get("items") or [])}
         self.startcheck = {"ok": not items, "items": [{"sev": s, "text": t} for s, t in items], "t": time.time()}
-        if not items:
+        if again:
+            items = [(s, t) for s, t in items if t not in old]      # alleen wat er sinds de eerste controle bij kwam melden
+            if not items:
+                return
+        elif not items:
             self.log("Opstartcontrole: geen problemen gevonden in het logboek.", "ok")
             return
         for sev, t in items:
@@ -10757,11 +10774,11 @@ class App(tk.Tk):
         m = LOG_RE.match(raw)
         msg = m.group(4) if m else raw
         now = time.time()
-        if self.srv_state == "starting" or now < getattr(self, "_startup_until", 0):
+        if self.srv_state == "starting" or now < getattr(self, "_bootlog_until", 0):
             bl = self.__dict__.setdefault("_boot_log", [])
             if len(bl) < 400:
                 lv = ((m.group(2) or m.group(3) or "") if m else "").upper()
-                if lv in ("WARN", "WARNING", "ERROR", "SEVERE", "FATAL"):
+                if lv in ("WARN", "WARNING", "ERROR", "SEVERE", "FATAL") or UPD_FAIL_RE.search(msg):
                     bl.append((lv, msg))
                 elif not m and ("Exception" in raw or raw.startswith("Caused by") or "OutOfMemory" in raw):
                     bl.append(("ERROR", raw.strip()))
@@ -10853,7 +10870,9 @@ class App(tk.Tk):
             self.after(30000, self.tab_map.prewarm)   # squaremap is dan klaar: kaart alvast laden
             self.after(12000, self._learn_commands)
             self._startup_until = time.time() + 10
+            self._bootlog_until = time.time() + 40       # plugins melden sommige problemen pas een halve minuut na 'Done'
             self.after(11000, self._startup_check)
+            self.after(41000, lambda: self._startup_check(True))
             if self.reach_auto_var.get():
                 self.after(20000, self._auto_net_check)
             self.after(3000, lambda: self._auto_poll() if self.srv_state == "online" else None)
