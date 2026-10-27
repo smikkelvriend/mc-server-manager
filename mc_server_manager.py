@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.70"
+APP_VERSION = "2.71"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.71 - Kaart: bij een gekozen gebied staat nu een Annuleren-knop naast Genereren (die verving Wissen).
 2.70 - Backuplijst netter: elke backup toont nu één duidelijke tijd (Vandaag 11:47, Gisteren 21:59, 22 okt 14:06) met grootte en hoe lang geleden, in plaats van drie keer dezelfde datum en tijd. De bestandsnaam staat nog in de tooltip. Fix: de kaart op de telefoon (en in het nieuwe scherm) kon blijvend zwarte stukken houden als een kaarttegel één keer niet geladen werd. Mislukte tegels worden nu opnieuw geprobeerd, en het programma probeert een tegel zelf nog een keer bij squaremap op te halen en bewaart hem even.
 2.69 - Voortgangsbalk bij het opstarten van de server, met de geschatte resterende tijd (op de pc en op de telefoon). De schatting komt van de laatste opstarttijden van jouw server; de eerste keer rekent hij met 45 seconden. Nieuwe optie bij Updates: 'Server automatisch weer starten na een update'. Geldt voor Paper-updates, plugin-updates en programma-updates: draaide de server toen de update begon, dan start hij daarna vanzelf weer.
 2.68 - Fix: een 'stop' terwijl de server nog aan het opstarten was gaf in Paper de foutmelding 'Command exception: /stop ... NullPointerException', waarna de server gewoon bleef draaien terwijl het programma op 'Stoppen…' bleef staan. Nu wacht het programma tot de server klaar is met opstarten en stopt hem dan; en als Paper het toch weigert, probeert het programma het tot drie keer opnieuw. Het antwoord op je eigen commando's in de schone console blijft nu 2 seconden zichtbaar (was 6).
@@ -5847,7 +5848,7 @@ function headImg(m,n){m.heads=m.heads||{};let t=m.heads[n];if(!t){t={img:new Ima
 function pcol(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return['#ef4444','#3b82f6','#22c55e','#eab308','#a855f7','#f97316','#14b8a6','#ec4899'][h%8]}
 function genUI(){const m=cur.m,g=m.gen||{},e=$('mgen');if(!e)return;const st=g.state||'idle';e.classList.toggle('hide',st=='idle');if(st=='idle')return;
  const fmt=n=>Math.round(n||0).toLocaleString('nl'),a=g.area,size=a?`${a[2]-a[0]} × ${a[3]-a[1]} blokken (${fmt(g.chunks)} chunks)`:'';let t='',btn='';
- if(st=='ready'){t='Gebied: '+size;btn=m.chunky?`<button class="go" onclick="genAct('start')">Genereren</button>`:'<span class="yel">Chunky staat niet in de plugins</span>';btn+=`<button onclick="genAct('clear')">Wissen</button>`}
+ if(st=='ready'){t='Gebied: '+size;btn=m.chunky?`<button class="go" onclick="genAct('start')">Genereren</button>`:'<span class="yel">Chunky staat niet in de plugins</span>';btn+=`<button class="bad" onclick="genAct('clear')">Annuleren</button>`}
  else if(st=='waiting'){t='⏳ Wacht tot de server leeg is • '+size;btn='<button class="bad" onclick="genAct(\'cancel\')">Annuleren</button>'}
  else if(st=='running'||st=='paused'){t=st=='paused'&&g.reason?'⏸ Gepauzeerd: '+g.reason:(st=='running'?'Chunks genereren':'⏸ Gepauzeerd')+' • '+size;btn=`<button class="warn" onclick="genAct('pause')">${st=='running'?'⏸ Pauze':'▶ Hervat'}</button><button class="bad" onclick="genAct('cancel')">■ Stop</button>`}
  else if(st=='rendering')t='✔ Chunks klaar • kaart wordt bijgewerkt…';else if(st=='done'){t='✔ Klaar • '+size;btn='<button onclick="genAct(\'clear\')">Sluiten</button>'}
@@ -6241,7 +6242,7 @@ function headImg(m,n){m.heads=m.heads||{};let t=m.heads[n];if(!t){t={img:new Ima
 function pcol(n){let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return['#ef4444','#3b82f6','#22c55e','#eab308','#a855f7','#f97316','#14b8a6','#ec4899'][h%8]}
 function genUI(){const m=cur.m,g=m.gen||{},e=$('mgen');if(!e)return;const st=g.state||'idle';e.classList.toggle('hide',st=='idle');if(st=='idle')return;
  const fmt=n=>Math.round(n||0).toLocaleString('nl'),a=g.area,size=a?`${a[2]-a[0]} × ${a[3]-a[1]} blokken (${fmt(g.chunks)} chunks)`:'';let t='',btn='';
- if(st=='ready'){t='Gebied: '+size;btn=m.chunky?`<button class="go" onclick="genAct('start')">Genereren</button>`:'<span class="yel">Chunky staat niet in de plugins</span>';btn+=`<button onclick="genAct('clear')">Wissen</button>`}
+ if(st=='ready'){t='Gebied: '+size;btn=m.chunky?`<button class="go" onclick="genAct('start')">Genereren</button>`:'<span class="yel">Chunky staat niet in de plugins</span>';btn+=`<button class="bad" onclick="genAct('clear')">Annuleren</button>`}
  else if(st=='waiting'){t='⏳ Wacht tot de server leeg is • '+size;btn='<button class="bad" onclick="genAct(\'cancel\')">Annuleren</button>'}
  else if(st=='running'||st=='paused'){t=st=='paused'&&g.reason?'⏸ Gepauzeerd: '+g.reason:(st=='running'?'Chunks genereren':'⏸ Gepauzeerd')+' • '+size;btn=`<button class="warn" onclick="genAct('pause')">${st=='running'?'⏸ Pauze':'▶ Hervat'}</button><button class="bad" onclick="genAct('cancel')">■ Stop</button>`}
  else if(st=='rendering')t='✔ Chunks klaar • kaart wordt bijgewerkt…';else if(st=='done'){t='✔ Klaar • '+size;btn='<button onclick="genAct(\'clear\')">Sluiten</button>'}

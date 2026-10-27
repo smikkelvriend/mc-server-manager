@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.71
+- **Kaart:** bij een gekozen gebied staat nu een **Annuleren**-knop naast *Genereren* (verving *Wissen*), op de pc en op de telefoon.
+
 ## 2.70
 - **Backuplijst netter:** elke backup toont nu één duidelijke tijd (*Vandaag 11:47*, *Gisteren 21:59*, *22 okt 14:06*) met de grootte en hoe lang geleden, in plaats van drie keer dezelfde datum en tijd. De bestandsnaam staat nog in de tooltip.
 - Fix: de **kaart op de telefoon** (en in het nieuwe scherm) kon blijvend zwarte stukken houden als een kaarttegel één keer niet laadde. Mislukte tegels worden nu opnieuw geprobeerd, en het programma haalt een tegel zelf nog een keer bij squaremap op en bewaart hem even.

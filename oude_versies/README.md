@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.69
+## Versies 2.2 t/m 2.70
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -127,3 +127,4 @@ De huidige versie staat in [`mc_server_manager.py`](../mc_server_manager.py).
 Let op: de oude versies bewaren hun instellingen in `mc_updater_config.json` (tot 1.3) of
 `mc_server_manager_config.json` (vanaf 2.0), naast het programma. Nieuwere versies kunnen instellingen hebben die
 oudere versies niet kennen; die worden dan genegeerd.
+| [`2.70`](mc_server_manager_2.70.py) | Nettere backuplijst, kaarttegels opnieuw proberen |
