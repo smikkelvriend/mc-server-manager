@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.82"
+APP_VERSION = "2.83"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.83 - De telefoon-app aan- en uitzetten kan nu in het nieuwe scherm (Instellingen > Netwerk > Telefoon-app): aan/uit, poort, wachtwoord, alleen eigen netwerk en het adres voor op je telefoon. Daarvoor was het oude scherm nodig.
 2.82 - Kaart: dunne lijntjes op de naden tussen tegels (bij uitzoomen) zijn weg: de rand van een tegel wordt niet meer met transparantie vermengd.
 2.81 - Fix: de kaart op de telefoon kon een tegel van een andere laag blijven tonen (een stuk op een verkeerde plek of schaal) omdat tegels na het laden nooit ververst werden. Zichtbare tegels worden nu elke 30 seconden opnieuw opgehaald.
 2.80 - Kaart: onder de kaart staat een link Tegelinfo tonen/verbergen. Die tekent per tegel zijn laag en positie en het zoomniveau, om te zien waar een verkeerd stuk vandaan komt.
@@ -6043,11 +6044,11 @@ const SPAGE={
  mel:()=>scol(scard('Op deze computer (Windows-meldingen)','s_mel'))+scol(scard('Op je telefoon (push)','s_push')),
  srv:()=>scol(scard('Server (server.properties)','props'))+scol(`<div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>`,scard('Java-opties','s_java')),
  sl:()=>scol(scard('Slaapstand','slp'))+scol(scard('Gezondheidscontrole en temperatuur','hlt')),
- net:()=>scol(scard('Bereikbaarheid','net')),
+ net:()=>scol(scard('Bereikbaarheid','net'))+scol(scard('Telefoon-app','rm')),
  prg:()=>scol(scard('Updates van het programma','s_upd'),scard('Backups','s_bak'))+scol(`<div class="card"><h3>Logboek van het programma</h3><div class="con" style="border:0"><div class="log" id="alog" style="height:260px;flex:none"></div></div><div class="mut" style="font-size:12px" id="ver"></div></div>`)};
 function setSec(k){ssec=k;try{localStorage.setItem('ssec',k)}catch(e){}V.set()}
 V.set=()=>{if(!SPAGE[ssec])ssec='alg';$('view').innerHTML=`<div class="seg" style="align-self:flex-start;flex-wrap:wrap">${SSEC.map(x=>`<button class="${x[0]==ssec?'on':''}" onclick="setSec('${x[0]}')">${x[1]}</button>`).join('')}</div><div class="two">${SPAGE[ssec]()}</div>`;
- if($('props'))propsLoad();if($('bt'))behT();if($('net'))netLoad();setLoad();if($('alog')){LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')}};
+ if($('props'))propsLoad();if($('bt'))behT();if($('net'))netLoad();if($('rm'))remLoad();setLoad();if($('alog')){LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')}};
 async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];if(PROPO[k])return `<label class="lab"><span>${PROPL[k].replace(/ \(peaceful.*$/,'')}</span><select onchange="propSet('${k}',this.value)">${PROPO[k].map(o=>`<option value="${o[0]}" ${String(v).toLowerCase()==o[0]?'selected':''}>${o[1]}</option>`).join('')}${PROPO[k].some(o=>o[0]==String(v).toLowerCase())?'':`<option selected>${esc(v)}</option>`}</select></label>`;
   return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
 const PROPO={difficulty:[['peaceful','Vredelievend (peaceful)'],['easy','Makkelijk (easy)'],['normal','Normaal (normal)'],['hard','Moeilijk (hard)']],gamemode:[['survival','Survival'],['creative','Creative'],['adventure','Adventure'],['spectator','Spectator']]};
@@ -6085,6 +6086,18 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
   `<div style="margin-top:8px;font-weight:600;font-size:13px">Stuur een bericht bij…</div>`+chk('push_join','Speler komt binnen')+chk('push_leave','Speler gaat weg')+chk('push_start','Server is klaar met opstarten')+chk('push_startcheck','Er lijkt iets mis bij het opstarten')+chk('push_crash','Crash')+chk('push_chunky','Genereren klaar')+chk('push_update','Programma-update')+
   hint(`<b>Zo stel je het in:</b> 1) Installeer de app ntfy op je telefoon. 2) Kies “+” en abonneer op het kanaal <b>${esc(top||'(maak eerst een kanaal)')}</b>. 3) Druk op “Testmelding sturen”.<br>Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik daarom het gegenereerde, willekeurige kanaal en deel het niet.`))}
 function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
+async function remLoad(){const j=await go('/api/remote');if(!j||!$('rm'))return;const e=$('rm');e.classList.remove('mut');
+ const st=j.running?`<span style="color:#34d399">● Aan</span>`:(j.error?`<span style="color:#f87171">✖ ${esc(j.error)}</span>`:'<span class="mut">○ Uit</span>');
+ e.innerHTML=`<div class="mut" style="font-size:12.5px;margin:2px 0 6px">Bedien je server vanaf je telefoon: status, console, spelers, plugins, kaart, starten en stoppen.</div>
+  <label class="lab"><span>Toegang vanaf telefoon aanzetten</span><input type="checkbox" ${j.enabled?'checked':''} onchange="remSet({enabled:this.checked})"></label>
+  <label class="lab"><span>Alleen op je eigen netwerk of VPN (aanbevolen)</span><input type="checkbox" ${j.lan?'checked':''} onchange="remSet({lan:this.checked})"></label>
+  <label class="lab"><span>Poort</span><input value="${j.port}" inputmode="numeric" onchange="remSet({port:this.value})"></label>
+  <label class="lab"><span>Wachtwoord</span><input id="rmpw" type="password" value="${esc(j.pass)}" onchange="remSet({pass:this.value})"></label>
+  <div class="row" style="margin:6px 0"><button class="sm" onclick="const i=$('rmpw');i.type=i.type=='password'?'text':'password'">Tonen/verbergen</button><button class="sm" onclick="remSet({newpw:1})">Nieuw wachtwoord</button></div>
+  <div style="margin:8px 0;font-weight:600;font-size:13px">${st}</div>
+  ${j.running&&j.urls.length?`<div class="mut" style="font-size:12.5px">Open op je telefoon (zelfde wifi):</div>${j.urls.map(u=>`<div style="font-family:monospace;font-size:14px;margin:3px 0">${esc(u)}</div>`).join('')}`:''}
+  <div class="mut" style="font-size:12px;margin-top:8px">Chrome-menu (⋮) → ‘Toevoegen aan startscherm’ geeft je een app-icoon. Windows vraagt de eerste keer om toestemming in de firewall: kies ‘Privénetwerken’. Buiten je wifi? Gebruik een VPN zoals Tailscale. Zet de poort <b>niet</b> open in je router: de verbinding is niet versleuteld.</div>`}
+async function remSet(o){const j=await go('/api/remote',o);if(j)setTimeout(remLoad,400)}
 async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
@@ -7200,6 +7213,44 @@ class RemoteServer:
         move, keep = b.plan_trim(area, dim)
         return 200, {"move": len(move), "keep": keep, "size": sum(s for _p, s in move), "running": running}
 
+    # --- telefoon-webapp aan/uit (alleen vanuit het eigen scherm) ---
+    def _remote_info(self):
+        a, c = self.app, self.app.cfg
+        port = int(c.get("remote_port", 8765))
+        return {"enabled": bool(c.get("remote_enabled")), "lan": bool(c.get("remote_lan_only", True)), "port": port,
+                "pass": str(c.get("remote_pass", "")), "running": bool(a.remote.running), "error": a.remote.error or "",
+                "urls": [f"http://{ip}:{port}" for ip in (lan_ips() or [])]}
+
+    def api_remote_get(self, q, body):
+        if not self.desk_only:
+            return 403, {"error": "alleen vanuit het programma zelf"}
+        return 200, self._remote_info()
+
+    def api_remote_set(self, q, body):
+        if not self.desk_only:
+            return 403, {"error": "alleen vanuit het programma zelf"}
+        a = self.app
+
+        def go():
+            c = a.cfg
+            if "enabled" in body:
+                c["remote_enabled"] = bool(body["enabled"])
+            if "lan" in body:
+                c["remote_lan_only"] = bool(body["lan"])
+            if "port" in body:
+                try:
+                    c["remote_port"] = min(max(int(body["port"]), 1024), 65535)
+                except (TypeError, ValueError):
+                    pass
+            if "pass" in body:
+                c["remote_pass"] = str(body["pass"]).strip()[:64]
+            if body.get("newpw") or (c.get("remote_enabled") and not c.get("remote_pass")):
+                c["remote_pass"] = secrets.token_urlsafe(9).replace("-", "x").replace("_", "y")
+            a._save_cfg()
+            a.remote_apply()
+        self.call_main(go, auto=True)
+        return 200, self._remote_info()
+
     # --- telefoonmeldingen ---
     def api_push_test(self, q, body):
         ok, err = push_send(self.app.cfg, "Testmelding", "Dit is een test van MC Server Manager. Het werkt!")
@@ -7274,6 +7325,7 @@ class RemoteServer:
             ("GET", "/api/world"): outer.api_world, ("POST", "/api/world/logs"): outer.api_world_logs, ("POST", "/api/world/trim"): outer.api_world_trim,
             ("GET", "/api/settings"): outer.api_settings, ("POST", "/api/settings"): outer.api_settings_set,
             ("POST", "/api/push/test"): outer.api_push_test,
+            ("GET", "/api/remote"): outer.api_remote_get, ("POST", "/api/remote"): outer.api_remote_set,
         }
         routes.update(outer.extra_routes())
 

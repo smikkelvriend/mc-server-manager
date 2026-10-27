@@ -9,7 +9,9 @@ Starten, console, plugins, updates, kaart, backups en een webapp voor je telefoo
 ![Platform](https://img.shields.io/badge/platform-Windows-0078d6?logo=windows&logoColor=white)
 ![Eén bestand](https://img.shields.io/badge/installatie-één%20bestand-059669)
 
-<img src="docs/donker_server.png" alt="Server-tabblad met grafieken, spelerslijst en console (donker thema)" width="860">
+<img src="docs/overzicht.png" alt="Overzicht met grafieken, spelers met snelle acties, console en aandachtspunten" width="860">
+
+<sub>Schermafbeeldingen met voorbeeldgegevens.</sub>
 
 </div>
 
@@ -20,38 +22,33 @@ Starten, console, plugins, updates, kaart, backups en een webapp voor je telefoo
 
 ## Functies
 
-| Tabblad | Wat je ermee doet |
-|---|---|
-| **🖥 Server** | Starten, stoppen, herstarten, RAM aanpassen. Console met schone modus, zoeken, Tab-aanvulling en commandogeschiedenis. Live CPU, geheugen, TPS en temperatuur (de grafieken blijven bewaard na een herstart). Spelerslijst met hoofdjes, ook van Bedrock-spelers. |
-| **🧩 Plugins** | Aan- en uitzetten, verwijderen, zoeken op naam *of op beschrijving* en installeren, inclusief afhankelijkheden. Per plugin zie je meteen of hij up-to-date is. |
-| **🗺 Kaart** | Live kaart van je wereld (via [squaremap](https://github.com/jpenilla/squaremap)) met spelers, soepel zoomen en je ziet ook de opgeslagen kaart als de server uit staat. Teken een gebied om het met Chunky vooraf te genereren; dat pauzeert zelf zodra er een speler binnenkomt. |
-| **🛠 Beheer** | Spelers (speeltijd, laatst gezien, doden, afgelegde afstand), meldingen, tuning, de wereld en de telefoon-webapp. |
-| **💾 Backups** | Beheert de plugin [Backuper](https://github.com/DVDishka/Backuper): backups bekijken en verwijderen, instellingen aanpassen, bestanden van de plugin, en de backups die dit programma zelf maakt. |
-| **🔧 Updates** | Paper (`server.jar`) en plugins controleren en bijwerken via Modrinth, Hangar, GitHub en GeyserMC. Vóór elke update komt er een backup; het aantal stel je zelf in. |
-| **🌐 Netwerk** | Controleert of vrienden via internet kunnen verbinden (Java en Bedrock), met servernaam, icoon en spelers. |
-
-<p align="center">
-  <img src="docs/licht_plugins.png" alt="Plugins-tabblad (licht thema)" width="48%">
-  <img src="docs/licht_backups.png" alt="Backups-tabblad (licht thema)" width="48%">
-</p>
-
-## ✨ Nieuwe interface
-
-De knop bovenin opent een moderner scherm in een eigen venster. Het is alleen bereikbaar vanaf deze computer; de bron
+Het programma opent in een eigen venster met links het menu. Het is alleen bereikbaar vanaf deze computer; de bron
 staat in [`nieuwe_interface/`](nieuwe_interface/) en wordt met `inbouwen.py` in het ene programmabestand gezet.
 
 | Onderdeel | Wat je er doet |
 |---|---|
-| **Overzicht** | Live belasting (geheugen en processor), spelers online met snelle acties per speler (kicken, spelmodus, teleporteren, bericht sturen), console en een *Aandacht*-kaart. Daar staat of er een update is, of er een backup is, hoeveel schijfruimte vrij is en of het opstarten goed ging. |
-| **Voortgangsbalken** | Bij opstarten én stoppen zie je hoe lang het nog duurt. Het programma onthoudt hoe lang jouw server nodig heeft en schat daarmee. Stopt de server terwijl hij nog opstart, dan wacht het tot dat klaar is. |
-| **Opstartcontrole** | Na het opstarten leest het programma het logboek door en meldt een plugin die niet laadt, een bezette poort, te weinig geheugen, een EULA die nog niet is geaccepteerd of plugins die geen updates kunnen opzoeken. |
-| **Console** | Schone modus (verbergt ruis), zoeken in het logboek, Tab-aanvulling. Wat je zelf typt, blijft altijd zichtbaar. |
-| **Kaart** | Squaremap-kaart met spelers. Teken een gebied en genereer het met Chunky, met een knop om te annuleren. |
-| **Instellingen** | Ingedeeld in Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk en Programma. Het verschil tussen Windows-meldingen en berichten op je telefoon is duidelijk gescheiden. |
-| **Updates** | Programma-updates met een optie om de server daarna automatisch weer te starten. Staat er iemand online, dan wacht het programma tot de server leeg is. |
+| **Overzicht** | Live belasting (geheugen, processor, TPS en temperatuur; de grafieken blijven bewaard na een herstart), spelers online met snelle acties per speler (bericht sturen, spelmodus, teleporteren, kicken), de console en een *Aandacht*-kaart. Daar staat of er een update of backup is, hoeveel schijfruimte vrij is en of het opstarten goed ging. |
+| **Console** | Schone modus (verbergt ruis), zoeken in het logboek, Tab-aanvulling en commandogeschiedenis. Wat je zelf typt, blijft altijd zichtbaar. |
+| **Spelers** | Wie online is, speelstatistieken (tijd, doden, kills, afstand), whitelist, bans, IP-bans en operators, ook van Bedrock-spelers. |
+| **Plugins** | Aan- en uitzetten, verwijderen, zoeken op naam *of op beschrijving* en installeren, inclusief afhankelijkheden. Per plugin zie je of hij up-to-date is. |
+| **Updates** | Paper (`server.jar`) en plugins controleren en bijwerken via Modrinth, Hangar, GitHub en GeyserMC, en het programma zelf. Vóór elke update komt er een backup. Na een programma-update kan de server vanzelf weer starten; staat er iemand online, dan wacht het programma tot de server leeg is. |
+| **Kaart** | Live kaart van je wereld (via [squaremap](https://github.com/jpenilla/squaremap)) met spelers en soepel zoomen; als de server uit staat zie je de opgeslagen kaart. Teken een gebied om het met Chunky vooraf te genereren (te annuleren); dat pauzeert zelf zodra er een speler binnenkomt. |
+| **Backups** | Beheert de plugin [Backuper](https://github.com/DVDishka/Backuper): backups bekijken en verwijderen, instellingen aanpassen en de backups die dit programma zelf maakt. |
+| **Instellingen** | Ingedeeld in Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk en Programma. Windows-meldingen en berichten op je telefoon staan duidelijk gescheiden. |
 
-Verder: licht en donker thema, een Update-knop voor het programma zelf (zonder herstart als dat veilig kan),
-meldingen bij crash, start, spelers en klaar met genereren, en alles in het Nederlands.
+Daarnaast:
+
+- **Voortgangsbalken** bij opstarten én stoppen. Het programma onthoudt hoe lang jouw server nodig heeft en schat daarmee. Stopt de server terwijl hij nog opstart, dan wacht het tot dat klaar is.
+- **Opstartcontrole:** na het opstarten leest het programma het logboek door en meldt een plugin die niet laadt, een bezette poort, te weinig geheugen, een EULA die nog niet is geaccepteerd of plugins die geen updates kunnen opzoeken.
+- **Auto slaapstand:** de server stopt veilig als er een tijd niemand online is en start vanzelf als er iemand probeert te joinen.
+- **Netwerkcontrole** (Instellingen → Netwerk): of vrienden via internet kunnen verbinden, voor Java en Bedrock.
+- **Meldingen** bij crash, start, spelers en klaar met genereren, in Windows en optioneel op je telefoon.
+- Alles in het Nederlands.
+
+<p align="center">
+  <img src="docs/spelers.png" alt="Spelers: online, statistieken, whitelist, bans en operators" width="48%">
+  <img src="docs/instellingen.png" alt="Instellingen met onderdelen Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk en Programma" width="48%">
+</p>
 
 ## Installeren
 
@@ -75,12 +72,12 @@ Een `.exe` kan zichzelf niet bijwerken.
 
 ## Eerste keer gebruiken
 
-1. **Server-map kiezen** (Plugins › Updates, bovenaan). Het programma herkent Paper, de Minecraft-versie en je plugins.
+1. **Server-map kiezen** (linksboven in het menu). Het programma herkent Paper, de Minecraft-versie en je plugins.
 2. **Server starten** met de groene knop. De console toont wat de server meldt.
 3. **Plugins en updates:** klik op *Alles controleren* bij Updates. Dat kost niets, er wordt pas iets veranderd als jij dat vraagt.
-4. Het tabblad **Netwerk** is handig om te testen of vrienden kunnen verbinden.
+4. Onder **Instellingen → Netwerk** kun je testen of vrienden kunnen verbinden.
 
-Staat er een knop of instelling die je niet snapt? Bij de meeste opties in Instellingen (rechtsboven) staat een korte uitleg.
+Staat er een knop of instelling die je niet snapt? Bij veel opties onder Instellingen staat een korte uitleg.
 
 ## Tab-aanvulling in de console
 
@@ -94,7 +91,7 @@ console de aanvullingen doorgeven.
 
 ## Webapp voor je telefoon
 
-Zet bij **Beheer → Telefoon** de webapp aan en kies een wachtwoord. Open daarna het getoonde adres op je telefoon
+Zet bij **Instellingen → Netwerk → Telefoon-app** de toegang aan en kies een wachtwoord. Open daarna het getoonde adres op je telefoon
 (zelfde wifi) en voeg het toe aan je beginscherm. Je ziet en bedient dezelfde dingen als op de computer:
 server, plugins, updates, kaart, backups en beheer. De app is standaard alleen bereikbaar vanaf je eigen netwerk.
 
@@ -108,7 +105,7 @@ laat de naam dus willekeurig.
 
 ## Het programma bijwerken
 
-Open Instellingen → **Dit programma** en vul `https://github.com/smikkelvriend/mc-server-manager` in.
+Open Instellingen → **Programma** en vul `https://github.com/smikkelvriend/mc-server-manager` in.
 Het programma controleert bij het opstarten en daarna elke 6 uur. Is er een nieuwe versie, dan verschijnt
 **⬆ Update** met wat er nieuw is. Veilige updates worden direct toegepast; de rest vraagt om een herstart.
 De vorige versie wordt bewaard in `programma_backups`.
@@ -127,7 +124,7 @@ laatst opgeslagen kaart.
 
 <details><summary><b>CPU en geheugen blijven leeg</b></summary>
 
-Installeer `psutil` (`pip install psutil`) of klik op de knop op het Server-tabblad.
+Installeer `psutil` (`pip install psutil`) en start het programma opnieuw.
 </details>
 
 <details><summary><b>Wat doet het programma met mijn server-map?</b></summary>
