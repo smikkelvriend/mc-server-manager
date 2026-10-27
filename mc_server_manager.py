@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.81"
+APP_VERSION = "2.82"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.82 - Kaart: dunne lijntjes op de naden tussen tegels (bij uitzoomen) zijn weg: de rand van een tegel wordt niet meer met transparantie vermengd.
 2.81 - Fix: de kaart op de telefoon kon een tegel van een andere laag blijven tonen (een stuk op een verkeerde plek of schaal) omdat tegels na het laden nooit ververst werden. Zichtbare tegels worden nu elke 30 seconden opnieuw opgehaald.
 2.80 - Kaart: onder de kaart staat een link Tegelinfo tonen/verbergen. Die tekent per tegel zijn laag en positie en het zoomniveau, om te zien waar een verkeerd stuk vandaan komt.
 2.79 - Kaart (telefoon en nieuw scherm): tegels die niet laden worden opnieuw geprobeerd (eerst elke 4 s, later elke 20 s; dit herstel zat eerder niet in het bestand) en na het bijwerken van de kaart (genereren klaar) worden alle tegels opnieuw geladen, zodat je geen oude of zwarte stukken overhoudt.
@@ -5909,7 +5910,8 @@ function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=c
  const w=m.w,nat=Math.min(Math.ceil(m.zl-1e-6),w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
  const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=P<511;
  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
-  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.floor(W/2+(tx*span-m.cx)*s),Math.floor(H/2+(ty*span-m.cz)*s),Math.ceil(P)+1,Math.ceil(P)+1)}
+  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok){const dx=Math.floor(W/2+(tx*span-m.cx)*s),dy=Math.floor(H/2+(ty*span-m.cz)*s),dw=Math.ceil(P)+1,iw=t.img.naturalWidth||512,ih=t.img.naturalHeight||512;
+   if(P<511)x.drawImage(t.img,.5,.5,iw-1,ih-1,dx,dy,dw,dw);else x.drawImage(t.img,dx,dy,dw,dw)}}
  if(m.dbg){x.save();x.font='bold 11px monospace';x.lineWidth=1;x.strokeStyle='#ff00ffaa';x.textBaseline='top';
   for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){const a=Math.floor(W/2+(tx*span-m.cx)*s),b=Math.floor(H/2+(ty*span-m.cz)*s),t=m.imgs.get(`${w.name}/${nat}/${tx}_${ty}`);
    x.strokeRect(a+.5,b+.5,Math.ceil(P),Math.ceil(P));const tx2=`${nat}/${tx}_${ty}${t?(t.ok?'':(t.bad?' ✗'+t.n:' …')):''}`;x.fillStyle='#000a';x.fillRect(a+2,b+2,x.measureText(tx2).width+6,15);x.fillStyle='#fff';x.fillText(tx2,a+5,b+4)}
@@ -6315,7 +6317,8 @@ function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=c
  const w=m.w,nat=Math.min(Math.ceil(m.zl-1e-6),w.max),span=512*2**(w.max-nat),s=2**(m.zl-w.max),P=512*2**(m.zl-nat);
  const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=P<511;
  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
-  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.floor(W/2+(tx*span-m.cx)*s),Math.floor(H/2+(ty*span-m.cz)*s),Math.ceil(P)+1,Math.ceil(P)+1)}
+  const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok){const dx=Math.floor(W/2+(tx*span-m.cx)*s),dy=Math.floor(H/2+(ty*span-m.cz)*s),dw=Math.ceil(P)+1,iw=t.img.naturalWidth||512,ih=t.img.naturalHeight||512;
+   if(P<511)x.drawImage(t.img,.5,.5,iw-1,ih-1,dx,dy,dw,dw);else x.drawImage(t.img,dx,dy,dw,dw)}}
  if(m.dbg){x.save();x.font='bold 11px monospace';x.lineWidth=1;x.strokeStyle='#ff00ffaa';x.textBaseline='top';
   for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){const a=Math.floor(W/2+(tx*span-m.cx)*s),b=Math.floor(H/2+(ty*span-m.cz)*s),t=m.imgs.get(`${w.name}/${nat}/${tx}_${ty}`);
    x.strokeRect(a+.5,b+.5,Math.ceil(P),Math.ceil(P));const tx2=`${nat}/${tx}_${ty}${t?(t.ok?'':(t.bad?' ✗'+t.n:' …')):''}`;x.fillStyle='#000a';x.fillRect(a+2,b+2,x.measureText(tx2).width+6,15);x.fillStyle='#fff';x.fillText(tx2,a+5,b+4)}
