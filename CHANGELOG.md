@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.64
+- Moeilijkheid en standaard spelmodus zijn nu een **keuzemenu** (Instellingen, Server).
+- Fix: de testmelding naar je telefoon gaf `certificate has expired` op Windows-pc's met verouderde certificaten. Het programma probeert het dan nog één keer zonder certificaatcontrole en zegt dat erbij (er staat niets geheims in de berichten).
+- Fix: de server kon op *Stoppen…* blijven staan terwijl hij al uit was, en een update kon op 45% blijven hangen. De berichtenlus van het programma kan niet meer stilvallen door één foutief bericht, het programma merkt zelf dat de server gestopt is, en een mislukte update toont nu een foutmelding.
+- Deze versie vereist een herstart.
+
 ## 2.63
 - **Meldingen naar je telefoon** (bijvoorbeeld als er iemand online komt) via de gratis app [ntfy](https://ntfy.sh). Instellingen, Meldingen: maak een kanaal, abonneer erop in de app en kies per gebeurtenis of je een bericht wilt: speler komt binnen, speler gaat weg, server klaar, crash, genereren klaar, programma-update. Met een testknop. De lijst *Namen zonder melding* geldt ook voor de telefoon.
 - De Instellingen van de nieuwe interface zijn opnieuw ingedeeld in tabbladen: Algemeen, **Meldingen**, Server, Slaap en gezondheid, Netwerk en Programma.

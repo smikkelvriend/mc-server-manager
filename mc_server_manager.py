@@ -28,6 +28,7 @@ import concurrent.futures
 import queue
 import re
 import socket
+import ssl
 import shutil
 import struct
 import subprocess
@@ -53,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.63"
+APP_VERSION = "2.64"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.64 - Moeilijkheid en standaard spelmodus zijn nu een keuzemenu in Instellingen, Server. Fix: de testmelding naar je telefoon gaf 'certificate has expired' op Windows-pc's met verouderde certificaten; het programma probeert dan nog één keer zonder certificaatcontrole en meldt dat erbij. Fix: de server kon op 'Stoppen…' blijven staan terwijl hij al uit was (en een update bleef hangen). De berichtenlus van het programma kan niet meer stilvallen door één foutief bericht, het programma merkt zelf dat de server gestopt is, en een mislukte update toont nu een foutmelding in plaats van te blijven hangen.
 2.63 - Meldingen naar je telefoon: je krijgt een bericht (bijvoorbeeld als er iemand online komt) via de gratis app ntfy. Maak in Instellingen, Meldingen een kanaal, abonneer erop in de app en kies per gebeurtenis of je een bericht wilt (speler komt binnen/gaat weg, server klaar, crash, genereren klaar, programma-update). Met een testknop. De lijst 'Namen zonder melding' geldt ook hier. De Instellingen in de nieuwe interface zijn opnieuw ingedeeld in tabbladen (Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk, Programma). Fix: TPS en geheugengebruik onder Prestaties en geheugen bleven op hun oude waarde staan; ze verversen nu vanzelf. Telefoon-app bijgewerkt: voortgangsbalk bij programma-updates, melding en 'uitgeladen'-status bij PlugManX, .jar-bestanden uploaden, hot-loaden na installeren, en de instellingen staan nu in nette groepen. De telefoonpagina laadt zichzelf opnieuw na een programma-update.
 2.62 - Fix: het programma kon 'stop' twee keer naar de server sturen (bijvoorbeeld bij afsluiten of bijwerken terwijl de server al aan het stoppen was). Paper geeft dan de foutmelding 'Command exception: /stop ... NullPointerException'. Nu wordt er maar één keer gestopt. PLM-controle gebruikt nu eerst /plm list (daarna pas /plugins), en de melding boven de pluginlijst verdwijnt vanzelf (succes na 15 s, fout na 45 s) of met het kruisje.
 2.61 - Plugins toevoegen door een .jar-bestand op het tabblad Plugins te slepen (of via de knop 'Bestand kiezen…'). Het programma controleert dat het echt een plugin is (plugin.yml), zet hem in de plugins-map (een bestand met dezelfde naam gaat eerst naar verwijderde_plugins), waarschuwt als dezelfde plugin al onder een andere bestandsnaam staat, en vraagt daarna: later laden, hot-loaden (eigen risico) of de server herstarten.
@@ -5944,7 +5946,9 @@ const SPAGE={
 function setSec(k){ssec=k;try{localStorage.setItem('ssec',k)}catch(e){}V.set()}
 V.set=()=>{if(!SPAGE[ssec])ssec='alg';$('view').innerHTML=`<div class="seg" style="align-self:flex-start;flex-wrap:wrap">${SSEC.map(x=>`<button class="${x[0]==ssec?'on':''}" onclick="setSec('${x[0]}')">${x[1]}</button>`).join('')}</div><div class="two">${SPAGE[ssec]()}</div>`;
  if($('props'))propsLoad();if($('bt'))behT();if($('net'))netLoad();setLoad();if($('alog')){LOG2.forEach(addAlog);$('ver').textContent='Programmaversie '+(S.version||'')}};
-async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
+async function propsLoad(){const j=await go('/api/props');if(!j||!$('props'))return;$('props').innerHTML=Object.keys(PROPL).map(k=>{const t=j.kinds[k],v=j.props[k];if(PROPO[k])return `<label class="lab"><span>${PROPL[k].replace(/ \(peaceful.*$/,'')}</span><select onchange="propSet('${k}',this.value)">${PROPO[k].map(o=>`<option value="${o[0]}" ${String(v).toLowerCase()==o[0]?'selected':''}>${o[1]}</option>`).join('')}${PROPO[k].some(o=>o[0]==String(v).toLowerCase())?'':`<option selected>${esc(v)}</option>`}</select></label>`;
+  return `<label class="lab"><span>${PROPL[k]}</span>${t=='bool'?`<input type="checkbox" ${String(v).toLowerCase()=='true'?'checked':''} onchange="propSet('${k}',this.checked)">`:`<input value="${esc(v)}" ${t=='int'?'inputmode="numeric"':''} onchange="propSet('${k}',this.value)">`}</label>`}).join('')+(j.running?'<div class="mut" style="font-size:12px;margin-top:6px">De server draait: wijzigingen werken na een herstart.</div>':'')}
+const PROPO={difficulty:[['peaceful','Vredelievend (peaceful)'],['easy','Makkelijk (easy)'],['normal','Normaal (normal)'],['hard','Moeilijk (hard)']],gamemode:[['survival','Survival'],['creative','Creative'],['adventure','Adventure'],['spectator','Spectator']]};
 const propSet=(key,value)=>go('/api/props',{key,value});
 const addAlog=l=>{const c=$('alog');if(!c)return;const d=document.createElement('div');d.className={error:'e',warn:'w',ok:'o'}[l[3]]||'';d.textContent=`[${l[1]}] ${l[2]}`;c.appendChild(d);c.scrollTop=c.scrollHeight};
 async function netLoad(){const j=await go('/api/net');if(!j||!$('net'))return;
@@ -5979,7 +5983,7 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
   `<div style="margin-top:8px;font-weight:600;font-size:13px">Stuur een bericht bij…</div>`+chk('push_join','Speler komt binnen')+chk('push_leave','Speler gaat weg')+chk('push_start','Server is klaar met opstarten')+chk('push_crash','Crash')+chk('push_chunky','Genereren klaar')+chk('push_update','Programma-update')+
   hint(`<b>Zo stel je het in:</b> 1) Installeer de app ntfy op je telefoon. 2) Kies “+” en abonneer op het kanaal <b>${esc(top||'(maak eerst een kanaal)')}</b>. 3) Druk op “Testmelding sturen”.<br>Let op: iedereen die de naam van je kanaal kent kan meelezen. Gebruik daarom het gegenereerde, willekeurige kanaal en deel het niet.`))}
 function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
-async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.':(j.error||'Versturen mislukt'),6000)}
+async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 /* ---------- Afsluiten ---------- */
@@ -6324,7 +6328,7 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
  put('s_upd',chk('selfupdate_check','Automatisch zoeken naar updates')+chk('selfupdate_auto','Updates automatisch installeren')+chk('keep_server_backups','Backups van server.jar bewaren')+num('server_backups_max','Aantal server.jar-backups')+chk('keep_plugin_backups','Backups van plugins bewaren')+num('plugin_backups_max','Aantal plugin-backups'))}
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
-async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.':(j.error||'Versturen mislukt'),6000)}
+async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
 /* ---------- poll ---------- */
 let btT=0;
 async function poll(){if(busy)return;busy=1;try{const j=await api(`/api/state?since=${since}&nsince=${nsince}&asince=${asince}`);if(j.version&&PV[0]!='@'&&j.version!==PV){location.reload();return}S=j;
@@ -6352,9 +6356,18 @@ def push_send(cfg, title, text, async_=False):
             data = json.dumps({"topic": topic, "title": str(title)[:200], "message": str(text)[:1000],
                                "tags": ["video_game"], "priority": 3}).encode("utf-8")
             req = urllib.request.Request(base, data=data, headers={"Content-Type": "application/json", "User-Agent": "MCServerManager"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                r.read()
-            return True, ""
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    r.read()
+                return True, ""
+            except (ssl.SSLError, urllib.error.URLError) as e:
+                if not (isinstance(e, ssl.SSLError) or isinstance(getattr(e, "reason", None), ssl.SSLError)):
+                    raise
+                # Op sommige Windows-pc's zijn de basiscertificaten verouderd ("certificate has expired"). Het bericht bevat
+                # niets geheims, dus we proberen het nog één keer zonder certificaatcontrole.
+                with urllib.request.urlopen(req, timeout=10, context=ssl._create_unverified_context()) as r:
+                    r.read()
+                return True, "Verstuurd, maar zonder certificaatcontrole: de certificaten van je Windows zijn verouderd (Windows Update helpt)."
         except urllib.error.HTTPError as e:
             return False, f"De pushserver weigerde het (HTTP {e.code})."
         except Exception as e:
@@ -6917,8 +6930,8 @@ class RemoteServer:
             def run():
                 try:
                     self.call_main(lambda: a.selfupdate_install(confirm=False), timeout=400, auto=True, answer=True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    a._ust("error", 0, "", f"Het installeren liep vast of mislukte: {e}")
             threading.Thread(target=run, daemon=True).start()
         return 200, {"ok": True}
 
@@ -7023,7 +7036,7 @@ class RemoteServer:
     # --- telefoonmeldingen ---
     def api_push_test(self, q, body):
         ok, err = push_send(self.app.cfg, "Testmelding", "Dit is een test van MC Server Manager. Het werkt!")
-        return 200, {"ok": ok, "error": err}
+        return 200, {"ok": ok, "error": "" if ok else err, "warn": err if ok else ""}
 
     # --- instellingen ---
     def api_settings(self, q, body):
@@ -9108,17 +9121,33 @@ class App(tk.Tk):
     def progress(self, value, maximum):
         self.q.put(("progress", value, maximum))
 
-    def _poll(self):
+    def _poll(self, gen=None):
+        if gen is not None and gen != getattr(self, "_poll_gen", 0):
+            return                      # een nieuwere lus heeft het overgenomen
+        self._poll_t = time.time()
         try:
             for _ in range(300):  # niet alles in één keer, zodat het venster soepel blijft bij veel console-uitvoer
-                self._handle(self.q.get_nowait())
-        except queue.Empty:
+                try:
+                    m = self.q.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self._handle(m)
+                except Exception:       # één kapot bericht mag de hele lus niet stilleggen (dan bleef alles op 'Stoppen…' staan)
+                    import traceback
+                    self._poll_err = getattr(self, "_poll_err", 0) + 1
+                    if self._poll_err <= 5:
+                        try:
+                            self._console_add("⚠ Interne fout bij het verwerken van een bericht: " + traceback.format_exc().strip().splitlines()[-1], own=True)
+                        except Exception:
+                            pass
+        except Exception:
             pass
         try:
             self.heads.pump()
         except Exception:
             pass
-        self.after(80, self._poll)
+        self.after(80, lambda g=getattr(self, "_poll_gen", 0): self._poll(g))
 
     def _handle(self, m):
         k = m[0]
@@ -10299,6 +10328,23 @@ class App(tk.Tk):
 
     def _remote_tick(self):
         self._rt = getattr(self, "_rt", 0) + 1
+        try:
+            p = self.srv_proc
+            if p is not None and p.poll() is not None:
+                # De server is al uit, maar het programma weet het nog niet: na een paar seconden zelf bijwerken.
+                t0 = getattr(self, "_dead_since", None)
+                if t0 is None or getattr(self, "_dead_proc", None) is not p:
+                    self._dead_since, self._dead_proc = time.time(), p
+                elif time.time() - t0 > 4 and self._rt % 10 == 0:
+                    self.q.put(("srv_exit", p, p.poll()))
+            else:
+                self._dead_since = None
+            if time.time() - getattr(self, "_poll_t", time.time()) > 6:      # de berichtenlus staat stil: herstarten
+                self._poll_gen = getattr(self, "_poll_gen", 0) + 1
+                self._poll_t = time.time()
+                self.after(0, lambda g=self._poll_gen: self._poll(g))
+        except Exception:
+            pass
         for r in (self.remote, self.desk):
             if r.running:
                 r.pump()
