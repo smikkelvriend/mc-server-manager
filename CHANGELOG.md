@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.72
+- **Voortgangsbalk bij stoppen**, net als bij opstarten: een schatting op basis van je laatste stoptijden. Wacht de server nog op het einde van het opstarten, dan staat er dat.
+- De **console** toont niet meer de eigen regels van het programma bij starten en stoppen (het lange startcommando, `> stop`, `Server gestopt`). Crashes en geforceerd stoppen blijven zichtbaar.
+
 ## 2.71
 - **Kaart:** bij een gekozen gebied staat nu een **Annuleren**-knop naast *Genereren* (verving *Wissen*), op de pc en op de telefoon.
 

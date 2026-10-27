@@ -371,7 +371,10 @@ window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keep
 /* ---------- Server-acties ---------- */
 async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
 /* ---------- Tekenen met live gegevens ---------- */
-function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot;e.classList.toggle('hide',!b);if(!b)return;const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
+function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot,x=j.state=='stopping'&&j.stopb;e.classList.toggle('hide',!(b||x));if(!(b||x))return;
+ if(x){const pct=x.wait?0:Math.min(95,Math.round(x.elapsed/x.est*100)),left=Math.max(0,Math.round(x.est-x.elapsed));$('bootBar').style.width=pct+'%';$('bootPct').textContent=x.wait?'':pct+'%';
+  $('bootTx').textContent=x.wait?'Server stopt zodra het opstarten klaar is…':(x.elapsed>x.est?'Server stoppen… de wereld wordt opgeslagen':'Server stoppen… nog ongeveer '+left+' s');return}
+ const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
  $('bootBar').style.width=pct+'%';$('bootPct').textContent=pct+'%';$('bootTx').textContent=b.elapsed>b.est?'Server opstarten… duurt iets langer dan normaal':'Server opstarten… nog ongeveer '+left+' s'}
 function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.sleep.sleeping;
  const m=sl?['Slaapstand','b']:{online:['Online','' ],starting:['Opstarten…','y'],stopping:['Stoppen…','y'],stopped:['Gestopt','r']}[st]||[st,'y'];

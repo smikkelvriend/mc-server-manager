@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.71"
+APP_VERSION = "2.72"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.72 - Voortgangsbalk bij stoppen van de server (net als bij opstarten, geschat op je eerdere stoptijden). De console toont niet meer je eigen start- en stopregels (lange startcommando, '> stop', 'Server gestopt'); crashes en geforceerd stoppen blijven wel zichtbaar.
 2.71 - Kaart: bij een gekozen gebied staat nu een Annuleren-knop naast Genereren (die verving Wissen).
 2.70 - Backuplijst netter: elke backup toont nu één duidelijke tijd (Vandaag 11:47, Gisteren 21:59, 22 okt 14:06) met grootte en hoe lang geleden, in plaats van drie keer dezelfde datum en tijd. De bestandsnaam staat nog in de tooltip. Fix: de kaart op de telefoon (en in het nieuwe scherm) kon blijvend zwarte stukken houden als een kaarttegel één keer niet geladen werd. Mislukte tegels worden nu opnieuw geprobeerd, en het programma probeert een tegel zelf nog een keer bij squaremap op te halen en bewaart hem even.
 2.69 - Voortgangsbalk bij het opstarten van de server, met de geschatte resterende tijd (op de pc en op de telefoon). De schatting komt van de laatste opstarttijden van jouw server; de eerste keer rekent hij met 45 seconden. Nieuwe optie bij Updates: 'Server automatisch weer starten na een update'. Geldt voor Paper-updates, plugin-updates en programma-updates: draaide de server toen de update begon, dan start hij daarna vanzelf weer.
@@ -241,7 +242,7 @@ DEFAULTS = {
     "squaremap_url": "http://localhost:8080",
     "notify_crash": True, "notify_start": False, "notify_join": False, "notify_leave": False, "notify_chunky": True,
     "notify_update": True, "notify_ignore": "",
-    "boot_times": [], "restart_after_update": True, "start_after_restart": False, "push_on": False, "push_server": "https://ntfy.sh", "push_topic": "", "push_crash": True, "push_start": False,
+    "boot_times": [], "stop_times": [], "restart_after_update": True, "start_after_restart": False, "push_on": False, "push_server": "https://ntfy.sh", "push_topic": "", "push_crash": True, "push_start": False,
     "push_join": True, "push_leave": False, "push_chunky": True, "push_update": False,
     "chunky_autopause": True, "chunky_autoresume": True,
     "cmd_history": [], "learned_cmds": [], "pil_asked": False, "mcmtab_done": False, "sleep_enabled": False, "sleep_minutes": 10,
@@ -6014,7 +6015,10 @@ window.addEventListener('pagehide',()=>{try{fetch('/api/bye',{method:'POST',keep
 /* ---------- Server-acties ---------- */
 async function act(a){const t={start:'Server starten?',restart:'Server herstarten?',stop:'Server stoppen?',kill:'Geforceerd stoppen? Dit kan de wereld beschadigen als er net opgeslagen wordt.'}[a];if(a!='start'&&!await ask(t))return;go('/api/action',{name:a});setTimeout(poll,500)}
 /* ---------- Tekenen met live gegevens ---------- */
-function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot;e.classList.toggle('hide',!b);if(!b)return;const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
+function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot,x=j.state=='stopping'&&j.stopb;e.classList.toggle('hide',!(b||x));if(!(b||x))return;
+ if(x){const pct=x.wait?0:Math.min(95,Math.round(x.elapsed/x.est*100)),left=Math.max(0,Math.round(x.est-x.elapsed));$('bootBar').style.width=pct+'%';$('bootPct').textContent=x.wait?'':pct+'%';
+  $('bootTx').textContent=x.wait?'Server stopt zodra het opstarten klaar is…':(x.elapsed>x.est?'Server stoppen… de wereld wordt opgeslagen':'Server stoppen… nog ongeveer '+left+' s');return}
+ const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
  $('bootBar').style.width=pct+'%';$('bootPct').textContent=pct+'%';$('bootTx').textContent=b.elapsed>b.est?'Server opstarten… duurt iets langer dan normaal':'Server opstarten… nog ongeveer '+left+' s'}
 function draw(){const j=S;if(!j.stats)return;const st=j.state,sl=j.sleep&&j.sleep.sleeping;
  const m=sl?['Slaapstand','b']:{online:['Online','' ],starting:['Opstarten…','y'],stopping:['Stoppen…','y'],stopped:['Gestopt','r']}[st]||[st,'y'];
@@ -6357,7 +6361,10 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 function pushNew(){const a=new Uint8Array(9);crypto.getRandomValues(a);const t='mcsm-'+[...a].map(x=>'abcdefghijkmnpqrstuvwxyz23456789'[x%32]).join('');go('/api/settings',{key:'push_topic',value:t},'Nieuw kanaal gemaakt').then(()=>setLoad())}
 async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
-function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot;e.classList.toggle('hide',!b);if(!b)return;const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
+function bootUI(j){const e=$('boot');if(!e)return;const b=j.state=='starting'&&j.boot,x=j.state=='stopping'&&j.stopb;e.classList.toggle('hide',!(b||x));if(!(b||x))return;
+ if(x){const pct=x.wait?0:Math.min(95,Math.round(x.elapsed/x.est*100)),left=Math.max(0,Math.round(x.est-x.elapsed));$('bootBar').style.width=pct+'%';$('bootPct').textContent=x.wait?'':pct+'%';
+  $('bootTx').textContent=x.wait?'Server stopt zodra het opstarten klaar is…':(x.elapsed>x.est?'Server stoppen… de wereld wordt opgeslagen':'Server stoppen… nog ongeveer '+left+' s');return}
+ const pct=Math.min(95,Math.round(b.elapsed/b.est*100)),left=Math.max(0,Math.round(b.est-b.elapsed));
  $('bootBar').style.width=pct+'%';$('bootPct').textContent=pct+'%';$('bootTx').textContent=b.elapsed>b.est?'Server opstarten… duurt iets langer dan normaal':'Server opstarten… nog ongeveer '+left+' s'}
 /* ---------- poll ---------- */
 let btT=0;
@@ -6557,6 +6564,8 @@ class RemoteServer:
             snap = {"state": a.srv_state, "stats": {k: a.sv[k].get() for k in ("uptime", "cpu", "ram", "tps", "players", "temp")},
                     "players": pl, "graphs": {"cpu": series(a.spark_cpu), "ram": series(a.spark_ram), "tps": series(a.spark_tps)},
                     "boot": ({"elapsed": round(time.time() - a.srv_t0, 1), "est": a.boot_estimate()} if a.srv_state == "starting" else None),
+                    "stopb": ({"elapsed": round(time.time() - a._stop_sent_t, 1) if getattr(a, "_stop_sent_t", None) else 0,
+                               "est": a.stop_estimate(), "wait": bool(getattr(a, "_pending_stop", False)) or not getattr(a, "_stop_sent_t", None)} if a.srv_state == "stopping" else None),
                     "busy": bool(a.busy), "status": a.status_var.get(), "clean": bool(a.clean_var.get()),
                     "progress": [float(pb.cget("value") or 0), float(pb.cget("maximum") or 1), str(pb.cget("mode"))],
                     "selfupd": (a._upd or {}).get("version") if getattr(a, "_upd", None) else None,
@@ -9578,6 +9587,11 @@ class App(tk.Tk):
         bt = [float(x) for x in (self.cfg.get("boot_times") or []) if isinstance(x, (int, float)) and 3 < x < 900]
         return max(10.0, round(sum(bt) / len(bt), 1)) if bt else 45.0
 
+    def stop_estimate(self):
+        """Geschatte stoptijd in seconden (gemiddelde van de laatste keren, anders 8 s)."""
+        st = [float(x) for x in (self.cfg.get("stop_times") or []) if isinstance(x, (int, float)) and 0.5 < x < 300]
+        return max(3.0, round(sum(st) / len(st), 1)) if st else 8.0
+
     def srv_running(self):
         return self.srv_proc is not None and self.srv_proc.poll() is None
 
@@ -9693,7 +9707,6 @@ class App(tk.Tk):
         self._refresh_players()
         self.sv["tps"].set("-")
         self._set_state("starting")
-        self._console_add("▶ Starten: " + subprocess.list2cmdline(cmd), own=True)
         threading.Thread(target=self._srv_reader, args=(proc,), daemon=True).start()
         self.nb.select(self.tab_srv)
         self.log("Server gestart (via dit programma).", "ok")
@@ -10001,13 +10014,15 @@ class App(tk.Tk):
             self._pending_stop = True
             self._set_state("stopping")
             self.status("De server is nog aan het opstarten: hij stopt zodra hij klaar is…")
-            self._console_add("> stop (wacht tot het opstarten klaar is)", own=True)
             return
         self._set_state("stopping")
-        self.srv_send("stop")
+        self._stop_sent_t = time.time()
+        self.srv_send("stop", echo=False)
 
     def _send_stop_now(self):
         if self.srv_running() and self.srv_state == "stopping":
+            if not getattr(self, "_stop_sent_t", None):
+                self._stop_sent_t = time.time()
             self.srv_send("stop", echo=False)
 
     def _kill_tree(self):
@@ -10087,7 +10102,17 @@ class App(tk.Tk):
         self.tab_beheer.close_all()
         if code not in (0, None) and not self._user_stop:
             self.tab_beheer.notify("notify_crash", "Server gestopt!", f"De server is onverwacht gestopt (exitcode {code}).")
-        self._console_add(f"■ Server gestopt (exitcode {code}).", own=True)
+        if code not in (0, None) and not self._user_stop:
+            self._console_add(f"■ Server gestopt (exitcode {code}).", own=True)
+        try:
+            if self._user_stop and getattr(self, "_stop_sent_t", None):
+                d = round(time.time() - self._stop_sent_t, 1)
+                if 0.5 < d < 300:
+                    self.cfg["stop_times"] = (list(self.cfg.get("stop_times") or []) + [d])[-5:]
+                    save_config(self.cfg)
+        except Exception:
+            pass
+        self._stop_sent_t = None
         self.log(f"Server gestopt (exitcode {code}).", "ok" if code in (0, None) else "warn")
         if self._restart_pending:
             self._restart_pending = False
@@ -12149,7 +12174,7 @@ class SettingsDialog(tk.Toplevel):
                      "reach_bedrock_port", "reach_auto", "plm_load", "plm_ack", "plugins_only_compat", "squaremap_url",
                      "notify_crash", "notify_start", "notify_join", "notify_leave", "notify_chunky", "notify_update", "notify_ignore",
                      "chunky_autopause", "chunky_autoresume", "remote_enabled", "remote_port", "remote_pass", "remote_lan_only",
-                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats") or k.startswith("push_") or k in ("restart_after_update", "start_after_restart", "boot_times"):
+                     "cmd_history", "learned_cmds", "pil_asked", "mcmtab_done", "sleep_days", "sleep_stats") or k.startswith("push_") or k in ("restart_after_update", "start_after_restart", "boot_times", "stop_times"):
                 continue
             if isinstance(default, bool):
                 self.v[k] = tk.BooleanVar(value=bool(c.get(k, default)))
