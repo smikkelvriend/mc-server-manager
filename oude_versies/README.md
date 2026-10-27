@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.78
+## Versies 2.2 t/m 2.79
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -50,6 +50,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.76`](mc_server_manager_2.76.py) | Tab-aanvulling wacht langer op de server |
 | [`2.77`](mc_server_manager_2.77.py) | Opstartcontrole van het logboek |
 | [`2.78`](mc_server_manager_2.78.py) | Opstartcontrole ziet mislukte updatecontroles |
+| [`2.79`](mc_server_manager_2.79.py) | Kaarttegels echt opnieuw proberen |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

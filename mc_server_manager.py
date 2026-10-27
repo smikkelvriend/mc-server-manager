@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.79"
+APP_VERSION = "2.80"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.80 - Kaart: onder de kaart staat een link Tegelinfo tonen/verbergen. Die tekent per tegel zijn laag en positie en het zoomniveau, om te zien waar een verkeerd stuk vandaan komt.
 2.79 - Kaart (telefoon en nieuw scherm): tegels die niet laden worden opnieuw geprobeerd (eerst elke 4 s, later elke 20 s; dit herstel zat eerder niet in het bestand) en na het bijwerken van de kaart (genereren klaar) worden alle tegels opnieuw geladen, zodat je geen oude of zwarte stukken overhoudt.
 2.78 - Opstartcontrole meldt nu ook plugins die geen updates kunnen opzoeken (bijv. GitHub 403) en kijkt 40 seconden na het opstarten nog een keer voor late meldingen.
 2.77 - Opstartcontrole: na het opstarten leest het programma het logboek door en meldt als er iets mis is (plugin die niet laadt of start, poort in gebruik, EULA, te weinig geheugen, andere foutmeldingen). Je ziet het onder Aandacht, in een melding en optioneel op je telefoon. Staat onder Meldingen aan/uit.
@@ -5864,7 +5865,7 @@ async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een 
 /* ---------- Kaart ---------- */
 V.map=async()=>{$('view').innerHTML=`<div class="card"><div class="row"><select id="mw" style="flex:2" onchange="mapWorld(this.value)"></select><button class="sm" id="msel" onclick="mapSel()">▭ Gebied kiezen</button></div>
 <div id="mapbox" style="margin-top:8px"><canvas id="mc"></canvas><div class="mapbtn" style="top:8px"><button onclick="mapZoom(1)">＋</button><button onclick="mapZoom(-1)">－</button><button onclick="mapHome()">⌂</button></div></div>
-<div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div></div><div class="card hide" id="mgen"></div>`;
+<div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div><div class="mut" style="font-size:11px;margin-top:4px"><a style="text-decoration:underline" onclick="cur.m.dbg=!cur.m.dbg;cur.m.dirty=true">Tegelinfo tonen/verbergen</a></div></div><div class="card hide" id="mgen"></div>`;
  const m=cur.m={worlds:[],players:[],w:null,zl:2,zt:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
  mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
 async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
@@ -5906,6 +5907,10 @@ function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=c
  const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=P<511;
  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
   const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.floor(W/2+(tx*span-m.cx)*s),Math.floor(H/2+(ty*span-m.cz)*s),Math.ceil(P)+1,Math.ceil(P)+1)}
+ if(m.dbg){x.save();x.font='bold 11px monospace';x.lineWidth=1;x.strokeStyle='#ff00ffaa';x.textBaseline='top';
+  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){const a=Math.floor(W/2+(tx*span-m.cx)*s),b=Math.floor(H/2+(ty*span-m.cz)*s),t=m.imgs.get(`${w.name}/${nat}/${tx}_${ty}`);
+   x.strokeRect(a+.5,b+.5,Math.ceil(P),Math.ceil(P));const tx2=`${nat}/${tx}_${ty}${t?(t.ok?'':(t.bad?' ✗'+t.n:' …')):''}`;x.fillStyle='#000a';x.fillRect(a+2,b+2,x.measureText(tx2).width+6,15);x.fillStyle='#fff';x.fillText(tx2,a+5,b+4)}
+  const inf=`zl ${m.zl.toFixed(2)} laag ${nat}/${w.max} tegel ${P.toFixed(0)}px dpr ${dpr.toFixed(1)}`;x.fillStyle='#000c';x.fillRect(2,H-18,x.measureText(inf).width+8,16);x.fillStyle='#ffe066';x.fillText(inf,6,H-16);x.restore()}
  const c=(a,b)=>[W/2+(a-m.cx)*s,H/2+(b-m.cz)*s];
  const g=m.gen||{};const area=m.tmp?[Math.min(m.tmp[0],m.tmp[2]),Math.min(m.tmp[1],m.tmp[3]),Math.max(m.tmp[0],m.tmp[2]),Math.max(m.tmp[1],m.tmp[3])]:(g.area&&g.world==w.name?g.area:null);
  if(area){const [ax,ay]=c(area[0],area[1]),[bx,by]=c(area[2],area[3]);const col={running:'#22c55e',paused:'#f59e0b',rendering:'#38bdf8',done:'#22c55e'}[g.state]||'#c084fc';
@@ -6264,7 +6269,7 @@ async function selfUpd(){if(!await ask('Het programma op de pc updaten? Als een 
 /* ---------- Kaart ---------- */
 V.map=async()=>{$('main').innerHTML=`<div class="card"><div class="row"><select id="mw" style="flex:2" onchange="mapWorld(this.value)"></select><button class="sm" id="msel" onclick="mapSel()">▭ Gebied kiezen</button></div>
 <div id="mapbox" style="margin-top:8px"><canvas id="mc"></canvas><div class="mapbtn" style="top:8px"><button onclick="mapZoom(1)">＋</button><button onclick="mapZoom(-1)">－</button><button onclick="mapHome()">⌂</button></div></div>
-<div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div></div><div class="card hide" id="mgen"></div>`;
+<div class="mut" id="mmsg" style="font-size:12px;margin-top:6px"></div><div class="mut" style="font-size:11px;margin-top:4px"><a style="text-decoration:underline" onclick="cur.m.dbg=!cur.m.dbg;cur.m.dirty=true">Tegelinfo tonen/verbergen</a></div></div><div class="card hide" id="mgen"></div>`;
  const m=cur.m={worlds:[],players:[],w:null,zl:2,zt:2,cx:0,cz:0,imgs:new Map(),sel:null,selmode:false,gen:{},dirty:true};
  mapInit(m);cur.stop=()=>{m.dead=1;clearInterval(m.t)};await mapLoad(true);m.t=setInterval(()=>mapLoad(false),3000);mapLoop(m)};
 async function mapLoad(first){const m=cur.m;if(!m||m.dead)return;let j;try{j=await api('/map/info')}catch(e){return}if(!j||m.dead)return;
@@ -6306,6 +6311,10 @@ function mapDraw(m,cv){const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=c
  const x0=m.cx-W/2/s,x1=m.cx+W/2/s,z0=m.cz-H/2/s,z1=m.cz+H/2/s;x.imageSmoothingEnabled=P<511;
  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){
   const t=tileImg(m,`${w.name}/${nat}/${tx}_${ty}`);if(t.ok)x.drawImage(t.img,Math.floor(W/2+(tx*span-m.cx)*s),Math.floor(H/2+(ty*span-m.cz)*s),Math.ceil(P)+1,Math.ceil(P)+1)}
+ if(m.dbg){x.save();x.font='bold 11px monospace';x.lineWidth=1;x.strokeStyle='#ff00ffaa';x.textBaseline='top';
+  for(let ty=Math.floor(z0/span);ty<=Math.floor(z1/span);ty++)for(let tx=Math.floor(x0/span);tx<=Math.floor(x1/span);tx++){const a=Math.floor(W/2+(tx*span-m.cx)*s),b=Math.floor(H/2+(ty*span-m.cz)*s),t=m.imgs.get(`${w.name}/${nat}/${tx}_${ty}`);
+   x.strokeRect(a+.5,b+.5,Math.ceil(P),Math.ceil(P));const tx2=`${nat}/${tx}_${ty}${t?(t.ok?'':(t.bad?' ✗'+t.n:' …')):''}`;x.fillStyle='#000a';x.fillRect(a+2,b+2,x.measureText(tx2).width+6,15);x.fillStyle='#fff';x.fillText(tx2,a+5,b+4)}
+  const inf=`zl ${m.zl.toFixed(2)} laag ${nat}/${w.max} tegel ${P.toFixed(0)}px dpr ${dpr.toFixed(1)}`;x.fillStyle='#000c';x.fillRect(2,H-18,x.measureText(inf).width+8,16);x.fillStyle='#ffe066';x.fillText(inf,6,H-16);x.restore()}
  const c=(a,b)=>[W/2+(a-m.cx)*s,H/2+(b-m.cz)*s];
  const g=m.gen||{};const area=m.tmp?[Math.min(m.tmp[0],m.tmp[2]),Math.min(m.tmp[1],m.tmp[3]),Math.max(m.tmp[0],m.tmp[2]),Math.max(m.tmp[1],m.tmp[3])]:(g.area&&g.world==w.name?g.area:null);
  if(area){const [ax,ay]=c(area[0],area[1]),[bx,by]=c(area[2],area[3]);const col={running:'#22c55e',paused:'#f59e0b',rendering:'#38bdf8',done:'#22c55e'}[g.state]||'#c084fc';

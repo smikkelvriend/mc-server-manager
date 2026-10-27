@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.80
+- **Kaart:** onder de kaart staat een link *Tegelinfo tonen/verbergen*. Die tekent per tegel zijn laag en positie (bijvoorbeeld `3/-2_1`) en onderaan het zoomniveau, om te kunnen zien waar een verkeerd stuk op de kaart vandaan komt.
+
 ## 2.79
 - **Kaart (telefoon en nieuw scherm):** tegels die niet laden (zwarte stukken) worden nu echt opnieuw geprobeerd, eerst elke 4 seconden en later elke 20 seconden. Dit herstel uit 2.70 bleek niet in het bestand te zitten. Na het bijwerken van de kaart (genereren klaar) worden alle tegels opnieuw geladen, zodat je geen oude of ontbrekende stukken overhoudt.
 
