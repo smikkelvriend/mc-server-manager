@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.60
+- Fix: de knoppen **PLM laden** en **PLM uitladen** deden niets in de nieuwe interface. Het programma gebruikte een verouderde pluginlijst van het verborgen klassieke scherm en deed daardoor stilletjes niets. Nu wordt de lijst vers van schijf gelezen, en staat er altijd een duidelijke melding als er niets kon gebeuren (geen plugin aangevinkt, server draait niet, PlugManX ontbreekt).
+- Na het laden of uitladen vraagt het programma de pluginlijst van de server op (`/plugins`) en laat zien of het echt gelukt is: een balk boven de lijst, een melding, en het label **Uitgeladen** bij plugins die in de map aan staan maar door de server zijn uitgeladen.
+- Deze versie vereist een herstart.
+
 ## 2.59
 - Fix: de grafiek in de nieuwe interface tekende een schuine lijn dwars door een onderbreking (bijvoorbeeld tijdens het herstarten van het programma of de server) en toonde links te weinig geschiedenis. Een onderbreking blijft nu een onderbreking in de lijn, en het programma stuurt de laatste ~5 minuten mee in plaats van de laatste 150 metingen, zodat de grafiek tot de linkerrand gevuld is.
 - Deze versie vereist een herstart.

@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.59"
+APP_VERSION = "2.60"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.60 - Fix: de knoppen PLM laden/uitladen deden niets in de nieuwe interface (het programma las een verouderde pluginlijst van het verborgen klassieke scherm). Nu staat er altijd een duidelijke melding als er niets te doen is, en na het laden/uitladen vraagt het programma de pluginlijst van de server op en toont op het scherm of de plugin echt is geladen of uitgeladen (balk boven de lijst, melding en label Uitgeladen).
 2.59 - Fix: de grafiek in de nieuwe interface tekende een schuine lijn dwars door een onderbreking (bijvoorbeeld de herstart van het programma) en toonde links te weinig geschiedenis. Een onderbreking is nu een echte onderbreking en de grafiek heeft de laatste ~5 minuten tot de linkerrand.
 2.58 - Tabblad Updates duidelijker: je ziet dat er gezocht wordt (draaiende indicator en een balk met percentage tijdens het downloaden) en het installeren heeft een voortgangsbalk met stappen (reservekopie, server veilig stoppen, herstarten). Staat het scherm al op dat tabblad, dan komt er geen apart venster meer bij. Plugin installeren: kies nu 'Later laden', 'Hot-loaden (eigen risico, via PlugManX)' of 'Server herstarten'.
 2.57 - Na een update laadt het open venster zichzelf nu opnieuw (het bleef de oude schermcode draaien, waardoor nieuwe functies niet werkten). Een venster met oude code wordt geweigerd; het nieuwe programma opent dan zelf een vers venster. Het zwarte consolevenster op de achtergrond is weg: start je het programma met python.exe, dan herstart het zichzelf direct zonder venster (pythonw.exe).
@@ -5740,7 +5741,7 @@ async function plAct(en,force,stop_ok){const files=[...cur.sel];if(!files.length
  if(j.confirm){if(await ask(j.confirm))return plAct(en,true,true);return}setTimeout(V.plug,1500)}
 async function plRm(){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');if(!await ask(files.length+' plugin(s) verwijderen?\nZe gaan naar een aparte map en kunnen worden teruggezet. Een draaiende server wordt eerst veilig gestopt en daarna weer gestart.'))return;
  await go('/api/plugins/remove',{files});setTimeout(V.plug,2000)}
-async function plLoad(u){await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u},'Verstuurd')}
+async function plLoad(u){const j=await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u});if(j){setTimeout(V.plug,3000);setTimeout(V.plug,7500);setTimeout(V.plug,10500)}}
 async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres').innerHTML='<span class="mut">Zoeken…</span>';
  const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
  $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
@@ -5859,9 +5860,10 @@ async function behLogs(){if(!await ask('Logs ouder dan 7 dagen en crash-reports 
 /* plugins: duidelijk aan of uit (later in het bestand, dus deze versie wint) */
 function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name,'nl',{sensitivity:'base'}));const on=items.filter(i=>i.enabled).length;
  const row=i=>`<label class="li" style="${i.enabled?'':'opacity:.55'}"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b>${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div>
-  <span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span></label>`;
- $('pls').innerHTML=items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
-  <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.'}
+  ${i.enabled&&i.loaded===false?'<span class="pill y" style="background:#3a2a0c;color:var(--y);padding:3px 10px;font-size:12px" title="Staat in de map aan, maar de server heeft hem uitgeladen tot de volgende herstart"><i></i>Uitgeladen</span>':`<span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span>`}</label>`;
+ const pr=j.plmres,banner=pr?`<div class="ubox ${pr.state=='pending'?'chk':pr.ok===false?'err':'ins'}" style="padding:10px 14px;margin:0 0 10px"><div class="uh" style="font-size:14px">${pr.state=='pending'?'<span class="spin"></span>':''}${esc(pr.msg)}</div></div>`:'';
+ $('pls').innerHTML=banner+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
+  <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.')}
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
 /* ---------- Programma-updates ---------- */
@@ -6067,7 +6069,7 @@ async function plAct(en,force,stop_ok){const files=[...cur.sel];if(!files.length
  if(j.confirm){if(await ask(j.confirm))return plAct(en,true,true);return}setTimeout(V.plug,1500)}
 async function plRm(){const files=[...cur.sel];if(!files.length)return toast('Vink eerst plugins aan');if(!await ask(files.length+' plugin(s) verwijderen?\nZe gaan naar een aparte map en kunnen worden teruggezet. Een draaiende server wordt eerst veilig gestopt en daarna weer gestart.'))return;
  await go('/api/plugins/remove',{files});setTimeout(V.plug,2000)}
-async function plLoad(u){await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u},'Verstuurd')}
+async function plLoad(u){const j=await go('/api/plugins/plm',{files:[...cur.sel],unload:!!u});if(j){setTimeout(V.plug,3000);setTimeout(V.plug,7500);setTimeout(V.plug,10500)}}
 async function psearch(){const t=$('pq').value.trim();if(!t)return false;$('pres').innerHTML='<span class="mut">Zoeken…</span>';
  const j=await go('/api/plugins/search',{q:t,compat:$('pcompat').checked});if(!j){$('pres').innerHTML='';return false}
  $('pres').innerHTML=(j.info?`<div class="mut" style="font-size:12px;margin-bottom:6px">${esc(j.info)}</div>`:'')+(j.results.length?j.results.map(r=>`<div class="li"><div><b>${esc(r.name)}${r.installed?'<span class="tag">geïnstalleerd</span>':''}${r.compat===false?'<span class="tag yel">niet voor jouw versie</span>':''}</b><small style="white-space:normal">${esc(r.desc)}</small><small>${esc((r.sources||[]).join(', '))}${r.downloads?' • '+r.downloads.toLocaleString('nl')+' downloads':''}</small></div><button class="sm pri" onclick="pInst(${r.idx})">Installeer</button></div>`).join(''):'Niets gevonden.');return false}
@@ -6482,12 +6484,21 @@ class RemoteServer:
     def _pitem(self, i):
         return {"file": i["file"], "name": i["name"], "version": i.get("version") or "", "enabled": i["enabled"],
                 "desc": (i.get("desc") or "")[:200], "missing": i.get("missing", []), "needed_by": i.get("needed_by", []),
-                "size": i.get("size", 0)}
+                "size": i.get("size", 0), "loaded": self._loaded_state(i)}
+
+    def _loaded_state(self, i):
+        """True/False = de server meldde bij de laatste controle dat de plugin wel/niet geladen is; None = onbekend."""
+        ld = getattr(self.app, "_plm_loaded", None)
+        if ld is None or not i.get("enabled"):
+            return None
+        return i["name"].lower() in ld
 
     def api_plugins(self, q, body):
         folder = self.folder()
         items = scan_plugins(os.path.join(folder, "plugins")) if folder else []
+        res = getattr(self.app, "_plm_res", None)
         return 200, {"items": [self._pitem(i) for i in items], "folder": bool(folder),
+                     "plmres": dict(res, age=time.time() - res["t"]) if res and time.time() - res["t"] < 180 else None,
                      "plm": bool(self.call_main(lambda: plugman_name(items)))}
 
     def _items_for(self, files):
@@ -6533,18 +6544,35 @@ class RemoteServer:
         return 200, {"ok": True, "msg": f"{len(sel)} plugin(s) verwijderd (naar de map verwijderde_plugins)"}
 
     def api_plugins_plm(self, q, body):
+        a = self.app
+        t = a.tab_plug
         files = [f for f in (body.get("files") or []) if isinstance(f, str) and f.lower().endswith(".jar")]
-        if body.get("unload"):
-            def un():
-                t = self.app.tab_plug
-                names = [t.items[f]["name"] for f in files if f in t.items and t.items[f]["enabled"]
-                         and not norm_name(t.items[f]["name"]).startswith("plugman")]
-                if names:
-                    t._plm_unload(names)
-            self.call_main(un, auto=True)
-        else:
-            self.call_main(lambda: self.app.tab_plug._plm_load([f[:-4] for f in files]), auto=True)
-        return 200, {"ok": True}
+        unload = bool(body.get("unload"))
+        if not files:
+            return 400, {"error": "Vink eerst een of meer plugins aan."}
+
+        def work():
+            if not a.srv_running():
+                return "De server draait niet, dus er is niets om te laden of uit te laden. Bij het opstarten worden alle plugins vanzelf geladen.", None
+            # altijd vers van schijf lezen: de lijst van het (verborgen) klassieke tabblad is niet bijgewerkt als je alleen het nieuwe scherm gebruikt
+            allp = {i["file"]: i for i in scan_plugins(t.pdir())}
+            pm = plugman_name(allp.values())
+            if not pm:
+                return "PlugManX staat niet aan op je server, dus /plm bestaat niet. Installeer PlugManX en herstart één keer.", None
+            sel = [allp[f] for f in files if f in allp and allp[f]["enabled"] and not norm_name(allp[f]["name"]).startswith("plugman")]
+            if not sel:
+                return "Niets om te doen: de aangevinkte plugins staan uit, zijn niet gevonden, of het is PlugManX zelf.", None
+            for i in sel:
+                if not a.srv_send(("plm unload " + i["name"]) if unload else ("plm load " + i["file"][:-4])):
+                    return "De opdracht kon niet naar de server gestuurd worden.", None
+            names = [i["name"] for i in sel]
+            a.log(("Direct uitladen: " if unload else "Direct laden: ") + ", ".join(names) + ". Resultaat wordt gecontroleerd.", "warn")
+            a.plm_verify(names, unload)
+            return None, ("Uitladen" if unload else "Laden") + " gestuurd: " + ", ".join(names)
+        err, msg = self.call_main(work, auto=True)
+        if err:
+            return 400, {"error": err}
+        return 200, {"ok": True, "msg": msg}
 
     def api_plugins_search(self, q, body):
         text = str(body.get("q", "")).strip()[:200]
@@ -8654,6 +8682,7 @@ class App(tk.Tk):
         self._temp_busy = self._temp_warned = self._upd_busy = False
         self._upd_st = {"phase": "idle", "pct": 0, "msg": "", "err": "", "rev": 0}
         self._upd_t0 = 0
+        self._plm_cap = self._plm_res = self._plm_loaded = None
         self._temp_fail, self._upd, self._upd_prompted = 0, None, None
         self.sv_lbl = {}
 
@@ -9688,6 +9717,7 @@ class App(tk.Tk):
 
     def _srv_exited(self, code):
         self.srv_proc = None
+        self._plm_loaded = None
         self._tps_low_since = self._ram_hi_since = None
         self._cleanup_tmp()
         self._set_state("stopped")
@@ -10118,6 +10148,60 @@ class App(tk.Tk):
         return "break"
 
     # ---------- regels van de server verwerken ----------
+    def plm_verify(self, names, unload):
+        """Na /plm load of /plm unload: de pluginlijst van de server opvragen en laten zien of het echt gelukt is."""
+        self._plm_cap = cap = {"on": False, "until": 0, "lines": [], "names": list(names), "unload": bool(unload)}
+        self._plm_res = {"t": time.time(), "state": "pending", "unload": bool(unload), "names": list(names), "ok": None,
+                         "msg": ("Uitladen" if unload else "Laden") + " is naar de server gestuurd, even controleren…"}
+
+        def ask():
+            cap["on"], cap["until"] = True, time.time() + 4
+            if not self.srv_send("plugins", echo=False):
+                self._plm_cap = None
+                self._plm_res.update(state="done", ok=None, msg="De server draait niet meer, kon het resultaat niet controleren.")
+                return
+            self.after(4300, lambda: self._plm_finish(cap))
+        self.after(2500, ask)
+
+    def _plm_finish(self, cap):
+        if self._plm_cap is not cap:
+            return
+        self._plm_cap = None
+        loaded, header = set(), False
+        for ln in cap["lines"]:
+            sx = re.sub(r"§.", "", ln).strip()
+            if re.search(r"Plugins \(\d+\)", sx):
+                header = True
+                continue
+            sx = re.sub(r"^[-•*]\s*", "", sx)
+            if ":" in sx and "lugins" in sx:
+                sx = sx.split(":", 1)[1].strip()
+            for part in sx.split(","):
+                part = part.strip()
+                if part and re.fullmatch(r"[A-Za-z0-9_.\-]+", part):
+                    loaded.add(part.lower())
+        res = self._plm_res
+        if not header or not loaded:
+            res.update(state="done", ok=None, msg="Opdracht verstuurd, maar de pluginlijst van de server was niet te lezen. Kijk in de console of het gelukt is.")
+        else:
+            self._plm_loaded = loaded
+            names = cap["names"]
+            good = [n for n in names if ((n.lower() not in loaded) if cap["unload"] else (n.lower() in loaded))]
+            bad = [n for n in names if n not in good]
+            word_ok, word_bad = ("uitgeladen", "nog steeds geladen") if cap["unload"] else ("geladen", "niet geladen")
+            parts = []
+            if good:
+                parts.append("✓ " + ", ".join(good) + " is " + word_ok)
+            if bad:
+                parts.append("✗ " + ", ".join(bad) + " is " + word_bad + " (kijk in de console waarom)")
+            res.update(state="done", ok=not bad, msg="  ".join(parts))
+        self.log("PlugManX: " + res["msg"], "ok" if res["ok"] else "warn")
+        for srv in (self.desk, self.remote):
+            try:
+                srv.note(res["msg"], "info")
+            except Exception:
+                pass
+
     def _srv_line(self, raw):
         raw = ANSI_RE.sub("", raw).rstrip("\r\n")
         if not raw.strip() or raw.strip() == ">":
@@ -10126,6 +10210,9 @@ class App(tk.Tk):
         msg = m.group(4) if m else raw
         now = time.time()
         suppress = False
+        cap = self._plm_cap
+        if cap and cap.get("on") and now < cap["until"]:
+            cap["lines"].append(msg)
         lm = LIST_RE.search(msg)
         if lm:
             self._on_list(lm)
