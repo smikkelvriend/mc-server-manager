@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.73
+- Fix: **rare strepen en stipjes op de kaart** (telefoon en nieuw scherm). Squaremap schrijft tegels tijdens het renderen in delen weg en je kreeg dan een half plaatje te zien. Het programma stuurt nu alleen complete tegels door en probeert het anders opnieuw.
+
 ## 2.72
 - **Voortgangsbalk bij stoppen**, net als bij opstarten: een schatting op basis van je laatste stoptijden. Wacht de server nog op het einde van het opstarten, dan staat er dat.
 - De **console** toont niet meer de eigen regels van het programma bij starten en stoppen (het lange startcommando, `> stop`, `Server gestopt`). Crashes en geforceerd stoppen blijven zichtbaar.

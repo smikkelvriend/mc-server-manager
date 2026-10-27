@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.72"
+APP_VERSION = "2.73"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.73 - Fix: rare strepen en stipjes op de kaart (telefoon en nieuw scherm). Squaremap schrijft tegels tijdens het renderen in delen weg; het programma stuurt nu alleen complete tegels door en probeert het anders opnieuw.
 2.72 - Voortgangsbalk bij stoppen van de server (net als bij opstarten, geschat op je eerdere stoptijden). De console toont niet meer je eigen start- en stopregels (lange startcommando, '> stop', 'Server gestopt'); crashes en geforceerd stoppen blijven wel zichtbaar.
 2.71 - Kaart: bij een gekozen gebied staat nu een Annuleren-knop naast Genereren (die verving Wissen).
 2.70 - Backuplijst netter: elke backup toont nu één duidelijke tijd (Vandaag 11:47, Gisteren 21:59, 22 okt 14:06) met grootte en hoe lang geleden, in plaats van drie keer dezelfde datum en tijd. De bestandsnaam staat nog in de tooltip. Fix: de kaart op de telefoon (en in het nieuwe scherm) kon blijvend zwarte stukken houden als een kaarttegel één keer niet geladen werd. Mislukte tegels worden nu opnieuw geprobeerd, en het programma probeert een tegel zelf nog een keer bij squaremap op te halen en bewaart hem even.
@@ -7518,11 +7519,15 @@ class RemoteServer:
         if hit and now - hit[0] < 15:
             return 200, "image/png", hit[1]
         data = None
-        for attempt in range(2):        # squaremap antwoordt soms te traag als er veel tegels tegelijk worden opgevraagd
+        for attempt in range(3):        # squaremap antwoordt soms te traag als er veel tegels tegelijk worden opgevraagd
             data = self.app.tab_map._get(path)
-            if data is not None:
+            # Squaremap schrijft tegels tijdens het renderen niet in één keer weg: een half bestand geeft rommel (strepen) op de kaart.
+            # Een compleet PNG-bestand eindigt altijd op het IEND-blok, anders even wachten en opnieuw proberen.
+            if data is not None and (not data or (data[:8] == b"\x89PNG\r\n\x1a\n" and data[-8:-4] == b"IEND")):
                 break
-            time.sleep(0.3)
+            if data:
+                data = None
+            time.sleep(0.4)
         if data is None:
             return 503, "text/plain", b""     # tijdelijk niet beschikbaar: het scherm probeert het zo opnieuw
         if not data:
