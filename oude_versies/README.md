@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.73
+## Versies 2.2 t/m 2.74
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -45,6 +45,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.71`](mc_server_manager_2.71.py) | Annuleren-knop bij kaartgebied |
 | [`2.72`](mc_server_manager_2.72.py) | Voortgangsbalk bij stoppen, schonere console |
 | [`2.73`](mc_server_manager_2.73.py) | Alleen complete kaarttegels doorsturen |
+| [`2.74`](mc_server_manager_2.74.py) | Late list/tps-antwoorden verbergen |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

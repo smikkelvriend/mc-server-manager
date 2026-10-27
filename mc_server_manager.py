@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.74"
+APP_VERSION = "2.75"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.75 - Fix: als je zelf 'list' of 'tps' typt, kreeg je ook de controles van het programma erbij in de console. Nu zie je alleen jouw eigen antwoord.
 2.74 - Fix: na het gebruik van squaremap verschenen de lijsten met spelers (\"There are 0 of a max…\") en TPS-regels in de console. Antwoorden die door lag te laat binnenkomen worden nu ook verborgen.
 2.73 - Fix: rare strepen en stipjes op de kaart (telefoon en nieuw scherm). Squaremap schrijft tegels tijdens het renderen in delen weg; het programma stuurt nu alleen complete tegels door en probeert het anders opnieuw.
 2.72 - Voortgangsbalk bij stoppen van de server (net als bij opstarten, geschat op je eerdere stoptijden). De console toont niet meer je eigen start- en stopregels (lange startcommando, '> stop', 'Server gestopt'); crashes en geforceerd stoppen blijven wel zichtbaar.
@@ -9991,6 +9992,9 @@ class App(tk.Tk):
             return False
         if echo:
             self._user_until = time.time() + 2      # je hebt dit zelf gevraagd: het antwoord blijft zichtbaar, ook in de schone console
+            w0 = (cmd.split() or [""])[0].lower()
+            if w0 in ("list", "tps"):               # van deze twee komt het antwoord ook van het programma zelf: het jouwe wordt onthouden
+                self.__dict__.setdefault("_upend", {"list": [], "tps": []})[w0].append(time.time() + 60)
             self._console_add("> " + cmd, own=True)
         return True
 
@@ -10638,17 +10642,23 @@ class App(tk.Tk):
         msg = m.group(4) if m else raw
         now = time.time()
         suppress = False
+        polline = mine = False
         cap = self._plm_cap
         if cap and cap.get("on") and now < cap["until"]:
             cap["lines"].append(msg)
         lm = LIST_RE.search(msg)
         if lm:
             self._on_list(lm)
-            suppress = self._pend_take("list") or now < self._sup["list"]
+            polline = True
+            mine = mine or self._user_take("list")
+            suppress = not mine and (self._pend_take("list") or now < self._sup["list"])
         tm = TPS_RE.search(msg)
         if tm:
             self._on_tps(tm)
-            suppress = suppress or self._pend_take("tps") or now < self._sup["tps"]
+            polline = True
+            m2 = self._user_take("tps")
+            mine = mine or m2
+            suppress = suppress or (not m2 and (self._pend_take("tps") or now < self._sup["tps"]))
         if now < self._sup["any"] and "nknown" in msg and "ommand" in msg:
             suppress = True
         if self.tab_map.gen["state"] in ("running", "paused") and self.tab_map.on_chunky(msg):
@@ -10722,7 +10732,11 @@ class App(tk.Tk):
             if self.reach_auto_var.get():
                 self.after(20000, self._auto_net_check)
             self.after(3000, lambda: self._auto_poll() if self.srv_state == "online" else None)
-        if not suppress or (now < getattr(self, "_user_until", 0) and not mm and now >= self._learn_until):
+        if polline:
+            # antwoorden op list/tps: alleen tonen als jij ze zelf vroeg (de controles van het programma blijven verborgen)
+            if not suppress:
+                self._console_add(raw, keep=mine)
+        elif not suppress or (now < getattr(self, "_user_until", 0) and not mm and now >= self._learn_until):
             self._console_add(raw, keep=now < getattr(self, "_user_until", 0))
 
     def _on_list(self, lm):
@@ -10754,12 +10768,22 @@ class App(tk.Tk):
         self.spark_tps.add(tps)
         self._health_tps_check(tps)
 
+    def _user_take(self, kind):
+        """True als dit het antwoord is op een 'list'/'tps' die jij zelf typte."""
+        up = self.__dict__.setdefault("_upend", {"list": [], "tps": []})
+        now = time.time()
+        up[kind] = [t for t in up[kind] if t > now]
+        if up[kind]:
+            up[kind].pop(0)
+            return True
+        return False
+
     def _pend_take(self, kind):
         """True als dit antwoord op een eigen 'list'/'tps' van het programma lijkt (en telt het dan af)."""
         pend = self.__dict__.setdefault("_pend", {"list": [], "tps": []})
         now = time.time()
         pend[kind] = [t for t in pend[kind] if t > now]
-        if pend[kind] and now >= getattr(self, "_user_until", 0):
+        if pend[kind]:
             pend[kind].pop(0)
             return True
         return False
