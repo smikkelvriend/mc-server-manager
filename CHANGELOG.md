@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.84
+- **Schone console aanpassen in het nieuwe scherm** (Instellingen → Algemeen → *Schone console: wat wordt verborgen*): de lijst *Altijd verborgen* en de lijst met opstartregels die blijven staan, met een knop om de standaardlijst terug te zetten. Een filter is een stuk tekst (hoofdletters maken niet uit) of begint met `re:` voor een regex; een ongeldige regex wordt geweigerd.
+- **Dubbelklik op een regel in de console** om zulke regels te verbergen: je kunt de tekst nog inkorten en hij komt in de lijst.
+
 ## 2.83
 - **Telefoon-app aan- en uitzetten in het nieuwe scherm** (Instellingen → Netwerk → Telefoon-app): aan/uit, poort, wachtwoord (met *Nieuw wachtwoord*), alleen eigen netwerk en het adres om op je telefoon te openen. Dit kon eerst alleen in het oude scherm, dat niet meer te zien is. Het oude scherm is nu nergens meer voor nodig.
 

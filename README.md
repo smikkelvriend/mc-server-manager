@@ -28,7 +28,7 @@ staat in [`nieuwe_interface/`](nieuwe_interface/) en wordt met `inbouwen.py` in 
 | Onderdeel | Wat je er doet |
 |---|---|
 | **Overzicht** | Live belasting (geheugen, processor, TPS en temperatuur; de grafieken blijven bewaard na een herstart), spelers online met snelle acties per speler (bericht sturen, spelmodus, teleporteren, kicken), de console en een *Aandacht*-kaart. Daar staat of er een update of backup is, hoeveel schijfruimte vrij is en of het opstarten goed ging. |
-| **Console** | Schone modus (verbergt ruis), zoeken in het logboek, Tab-aanvulling en commandogeschiedenis. Wat je zelf typt, blijft altijd zichtbaar. |
+| **Console** | Schone modus (verbergt ruis; dubbelklik op een regel om zulke regels te verbergen, of pas de lijst aan onder Instellingen → Algemeen), zoeken in het logboek, Tab-aanvulling en commandogeschiedenis. Wat je zelf typt, blijft altijd zichtbaar. |
 | **Spelers** | Wie online is, speelstatistieken (tijd, doden, kills, afstand), whitelist, bans, IP-bans en operators, ook van Bedrock-spelers. |
 | **Plugins** | Aan- en uitzetten, verwijderen, zoeken op naam *of op beschrijving* en installeren, inclusief afhankelijkheden. Per plugin zie je of hij up-to-date is. |
 | **Updates** | Paper (`server.jar`) en plugins controleren en bijwerken via Modrinth, Hangar, GitHub en GeyserMC, en het programma zelf. Vóór elke update komt er een backup. Na een programma-update kan de server vanzelf weer starten; staat er iemand online, dan wacht het programma tot de server leeg is. |

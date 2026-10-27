@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.83"
+APP_VERSION = "2.84"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.84 - De filters van de schone console zijn nu aan te passen in het nieuwe scherm (Instellingen > Algemeen > Schone console) en je kunt een consoleregel dubbelklikken om zulke regels te verbergen.
 2.83 - De telefoon-app aan- en uitzetten kan nu in het nieuwe scherm (Instellingen > Netwerk > Telefoon-app): aan/uit, poort, wachtwoord, alleen eigen netwerk en het adres voor op je telefoon. Daarvoor was het oude scherm nodig.
 2.82 - Kaart: dunne lijntjes op de naden tussen tegels (bij uitzoomen) zijn weg: de rand van een tegel wordt niet meer met transparantie vermengd.
 2.81 - Fix: de kaart op de telefoon kon een tegel van een andere laag blijven tonen (een stuk op een verkeerde plek of schaal) omdat tegels na het laden nooit ververst werden. Zichtbare tegels worden nu elke 30 seconden opnieuw opgehaald.
@@ -5777,7 +5778,7 @@ async function tabKey(i){const v=i.value;if(!v)return;if(tabSt&&v===tabSt.cur){t
  toast(c.slice(0,40).map(x=>x.split(' ').pop()).join('   ')+(c.length>40?' …':''),4000);
  if(p.length>v.length){i.value=p;tabSt={c,i:-1,cur:p}}else{i.value=c[0];tabSt={c,i:0,cur:c[0]}}}
 function send(id){const i=$(id||'cmd'),v=i.value.trim();if(v){HIST.unshift(v);HIST.splice(50);hi=-1;try{localStorage.setItem('dhist',JSON.stringify(HIST))}catch(e){}go('/api/cmd',{cmd:v}).then(j=>{if(j&&j.ok===false)toast(j.msg)});i.value='';setTimeout(poll,500)}return false}
-function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];c.appendChild(d);
+function addLine(l){const c=$('con');if(!c)return;const f=($('cfilter')||{}).value;if(f&&!l[1].toLowerCase().includes(f.toLowerCase()))return;const bot=c.scrollHeight-c.scrollTop-c.clientHeight<40;const d=document.createElement('div');d.className=l[2];d.textContent=l[1];d.ondblclick=()=>hideLine(l[1]);c.appendChild(d);
  while(c.childElementCount>600)c.removeChild(c.firstChild);if(bot)c.scrollTop=c.scrollHeight}
 V.con=()=>{$('view').innerHTML=`<div class="seg" style="align-self:flex-start"><button class="on" id="mLive" onclick="conMode(0)">Live console</button><button id="mSrch" onclick="conMode(1)">Logboek doorzoeken</button></div>
  <div id="conLive" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="con" style="flex:1"><div class="bar"><b>Console</b><label class="mut" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="clean" onchange="setClean(this.checked)">schoon</label><div class="sp"></div>
@@ -6040,7 +6041,7 @@ let ssec=(()=>{try{return localStorage.getItem('ssec')||'alg'}catch(e){return'al
 const scard=(t,id,x)=>`<div class="card"><h3>${t}</h3><div id="${id}" class="mut">Laden…</div>${x||''}</div>`;
 const scol=(...c)=>`<div style="display:flex;flex-direction:column;gap:14px;min-width:0">${c.join('')}</div>`;
 const SPAGE={
- alg:()=>scol(scard('Console en weergave','s_con'))+scol(scard('Gedrag van het programma','s_gedr')),
+ alg:()=>scol(scard('Console en weergave','s_con'),scard('Schone console: wat wordt verborgen','s_noise'))+scol(scard('Gedrag van het programma','s_gedr')),
  mel:()=>scol(scard('Op deze computer (Windows-meldingen)','s_mel'))+scol(scard('Op je telefoon (push)','s_push')),
  srv:()=>scol(scard('Server (server.properties)','props'))+scol(`<div class="card"><h3>Prestaties en geheugen</h3><div class="row"><button onclick="ramDlg()">Geheugen (RAM) instellen…</button><button class="warn" onclick="act('kill')">Geforceerd stoppen</button></div><div id="bt" class="mut" style="margin-top:6px">Laden…</div></div>`,scard('Java-opties','s_java')),
  sl:()=>scol(scard('Slaapstand','slp'))+scol(scard('Gezondheidscontrole en temperatuur','hlt')),
@@ -6072,6 +6073,10 @@ async function setLoad(){const j=await go('/api/settings');if(!j)return;const by
    <div class="lab"><span>Dagen</span><div class="row" id="sdays" style="flex:none">${DAYN.map((d,i)=>`<button class="sm ${days.includes(i+1)?'pri':''}" data-d="${i+1}" onclick="sleepDay(this)">${d}</button>`).join('')}</div></div>`);
  put('hlt',chk('health_disk','Schijf bijna vol')+num('health_disk_gb','Waarschuwen onder (GB vrij)')+chk('health_tps','Lage TPS')+num('health_tps_min','TPS-grens')+num('health_tps_mins','Zo lang onder de grens (minuten)')+chk('health_ram','Geheugen bijna op')+num('health_ram_pct','Waarschuwen boven (% van het maximum)')+chk('temp_enabled','Temperatuur tonen')+num('temp_warn','Temperatuurwaarschuwing (°C)'));
  put('s_con',chk('clean_console','Schone console (verbergt ruis)')+num('console_max_lines','Maximaal aantal consoleregels')+num('graph_minutes','Grafiek-tijdvenster (minuten)'));
+ const area=(k,l,rows,h)=>`<div style="padding:8px 0;border-top:1px solid var(--b)"><div style="font-weight:600;font-size:13px;margin-bottom:2px">${l}</div>${h?hint(h):''}<textarea rows="${rows}" spellcheck="false" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12.5px;white-space:pre" onchange="setSet('${k}',this.value);setTimeout(setLoad,400)">${esc(v(k))}</textarea><div class="row" style="margin-top:4px"><button class="sm" onclick="noiseDef('${k}')">Standaardlijst herstellen</button></div></div>`;
+ put('s_noise',hint('In de schone console verdwijnen regels die je niet wilt zien. <b>Tip:</b> dubbelklik op een regel in de console om zulke regels te verbergen.')+chk('clean_startup','Strenge schone console tijdens opstarten en afsluiten')+
+  area('startup_keep','Opstartregels die altijd blijven staan',7,'Tijdens opstarten en afsluiten verdwijnt alles behalve waarschuwingen, fouten en regels met een van deze teksten.')+
+  area('noise_filters','Altijd verborgen (ook als de server draait)',6,'Eén filter per regel. Een regel met die tekst erin wordt verborgen (hoofdletters maken niet uit). Begin met <b>re:</b> voor een regex.'));
  put('s_gedr',chk('confirm','Bevestiging vragen voor updates')+chk('auto_restart','Automatisch herstarten na een crash')+num('stop_timeout','Wachttijd bij stoppen (seconden)')+num('poll_secs','Spelers/TPS verversen (seconden, 0 = uit)'));
  put('s_java',hint('Het geheugen kun je ook instellen via de knop hierboven.')+txt('java_xms','Min. geheugen (bijv. 1G)')+txt('java_xmx','Max. geheugen (bijv. 4G)')+txt('java_extra','Extra Java-opties'));
  put('s_upd',chk('selfupdate_check','Automatisch zoeken naar updates')+chk('selfupdate_auto','Updates automatisch installeren'));
@@ -6100,6 +6105,11 @@ async function remLoad(){const j=await go('/api/remote');if(!j||!$('rm'))return;
 async function remSet(o){const j=await go('/api/remote',o);if(j)setTimeout(remLoad,400)}
 async function pushTest(){const j=await go('/api/push/test',{},'Versturen…');if(!j)return;toast(j.ok?'Testmelding verstuurd. Kijk op je telefoon.'+(j.warn?' '+j.warn:''):(j.error||'Versturen mislukt'),9000)}
 const setSet=(key,value)=>go('/api/settings',{key,value},'Opgeslagen');
+async function noiseDef(k){const j=await go('/api/settings');if(!j)return;const it=j.items.find(i=>i.key==k);if(!it||!await ask('De standaardlijst terugzetten? Je eigen regels in deze lijst gaan verloren.','Terugzetten'))return;await setSet(k,it.default||'');setLoad()}
+async function hideLine(text){const cand=String(text).replace(/^\[\d\d:\d\d:\d\d[^\]]*\]:?\s*/,'').replace(/^System chat:\s*/,'').trim();if(!cand)return;
+ const t=prompt('Regels die deze tekst bevatten verbergen in de schone console. Pas de tekst zo nodig aan (korter is breder):',cand.slice(0,120));if(!t||!t.trim())return;
+ const j=await go('/api/settings');if(!j)return;const it=j.items.find(i=>i.key=='noise_filters');const cur=String(it?it.value:'').split('\n').filter(x=>x.trim());if(cur.some(x=>x.toLowerCase()==t.trim().toLowerCase())){toast('Staat al in de lijst');return}
+ cur.push(t.trim());await setSet('noise_filters',cur.join('\n'));toast('Toegevoegd aan de verborgen regels',2500)}
 function sleepDay(b){b.classList.toggle('pri');const d=[...document.querySelectorAll('#sdays button.pri')].map(x=>x.dataset.d).join('');if(!d){b.classList.add('pri');return toast('Kies minstens één dag')}setSet('sleep_days',d)}
 /* ---------- Afsluiten ---------- */
 async function quitApp(){const run=S.state=='online'||S.state=='starting'||S.state=='stopping';if(!await ask(run?'De server draait nog. Hij wordt veilig gestopt (de wereld wordt opgeslagen) en daarna sluit het programma. Doorgaan?':'MC Server Manager afsluiten?','Afsluiten'))return;toast('Afsluiten…',60000);go('/api/quit',{})}
@@ -6522,6 +6532,8 @@ class RemoteServer:
     """Webserver voor de telefoon. Alles wat het programma zelf aanraakt gebeurt in de hoofdthread (call_main)."""
 
     SETTINGS = {  # sleutel -> (soort, label, min, max)
+        "noise_filters": ("lines", "Altijd verborgen in de schone console"), "startup_keep": ("lines", "Opstartregels die blijven staan"),
+        "clean_startup": ("bool", "Strenge schone console tijdens opstarten en afsluiten"),
         "confirm": ("bool", "Bevestiging vragen voor updates"), "auto_restart": ("bool", "Automatisch herstarten na een crash"),
         "keep_server_backups": ("bool", "Backups van server.jar bewaren"), "server_backups_max": ("int", "Aantal server.jar-backups", 1, 99),
         "keep_plugin_backups": ("bool", "Backups van plugins bewaren"), "plugin_backups_max": ("int", "Aantal plugin-backups", 1, 99),
@@ -7264,7 +7276,8 @@ class RemoteServer:
             out = []
             for k, spec in self.SETTINGS.items():
                 out.append({"key": k, "type": spec[0], "label": spec[1], "value": a.cfg.get(k, DEFAULTS.get(k)),
-                            "min": spec[2] if len(spec) > 2 else None, "max": spec[3] if len(spec) > 3 else None})
+                            "min": spec[2] if len(spec) > 2 else None, "max": spec[3] if len(spec) > 3 else None,
+                            "default": DEFAULTS.get(k) if spec[0] == "lines" else None})
             return out
         return 200, {"items": self.call_main(get)}
 
@@ -7279,6 +7292,14 @@ class RemoteServer:
                 v = bool(v)
             elif spec[0] == "int":
                 v = min(max(int(v), spec[2]), spec[3])
+            elif spec[0] == "lines":
+                v = "\n".join(x.strip() for x in str(v).splitlines() if x.strip())[:6000]
+                for x in v.splitlines():
+                    if x.lower().startswith("re:"):
+                        try:
+                            re.compile(x[3:].strip())
+                        except re.error as e:
+                            return 400, {"error": f"Ongeldige regex ‘{x[3:].strip()[:40]}’: {e}"}
             else:
                 v = str(v).strip()[:300]
                 if k in ("sleep_from", "sleep_to") and not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", v):
