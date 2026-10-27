@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.68
+- Fix: een `stop` terwijl de server nog aan het opstarten was gaf in Paper `Command exception: /stop ... NullPointerException`; de server bleef dan draaien terwijl het programma op *Stoppen…* bleef staan. Nu wacht het programma tot de server klaar is met opstarten en stopt hem dan. Weigert Paper het toch, dan probeert het programma het tot drie keer opnieuw.
+- Het antwoord op je eigen commando's in de schone console blijft nu 2 seconden zichtbaar (was 6).
+- Deze versie vereist een herstart.
+
 ## 2.67
 - Fix: bij **automatisch installeren** van een programma-update bleef de balk op 45% hangen. Het programma stelde een "Nu herstarten?"-vraag in het verborgen hoofdvenster en wachtte daar eindeloos op. Met het nieuwe scherm wordt er nu niet meer gevraagd. Zijn er spelers online, dan wacht de update tot de server leeg is (je krijgt daar een melding van) en installeert dan zelf.
 - De **schone console** toont nu altijd het antwoord op commando's die je zelf intypt (bijvoorbeeld `list` of `tps`), ook als die regels normaal verborgen worden.

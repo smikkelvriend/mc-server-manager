@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.67"
+APP_VERSION = "2.68"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.68 - Fix: een 'stop' terwijl de server nog aan het opstarten was gaf in Paper de foutmelding 'Command exception: /stop ... NullPointerException', waarna de server gewoon bleef draaien terwijl het programma op 'Stoppen…' bleef staan. Nu wacht het programma tot de server klaar is met opstarten en stopt hem dan; en als Paper het toch weigert, probeert het programma het tot drie keer opnieuw. Het antwoord op je eigen commando's in de schone console blijft nu 2 seconden zichtbaar (was 6).
 2.67 - Fix: bij automatisch installeren van een programma-update bleef de balk op 45% hangen. Het programma stelde een 'Nu herstarten?'-vraag in het verborgen hoofdvenster en wachtte daar eindeloos op. Nu wordt er met het nieuwe scherm niet meer gevraagd; als er spelers online zijn wacht de update tot de server leeg is (je krijgt daar een melding van) en installeert dan zelf. De schone console toont nu altijd het antwoord op commando's die je zelf intypt (bijvoorbeeld list of tps), ook als die regels normaal verborgen worden.
 2.66 - Snelknoppen per speler in het kaartje Spelers online (Overzicht en tabblad Spelers): bericht sturen, spelmodus wijzigen, teleporteren naar een andere speler, kicken, en een knop met alle acties (ban, op, whitelist…).
 2.65 - Fix: meldingen (op de pc en op je telefoon) kwamen niet als iemand joinde of wegging, omdat Paper 26.x de regel als 'System chat: Naam joined the game' schrijft en het programma die niet herkende. Nu worden join en leave weer goed herkend (ook voor de spelerslijst en het activiteitenlogboek).
@@ -9929,7 +9930,7 @@ class App(tk.Tk):
         except (OSError, ValueError):
             return False
         if echo:
-            self._user_until = time.time() + 6      # je hebt dit zelf gevraagd: het antwoord blijft zichtbaar, ook in de schone console
+            self._user_until = time.time() + 2      # je hebt dit zelf gevraagd: het antwoord blijft zichtbaar, ook in de schone console
             self._console_add("> " + cmd, own=True)
         return True
 
@@ -9951,9 +9952,22 @@ class App(tk.Tk):
         self._restart_pending = restart
         now = time.time()
         self._stop_t, self._last_nl, self._stop_warned = now, now, False
-        self._stop_deadline = now + int(self.cfg.get("stop_timeout", 60))
+        self._stop_retries = 0
+        self._stop_deadline = now + int(self.cfg.get("stop_timeout", 60)) + (90 if self.srv_state == "starting" else 0)
+        if self.srv_state == "starting":
+            # Een 'stop' terwijl Paper nog opstart geeft een NullPointerException (de wereld is er nog niet) en de server blijft dan
+            # gewoon draaien. Dus wachten tot hij klaar is en dan pas stoppen.
+            self._pending_stop = True
+            self._set_state("stopping")
+            self.status("De server is nog aan het opstarten: hij stopt zodra hij klaar is…")
+            self._console_add("> stop (wacht tot het opstarten klaar is)", own=True)
+            return
         self._set_state("stopping")
         self.srv_send("stop")
+
+    def _send_stop_now(self):
+        if self.srv_running() and self.srv_state == "stopping":
+            self.srv_send("stop", echo=False)
 
     def _kill_tree(self):
         p = self.srv_proc
@@ -9987,11 +10001,16 @@ class App(tk.Tk):
         """Veilig stoppen bij het afsluiten van het programma (wacht tot de server klaar is)."""
         self.status("Server wordt veilig gestopt…")
         self._user_stop, self._restart_pending, self._after_exit = True, False, None
-        if not self._stop_in_progress():
+        starting = self.srv_state == "starting"
+        if starting:
+            self._pending_stop = True
+            self._set_state("stopping")
+        elif not self._stop_in_progress():
             self._stop_t = time.time()
+            self._stop_retries = 0
             self._set_state("stopping")
             self.srv_send("stop", echo=False)
-        end = time.time() + int(self.cfg.get("stop_timeout", 60))
+        end = time.time() + int(self.cfg.get("stop_timeout", 60)) + (90 if starting else 0)
         last_nl = time.time()
         t0 = time.time()
         while self.srv_running() and time.time() < end:
@@ -10015,6 +10034,7 @@ class App(tk.Tk):
 
     def _srv_exited(self, code):
         self.srv_proc = None
+        self._pending_stop = False
         self._plm_loaded = None
         self._tps_low_since = self._ram_hi_since = None
         self._cleanup_tmp()
@@ -10597,6 +10617,13 @@ class App(tk.Tk):
             self.players.pop(lv.group(1), None)
             self._refresh_players()
             self.tab_map.players_changed()
+        if DONE_RE.search(msg) and getattr(self, "_pending_stop", False):
+            self._pending_stop = False
+            self.after(4000, self._send_stop_now)      # even wachten: meteen na 'Done' is de wereld nog niet helemaal klaar
+        if "Command exception: /stop" in msg and self._stop_in_progress() and getattr(self, "_stop_retries", 0) < 3:
+            self._stop_retries = getattr(self, "_stop_retries", 0) + 1
+            self.log("De server weigerde 'stop' (hij was nog niet helemaal klaar). Nog een keer proberen…", "warn")
+            self.after(4000, self._send_stop_now)
         if DONE_RE.search(msg) and self.srv_state == "starting":
             self.tab_beheer.notify("notify_start", "Server is online", "De Minecraft-server is klaar met opstarten.")
             self._set_state("online")
