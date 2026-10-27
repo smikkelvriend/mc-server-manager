@@ -35,7 +35,20 @@ Starten, console, plugins, updates, kaart, backups en een webapp voor je telefoo
   <img src="docs/licht_backups.png" alt="Backups-tabblad (licht thema)" width="48%">
 </p>
 
-**✨ Nieuwe interface:** de knop bovenin opent een moderner scherm (eigen venster) met Overzicht, Console, Spelers, Plugins, Kaart, Backups en Instellingen. Het is alleen bereikbaar vanaf deze computer; de bron staat in [`nieuwe_interface/`](nieuwe_interface/).
+## ✨ Nieuwe interface
+
+De knop bovenin opent een moderner scherm in een eigen venster. Het is alleen bereikbaar vanaf deze computer; de bron
+staat in [`nieuwe_interface/`](nieuwe_interface/) en wordt met `inbouwen.py` in het ene programmabestand gezet.
+
+| Onderdeel | Wat je er doet |
+|---|---|
+| **Overzicht** | Live belasting (geheugen en processor), spelers online met snelle acties per speler (kicken, spelmodus, teleporteren, bericht sturen), console en een *Aandacht*-kaart. Daar staat of er een update is, of er een backup is, hoeveel schijfruimte vrij is en of het opstarten goed ging. |
+| **Voortgangsbalken** | Bij opstarten én stoppen zie je hoe lang het nog duurt. Het programma onthoudt hoe lang jouw server nodig heeft en schat daarmee. Stopt de server terwijl hij nog opstart, dan wacht het tot dat klaar is. |
+| **Opstartcontrole** | Na het opstarten leest het programma het logboek door en meldt een plugin die niet laadt, een bezette poort, te weinig geheugen, een EULA die nog niet is geaccepteerd of plugins die geen updates kunnen opzoeken. |
+| **Console** | Schone modus (verbergt ruis), zoeken in het logboek, Tab-aanvulling. Wat je zelf typt, blijft altijd zichtbaar. |
+| **Kaart** | Squaremap-kaart met spelers. Teken een gebied en genereer het met Chunky, met een knop om te annuleren. |
+| **Instellingen** | Ingedeeld in Algemeen, Meldingen, Server, Slaap en gezondheid, Netwerk en Programma. Het verschil tussen Windows-meldingen en berichten op je telefoon is duidelijk gescheiden. |
+| **Updates** | Programma-updates met een optie om de server daarna automatisch weer te starten. Staat er iemand online, dan wacht het programma tot de server leeg is. |
 
 Verder: licht en donker thema, een Update-knop voor het programma zelf (zonder herstart als dat veilig kan),
 meldingen bij crash, start, spelers en klaar met genereren, en alles in het Nederlands.
@@ -85,6 +98,14 @@ Zet bij **Beheer → Telefoon** de webapp aan en kies een wachtwoord. Open daarn
 (zelfde wifi) en voeg het toe aan je beginscherm. Je ziet en bedient dezelfde dingen als op de computer:
 server, plugins, updates, kaart, backups en beheer. De app is standaard alleen bereikbaar vanaf je eigen netwerk.
 
+### Berichten op je telefoon (ntfy)
+
+Wil je een bericht als er iemand online komt, de server crasht of er iets mis lijkt bij het opstarten? Zet dat aan onder
+**Instellingen → Meldingen → Telefoon**. Het programma gebruikt daarvoor [ntfy](https://ntfy.sh): installeer de app op
+je telefoon, kies *Nieuw kanaal maken* in het programma en abonneer je in de app op dat kanaal. De berichten gaan
+via internet (standaard `ntfy.sh`, je kunt ook je eigen ntfy-server invullen). Wie je kanaalnaam kent, kan meelezen;
+laat de naam dus willekeurig.
+
 ## Het programma bijwerken
 
 Open Instellingen → **Dit programma** en vul `https://github.com/smikkelvriend/mc-server-manager` in.
@@ -132,6 +153,7 @@ Het programma praat alleen met de diensten die bij een functie horen en stuurt n
 | Netwerkcontrole van buitenaf | mcstatus.io, mcsrvstat.us, minetools.eu; `api.ipify.org` voor "Mijn IP opzoeken" |
 | Spelershoofdjes | mc-heads.net; Bedrock-spelers via api.geysermc.org en textures.minecraft.net |
 | Programma-update | je eigen GitHub-repository |
+| Berichten op je telefoon (alleen als je dat aanzet) | ntfy.sh, of je eigen ntfy-server |
 
 Die diensten bewaren soms een oud resultaat; één dienst die "online" meldt is genoeg.
 
