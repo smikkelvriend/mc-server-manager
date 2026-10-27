@@ -8,7 +8,7 @@ Terugvallen? Kopieer het gewenste bestand naast je instellingen, hernoem het (bi
 en start het. Zet daarna de automatische programma-update uit (Instellingen → Dit programma), anders haalt het programma
 zichzelf weer naar de nieuwste versie.
 
-## Versies 2.2 t/m 2.59
+## Versies 2.2 t/m 2.60
 
 Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog voor details.
 
@@ -31,6 +31,7 @@ Nieuwste eerst. De omschrijving komt uit de commitberichten; zie het changelog v
 | [`2.56`/`2.57`](mc_server_manager_2.57.py) | Scherm herlaadt zichzelf na update, geen cmd-venster meer (2.56 en 2.57 samen) |
 | [`2.58`](mc_server_manager_2.58.py) | Updates-tab met zoek- en installatiebalk, plugin hot-loaden |
 | [`2.59`](mc_server_manager_2.59.py) | Grafiek breekt bij onderbrekingen |
+| [`2.60`](mc_server_manager_2.60.py) | PLM laden/uitladen werkt weer, met zichtbare controle |
 | [`2.40`](mc_server_manager_2.40.py) | Grafieken zakken naar 0 bij uit/slaap |
 | [`2.39`](mc_server_manager_2.39.py) | Vinkje heet Auto slaapstand |
 | [`2.38`](mc_server_manager_2.38.py) | Knop Nu in slaapstand |

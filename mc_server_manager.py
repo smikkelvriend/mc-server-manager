@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.60"
+APP_VERSION = "2.61"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.61 - Plugins toevoegen door een .jar-bestand op het tabblad Plugins te slepen (of via de knop 'Bestand kiezen…'). Het programma controleert dat het echt een plugin is (plugin.yml), zet hem in de plugins-map (een bestand met dezelfde naam gaat eerst naar verwijderde_plugins), waarschuwt als dezelfde plugin al onder een andere bestandsnaam staat, en vraagt daarna: later laden, hot-loaden (eigen risico) of de server herstarten.
 2.60 - Fix: de knoppen PLM laden/uitladen deden niets in de nieuwe interface (het programma las een verouderde pluginlijst van het verborgen klassieke scherm). Nu staat er altijd een duidelijke melding als er niets te doen is, en na het laden/uitladen vraagt het programma de pluginlijst van de server op en toont op het scherm of de plugin echt is geladen of uitgeladen (balk boven de lijst, melding en label Uitgeladen).
 2.59 - Fix: de grafiek in de nieuwe interface tekende een schuine lijn dwars door een onderbreking (bijvoorbeeld de herstart van het programma) en toonde links te weinig geschiedenis. Een onderbreking is nu een echte onderbreking en de grafiek heeft de laatste ~5 minuten tot de linkerrand.
 2.58 - Tabblad Updates duidelijker: je ziet dat er gezocht wordt (draaiende indicator en een balk met percentage tijdens het downloaden) en het installeren heeft een voortgangsbalk met stappen (reservekopie, server veilig stoppen, herstarten). Staat het scherm al op dat tabblad, dan komt er geen apart venster meer bij. Plugin installeren: kies nu 'Later laden', 'Hot-loaden (eigen risico, via PlugManX)' of 'Server herstarten'.
@@ -5584,6 +5585,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 .ubar{height:12px;border-radius:7px;background:#1c232b;overflow:hidden;margin-top:12px}.ubar i{display:block;height:100%;width:0;border-radius:7px;background:linear-gradient(90deg,var(--a),var(--bl));transition:width .5s ease}.ubox.ins .ubar i{background:linear-gradient(90deg,#1fa974,var(--g))}
 .ubar.ind i{width:35%!important;animation:ind 1.2s infinite ease-in-out}.upct{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--m2);font-weight:500}
 .spin{width:18px;height:18px;border-radius:50%;border:3px solid #2d4a78;border-top-color:var(--bl);animation:rot .8s linear infinite;flex:none}@keyframes rot{to{transform:rotate(360deg)}}
+.dropov{position:fixed;inset:10px;border:3px dashed var(--g);border-radius:18px;background:#0e1115dd;display:none;align-items:center;justify-content:center;z-index:40;pointer-events:none;text-align:center;font-size:22px;font-weight:600}.dropov.on{display:flex}.dropov small{display:block;margin-top:8px;font-size:14px;color:var(--m);font-weight:400}
 #busy.ind i{width:40%!important;animation:ind 1.2s infinite ease-in-out}@keyframes ind{0%{margin-left:-40%}100%{margin-left:100%}}
 #toast{position:fixed;right:24px;bottom:24px;max-width:420px;background:#2b3440;border:1px solid var(--b2);padding:12px 16px;border-radius:12px;display:none;z-index:30;box-shadow:0 8px 30px #000a}
 #dlg{position:fixed;inset:0;background:#000b;z-index:40;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:460px;width:100%;white-space:pre-wrap}
@@ -5862,10 +5864,37 @@ function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enable
  const row=i=>`<label class="li" style="${i.enabled?'':'opacity:.55'}"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b>${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div>
   ${i.enabled&&i.loaded===false?'<span class="pill y" style="background:#3a2a0c;color:var(--y);padding:3px 10px;font-size:12px" title="Staat in de map aan, maar de server heeft hem uitgeladen tot de volgende herstart"><i></i>Uitgeladen</span>':`<span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span>`}</label>`;
  const pr=j.plmres,banner=pr?`<div class="ubox ${pr.state=='pending'?'chk':pr.ok===false?'err':'ins'}" style="padding:10px 14px;margin:0 0 10px"><div class="uh" style="font-size:14px">${pr.state=='pending'?'<span class="spin"></span>':''}${esc(pr.msg)}</div></div>`:'';
- $('pls').innerHTML=banner+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
+ const hint=`<div class="row" style="margin-bottom:8px;align-items:center"><span class="mut" style="font-size:13px">Sleep een .jar-bestand hierheen om een plugin toe te voegen</span><span class="sp"></span><button class="sm" onclick="plPick()">Bestand kiezen…</button></div>`;
+ $('pls').innerHTML=banner+hint+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
   <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.')}
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
+/* ---------- .jar slepen en neerzetten ---------- */
+function plPick(){const i=document.createElement('input');i.type='file';i.accept='.jar';i.multiple=true;i.onchange=()=>plDrop([...i.files]);i.click()}
+async function plDrop(files){const jars=files.filter(f=>/\.jar$/i.test(f.name));
+ if(!jars.length)return toast('Alleen .jar-bestanden kunnen worden toegevoegd');
+ const done=[],fail=[],warn=[];let n=0;
+ for(const f of jars){n++;toast(`Uploaden ${n}/${jars.length}: ${f.name}…`,120000);
+  try{const r=await fetch('/api/plugins/upload?name='+encodeURIComponent(f.name),{method:'POST',headers:{'X-MC':'1','Content-Type':'application/octet-stream'},body:f});const j=await r.json().catch(()=>({}));
+   if(!r.ok){fail.push(f.name+': '+(j.error||'mislukt'));continue}done.push(j);(j.dupes||[]).forEach(d=>warn.push(d))}catch(e){fail.push(f.name+': geen verbinding met het programma')}}
+ $('toast').style.display='none';
+ if(files.length>jars.length)fail.push((files.length-jars.length)+' bestand(en) overgeslagen: geen .jar');
+ if(tab=='plug')V.plug();
+ const sum=(done.length?'✓ Toegevoegd: '+done.map(j=>j.name+(j.version?' '+j.version:'')+(j.replaced?' (verving de oude)':'')).join(', '):'')+(fail.length?'\n✗ '+fail.join('\n✗ '):'')+(warn.length?'\n⚠ '+warn.join('\n⚠ '):'');
+ if(!done.length){await choose(sum,[['OK',true,'pri']]);return}
+ const run=done[0].running,plm=done[0].plm;
+ if(!run){await choose(sum+'\n\nDe server draait niet: de plugin wordt geladen als je hem start.',[['OK',true,'pri']]);return}
+ const mode=await choose(sum+'\n\nDe server draait. Een nieuwe plugin wordt pas gebruikt na laden. Hot-loaden (PlugManX) kan zonder herstart, maar op eigen risico: sommige plugins laden half of lopen vast.'+(plm?'':'\n\nHot-loaden kan nu niet: PlugManX staat niet op je server.'),
+  [['Later laden','later'],['Hot-loaden (eigen risico)','hot','',!plm],['Server herstarten','restart','pri']]);
+ if(mode=='hot'){const j=await go('/api/plugins/plm',{files:done.map(x=>x.file),unload:false});if(j){setTimeout(V.plug,3000);setTimeout(V.plug,7500);setTimeout(V.plug,10500)}}
+ else if(mode=='restart')go('/api/action',{name:'restart'})}
+(function(){let depth=0;const ov=document.createElement('div');ov.className='dropov';ov.innerHTML='<div>Laat los om de plugin(s) toe te voegen<small>Alleen .jar-bestanden</small></div>';document.body.appendChild(ov);
+ const has=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files');
+ window.addEventListener('dragenter',e=>{if(!has(e))return;e.preventDefault();depth++;if(tab=='plug')ov.classList.add('on')});
+ window.addEventListener('dragover',e=>{if(!has(e))return;e.preventDefault();e.dataTransfer.dropEffect=tab=='plug'?'copy':'none'});
+ window.addEventListener('dragleave',e=>{depth=Math.max(0,depth-1);if(!depth)ov.classList.remove('on')});
+ window.addEventListener('drop',e=>{if(!has(e))return;e.preventDefault();depth=0;ov.classList.remove('on');
+  if(tab!='plug')return toast('Ga eerst naar het tabblad Plugins om een plugin neer te zetten');plDrop([...e.dataTransfer.files])})})();
 /* ---------- Programma-updates ---------- */
 V.upd=()=>{$('view').innerHTML='<div class="two"><div class="card" id="pu1"><h3>MC Server Manager</h3><div style="font-size:28px;font-weight:600">Versie '+esc(S.version||PV)+'</div><div id="ustat"></div><div id="uinfo" class="mut">Laden…</div></div><div class="card" id="pu2"></div></div>';cur.t=setInterval(progLoad,4000);cur.stop=()=>clearInterval(cur.t);cur.rev=-1;progLoad();progBar()};
 function progBar(){const e=$('ustat');if(!e)return;const u=S.upd||{phase:'idle'};const key=u.phase+'|'+u.pct+'|'+u.msg+'|'+u.err;if(cur.ukey===key)return;cur.ukey=key;
@@ -6574,6 +6603,72 @@ class RemoteServer:
             return 400, {"error": err}
         return 200, {"ok": True, "msg": msg}
 
+    def api_plugins_upload(self, q, body):
+        """Een .jar die op het scherm is neergezet: wordt in de plugins-map gezet na controle dat het echt een plugin is."""
+        rf, n = body.get("_rf"), int(body.get("_len") or 0)
+        limit = 200 * 1024 * 1024
+        folder = self.folder()
+        name = os.path.basename(str((q.get("name") or [""])[0]).replace("\\", "/")).strip()
+        pdir = os.path.join(folder, "plugins") if folder else ""
+        tmp = os.path.join(pdir, f".upload-{secrets.token_hex(4)}.part") if pdir else None
+        err, written = None, 0
+        if not folder:
+            err = "Kies eerst de map van je server (Instellingen)."
+        elif not re.fullmatch(r"[\w .+()\-]{1,120}\.jar", name, re.I):
+            err = "Ongeldige bestandsnaam: alleen .jar-bestanden."
+        elif n <= 0 or n > limit:
+            err = "Het bestand is leeg of te groot (maximaal 200 MB)."
+        try:
+            if tmp and not err:
+                os.makedirs(pdir, exist_ok=True)
+            out = open(tmp, "wb") if tmp and not err else None
+            remaining = n
+            while remaining > 0:                       # altijd het hele bericht lezen, ook bij een fout
+                chunk = rf.read(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                if out:
+                    out.write(chunk)
+                    written += len(chunk)
+            if out:
+                out.close()
+        except OSError as e:
+            err = err or f"Opslaan mislukt: {e}"
+        if err:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+            return 400, {"error": err}
+        try:
+            if remaining or not zipfile.is_zipfile(tmp):
+                raise ValueError("Dit is geen geldig .jar-bestand (de upload is niet compleet of het is geen zip).")
+            with zipfile.ZipFile(tmp) as z:
+                names = set(z.namelist())
+            if not ({"plugin.yml", "paper-plugin.yml"} & names):
+                raise ValueError("Dit is geen Bukkit/Paper-plugin: er zit geen plugin.yml of paper-plugin.yml in.")
+            dest = os.path.join(pdir, name)
+            replaced = False
+            old = [x for x in (dest, dest + ".disabled") if os.path.exists(x)]
+            if old:
+                trash = os.path.join(self.call_main(self.app.backup_root), "verwijderde_plugins", datetime.now().strftime("%Y%m%d-%H%M%S"))
+                os.makedirs(trash, exist_ok=True)
+                for x in old:
+                    shutil.move(x, os.path.join(trash, os.path.basename(x)))
+                replaced = True
+            os.replace(tmp, dest)
+        except (ValueError, zipfile.BadZipFile, OSError) as e:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+            return 400, {"error": str(e)}
+        items = scan_plugins(pdir)
+        me = next((i for i in items if i["file"] == name), None)
+        pname = me["name"] if me else name[:-4]
+        dupes = [f"{pname} staat nu twee keer in de map ({i['file']} en {name}): verwijder de oude" for i in items
+                 if me and i["file"] != name and i["name"].lower() == pname.lower()]
+        run = bool(self.call_main(lambda: self.app.srv_running()))
+        return 200, {"ok": True, "file": name, "name": pname, "version": (me or {}).get("version") or "", "replaced": replaced, "dupes": dupes,
+                     "running": run, "plm": bool(plugman_name(items))}
+
     def api_plugins_search(self, q, body):
         text = str(body.get("q", "")).strip()[:200]
         if not text:
@@ -6853,7 +6948,7 @@ class RemoteServer:
             ("GET", "/api/state"): outer.api_state, ("POST", "/api/action"): outer.api_action, ("POST", "/api/cmd"): outer.api_cmd,
             ("POST", "/api/player"): outer.api_player, ("POST", "/api/clean"): outer.api_clean, ("POST", "/api/ram"): outer.api_ram,
             ("GET", "/api/plugins"): outer.api_plugins, ("POST", "/api/plugins/toggle"): outer.api_plugins_toggle,
-            ("POST", "/api/plugins/remove"): outer.api_plugins_remove, ("POST", "/api/plugins/plm"): outer.api_plugins_plm,
+            ("POST", "/api/plugins/remove"): outer.api_plugins_remove, ("POST", "/api/plugins/plm"): outer.api_plugins_plm, ("POST", "/api/plugins/upload"): outer.api_plugins_upload,
             ("POST", "/api/plugins/search"): outer.api_plugins_search, ("POST", "/api/plugins/install"): outer.api_plugins_install,
             ("GET", "/api/updates"): outer.api_updates, ("POST", "/api/updates/check"): outer.api_updates_check,
             ("POST", "/api/updates/install"): outer.api_updates_install, ("POST", "/api/updates/opt"): outer.api_updates_opt,
@@ -6920,7 +7015,14 @@ class RemoteServer:
                 if method == "POST":
                     if self.headers.get("X-MC") != "1":
                         return self._send(400, {"error": "ongeldig"})
-                    body = self._json_body()
+                    if path == "/api/plugins/upload":
+                        # ruwe bestandsinhoud (een .jar), geen JSON: het volledige bericht moet gelezen worden, anders raakt de verbinding in de war
+                        if not self._authed():
+                            self.close_connection = True
+                            return self._send(401, {"error": "login"})
+                        body = {"_rf": self.rfile, "_len": int(self.headers.get("Content-Length") or 0)}
+                    else:
+                        body = self._json_body()
                 else:
                     body = {}
                 if method == "GET":

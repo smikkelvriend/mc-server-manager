@@ -2,6 +2,12 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.61
+- **Plugins slepen en neerzetten:** sleep een of meer `.jar`-bestanden op het tabblad Plugins (of kies ze met de knop *Bestand kiezen…*). Het programma controleert dat het echt een plugin is (er moet een `plugin.yml` of `paper-plugin.yml` in zitten), zet hem in de plugins-map en toont wat er is toegevoegd. Is er al een bestand met dezelfde naam, dan gaat het oude naar `verwijderde_plugins`. Staat dezelfde plugin al onder een andere bestandsnaam in de map, dan krijg je een waarschuwing.
+- Draait de server, dan kies je daarna: **later laden**, **hot-loaden** (op eigen risico, via PlugManX) of **de server herstarten**.
+- Een bestand dat op een ander tabblad wordt losgelaten opent niet meer in het venster, maar geeft een melding.
+- Deze versie vereist een herstart.
+
 ## 2.60
 - Fix: de knoppen **PLM laden** en **PLM uitladen** deden niets in de nieuwe interface. Het programma gebruikte een verouderde pluginlijst van het verborgen klassieke scherm en deed daardoor stilletjes niets. Nu wordt de lijst vers van schijf gelezen, en staat er altijd een duidelijke melding als er niets kon gebeuren (geen plugin aangevinkt, server draait niet, PlugManX ontbreekt).
 - Na het laden of uitladen vraagt het programma de pluginlijst van de server op (`/plugins`) en laat zien of het echt gelukt is: een balk boven de lijst, een melding, en het label **Uitgeladen** bij plugins die in de map aan staan maar door de server zijn uitgeladen.

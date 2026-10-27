@@ -76,6 +76,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 .ubar{height:12px;border-radius:7px;background:#1c232b;overflow:hidden;margin-top:12px}.ubar i{display:block;height:100%;width:0;border-radius:7px;background:linear-gradient(90deg,var(--a),var(--bl));transition:width .5s ease}.ubox.ins .ubar i{background:linear-gradient(90deg,#1fa974,var(--g))}
 .ubar.ind i{width:35%!important;animation:ind 1.2s infinite ease-in-out}.upct{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--m2);font-weight:500}
 .spin{width:18px;height:18px;border-radius:50%;border:3px solid #2d4a78;border-top-color:var(--bl);animation:rot .8s linear infinite;flex:none}@keyframes rot{to{transform:rotate(360deg)}}
+.dropov{position:fixed;inset:10px;border:3px dashed var(--g);border-radius:18px;background:#0e1115dd;display:none;align-items:center;justify-content:center;z-index:40;pointer-events:none;text-align:center;font-size:22px;font-weight:600}.dropov.on{display:flex}.dropov small{display:block;margin-top:8px;font-size:14px;color:var(--m);font-weight:400}
 #busy.ind i{width:40%!important;animation:ind 1.2s infinite ease-in-out}@keyframes ind{0%{margin-left:-40%}100%{margin-left:100%}}
 #toast{position:fixed;right:24px;bottom:24px;max-width:420px;background:#2b3440;border:1px solid var(--b2);padding:12px 16px;border-radius:12px;display:none;z-index:30;box-shadow:0 8px 30px #000a}
 #dlg{position:fixed;inset:0;background:#000b;z-index:40;display:none;align-items:center;justify-content:center;padding:20px}#dlg .card{max-width:460px;width:100%;white-space:pre-wrap}
@@ -234,10 +235,37 @@ function renderPl(j){const items=j.items.slice().sort((a,b)=>(b.enabled-a.enable
  const row=i=>`<label class="li" style="${i.enabled?'':'opacity:.55'}"><input type="checkbox" onchange="plSel('${esc(i.file)}',this.checked)" ${cur.sel.has(i.file)?'checked':''}><div><b>${esc(i.name)}${i.version?`<span class="tag">${esc(i.version)}</span>`:''}${i.missing.length?`<span class="tag yel">mist ${esc(i.missing.join(', '))}</span>`:''}</b><small>${esc(i.desc)}</small></div>
   ${i.enabled&&i.loaded===false?'<span class="pill y" style="background:#3a2a0c;color:var(--y);padding:3px 10px;font-size:12px" title="Staat in de map aan, maar de server heeft hem uitgeladen tot de volgende herstart"><i></i>Uitgeladen</span>':`<span class="pill ${i.enabled?'':'r'}" style="${i.enabled?'':'background:#1c2128;color:var(--m)'};padding:3px 10px;font-size:12px"><i></i>${i.enabled?'Aan':'Uit'}</span>`}</label>`;
  const pr=j.plmres,banner=pr?`<div class="ubox ${pr.state=='pending'?'chk':pr.ok===false?'err':'ins'}" style="padding:10px 14px;margin:0 0 10px"><div class="uh" style="font-size:14px">${pr.state=='pending'?'<span class="spin"></span>':''}${esc(pr.msg)}</div></div>`:'';
- $('pls').innerHTML=banner+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
+ const hint=`<div class="row" style="margin-bottom:8px;align-items:center"><span class="mut" style="font-size:13px">Sleep een .jar-bestand hierheen om een plugin toe te voegen</span><span class="sp"></span><button class="sm" onclick="plPick()">Bestand kiezen…</button></div>`;
+ $('pls').innerHTML=banner+hint+(items.length?`<div class="row" style="margin-bottom:6px"><button class="sm go" onclick="plAct(true)">Aanzetten</button><button class="sm warn" onclick="plAct(false)">Uitzetten</button><button class="sm bad" onclick="plRm()">Verwijderen</button>${j.plm?'<button class="sm" onclick="plLoad()">PLM laden</button><button class="sm" onclick="plLoad(true)">PLM uitladen</button>':''}</div>
   <div class="mut" style="font-size:13px;margin:4px 0">${on} aan, ${items.length-on} uit</div>`+items.map(row).join(''):'Geen plugins gevonden.')}
 V.bk=()=>{$('view').innerHTML=`<div class="two"><div class="card"><h3>Backups (Backuper) <span class="sp"></span><button class="sm" onclick="behB()">↻</button></h3><div id="bb" class="mut">Laden…</div></div>
  <div style="display:flex;flex-direction:column;gap:14px"><div class="card"><h3>Wereldgrootte <span class="sp"></span><button class="sm" onclick="behW()">↻</button></h3><div id="bw" class="mut">Laden…</div></div></div></div>`;behB();behW()};
+/* ---------- .jar slepen en neerzetten ---------- */
+function plPick(){const i=document.createElement('input');i.type='file';i.accept='.jar';i.multiple=true;i.onchange=()=>plDrop([...i.files]);i.click()}
+async function plDrop(files){const jars=files.filter(f=>/\.jar$/i.test(f.name));
+ if(!jars.length)return toast('Alleen .jar-bestanden kunnen worden toegevoegd');
+ const done=[],fail=[],warn=[];let n=0;
+ for(const f of jars){n++;toast(`Uploaden ${n}/${jars.length}: ${f.name}…`,120000);
+  try{const r=await fetch('/api/plugins/upload?name='+encodeURIComponent(f.name),{method:'POST',headers:{'X-MC':'1','Content-Type':'application/octet-stream'},body:f});const j=await r.json().catch(()=>({}));
+   if(!r.ok){fail.push(f.name+': '+(j.error||'mislukt'));continue}done.push(j);(j.dupes||[]).forEach(d=>warn.push(d))}catch(e){fail.push(f.name+': geen verbinding met het programma')}}
+ $('toast').style.display='none';
+ if(files.length>jars.length)fail.push((files.length-jars.length)+' bestand(en) overgeslagen: geen .jar');
+ if(tab=='plug')V.plug();
+ const sum=(done.length?'✓ Toegevoegd: '+done.map(j=>j.name+(j.version?' '+j.version:'')+(j.replaced?' (verving de oude)':'')).join(', '):'')+(fail.length?'\n✗ '+fail.join('\n✗ '):'')+(warn.length?'\n⚠ '+warn.join('\n⚠ '):'');
+ if(!done.length){await choose(sum,[['OK',true,'pri']]);return}
+ const run=done[0].running,plm=done[0].plm;
+ if(!run){await choose(sum+'\n\nDe server draait niet: de plugin wordt geladen als je hem start.',[['OK',true,'pri']]);return}
+ const mode=await choose(sum+'\n\nDe server draait. Een nieuwe plugin wordt pas gebruikt na laden. Hot-loaden (PlugManX) kan zonder herstart, maar op eigen risico: sommige plugins laden half of lopen vast.'+(plm?'':'\n\nHot-loaden kan nu niet: PlugManX staat niet op je server.'),
+  [['Later laden','later'],['Hot-loaden (eigen risico)','hot','',!plm],['Server herstarten','restart','pri']]);
+ if(mode=='hot'){const j=await go('/api/plugins/plm',{files:done.map(x=>x.file),unload:false});if(j){setTimeout(V.plug,3000);setTimeout(V.plug,7500);setTimeout(V.plug,10500)}}
+ else if(mode=='restart')go('/api/action',{name:'restart'})}
+(function(){let depth=0;const ov=document.createElement('div');ov.className='dropov';ov.innerHTML='<div>Laat los om de plugin(s) toe te voegen<small>Alleen .jar-bestanden</small></div>';document.body.appendChild(ov);
+ const has=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files');
+ window.addEventListener('dragenter',e=>{if(!has(e))return;e.preventDefault();depth++;if(tab=='plug')ov.classList.add('on')});
+ window.addEventListener('dragover',e=>{if(!has(e))return;e.preventDefault();e.dataTransfer.dropEffect=tab=='plug'?'copy':'none'});
+ window.addEventListener('dragleave',e=>{depth=Math.max(0,depth-1);if(!depth)ov.classList.remove('on')});
+ window.addEventListener('drop',e=>{if(!has(e))return;e.preventDefault();depth=0;ov.classList.remove('on');
+  if(tab!='plug')return toast('Ga eerst naar het tabblad Plugins om een plugin neer te zetten');plDrop([...e.dataTransfer.files])})})();
 /* ---------- Programma-updates ---------- */
 V.upd=()=>{$('view').innerHTML='<div class="two"><div class="card" id="pu1"><h3>MC Server Manager</h3><div style="font-size:28px;font-weight:600">Versie '+esc(S.version||PV)+'</div><div id="ustat"></div><div id="uinfo" class="mut">Laden…</div></div><div class="card" id="pu2"></div></div>';cur.t=setInterval(progLoad,4000);cur.stop=()=>clearInterval(cur.t);cur.rev=-1;progLoad();progBar()};
 function progBar(){const e=$('ustat');if(!e)return;const u=S.upd||{phase:'idle'};const key=u.phase+'|'+u.pct+'|'+u.msg+'|'+u.err;if(cur.ukey===key)return;cur.ukey=key;
