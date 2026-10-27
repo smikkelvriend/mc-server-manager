@@ -53,12 +53,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.53"
+APP_VERSION = "2.54"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.54 - Opstarten en herstarten na een update: het klassieke venster verschijnt niet meer heel even bij het opstarten, de poorten worden bij het herstarten eerst vrijgegeven en het nieuwe programma wacht tot de poort vrij is in plaats van direct een ander adres te nemen.
 2.53 - Nieuwe interface: het vinkje Schoon in de console werkt nu ook op de regels die er al staan (die werden alleen voor nieuwe regels toegepast). Daarvoor bewaart het scherm ook de regels die in de schone console verborgen zijn.
 2.52 - Nieuwe interface: spelerskoppen die traag binnenkomen (vooral Bedrock) verschijnen nu wel. De lijst werd elke seconde opnieuw opgebouwd, waardoor het laden steeds werd afgebroken; nu wordt hij alleen aangepast als er echt iets verandert. Mislukt een kop, dan staat er de beginletter van de speler. Het scherm probeert het na een paar seconden nog eens.
 2.51 - Nieuwe interface: de knop onder Auto slaapstand heet "Uit slaapstand halen" zolang de server slaapt en start dan meteen de server. Draait de server, dan is het weer "Nu in slaapstand".
@@ -8521,6 +8522,8 @@ class App(tk.Tk):
         self.minsize(980, 700)
         self.q = queue.Queue()
         self.cfg = {**DEFAULTS, **load_config()}
+        if self.cfg.get("desk_main", True):
+            self.withdraw()      # het klassieke venster is niet meer te zien, ook niet heel even bij het opstarten
         try:
             with open(os.path.abspath(__file__), encoding="utf-8") as fh:
                 self._src = fh.read()          # de code die nu draait, om een update mee te vergelijken
@@ -9957,20 +9960,30 @@ class App(tk.Tk):
         self._desk_app = open_app_window(f"http://127.0.0.1:{self.desk.port}/desk?t={self.desk.desk_token}")
         return True
 
-    def _open_desk_main(self):
+    def _open_desk_main(self, tries=0):
         """Start het eigen scherm. Staat er na een herstart nog een venster open, dan pakt dat de nieuwe sessie zelf weer op; anders openen we er een."""
-        if not self.desk.running and not (self.desk.start(8799, "127.0.0.1", True) or self.desk.start(0, "127.0.0.1", True)):
-            messagebox.showerror(APP_NAME, "De nieuwe interface kon niet starten: " + self.desk.error)
-            return
+        if not self.desk.running and not self.desk.start(8799, "127.0.0.1", True):
+            if tries < 10:      # na een herstart is de poort soms nog heel even bezet door het oude programma
+                self.after(700, lambda: self._open_desk_main(tries + 1))
+                return
+            if not self.desk.start(0, "127.0.0.1", True):
+                self.deiconify()
+                messagebox.showerror(APP_NAME, "De nieuwe interface kon niet starten: " + self.desk.error)
+                return
         self.desk.update()
-        self.after(4500, self._desk_main_check)
+        self.after(4000, self._desk_main_check)
 
     def _desk_main_check(self):
         if self.desk.last_poll > 0:
             self._desk_app = True          # een bestaand venster is al weer verbonden
         elif not self.open_desk():
+            self.deiconify()
             return
-        self.withdraw() if getattr(self, "_desk_app", False) else self.iconify()
+        if getattr(self, "_desk_app", False):
+            self.withdraw()
+        else:
+            self.deiconify()
+            self.iconify()
 
     def _upd_tab_blink(self):
         """Updates-tabje valt op (knippert + aantal) zodra er een plugin- of Paper-update is."""
@@ -10948,6 +10961,12 @@ class App(tk.Tk):
             self._stop_blocking()
         self._cleanup_tmp()
         self._save_cfg()
+        self._wake_stop()
+        for r in (self.desk, self.remote):      # poorten vrijmaken, zodat het nieuwe programma ze meteen kan gebruiken
+            try:
+                r.stop()
+            except Exception:
+                pass
         try:
             exe = sys.executable
             pw = os.path.join(os.path.dirname(exe), "pythonw.exe")

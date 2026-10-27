@@ -2,6 +2,11 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.54
+- Het klassieke venster verschijnt niet meer heel even bij het opstarten: het wordt al verborgen voordat er iets getekend wordt.
+- Herstarten na een update: de poorten (nieuwe interface en telefoon) worden eerst vrijgegeven, en het nieuwe programma wacht tot de poort vrij is (tot ongeveer 7 seconden) in plaats van meteen een ander adres te nemen. Daardoor kan een openstaand venster zich weer aan het nieuwe programma koppelen.
+- Deze versie vereist een herstart.
+
 ## 2.53
 - Nieuwe interface: het vinkje **Schoon** in de console doet weer iets. Het werd alleen op nieuwe regels toegepast en dus nooit op wat er al stond. Nu worden de regels opnieuw geladen als je het vinkje omzet. Daarvoor bewaart het programma ook de regels die in de schone console verborgen zijn (maximaal 1500 in het geheugen).
 - Deze versie vereist een herstart.
