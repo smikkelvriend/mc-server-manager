@@ -54,12 +54,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.73"
+APP_VERSION = "2.74"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
 
 CHANGELOG = """
+2.74 - Fix: na het gebruik van squaremap verschenen de lijsten met spelers (\"There are 0 of a max…\") en TPS-regels in de console. Antwoorden die door lag te laat binnenkomen worden nu ook verborgen.
 2.73 - Fix: rare strepen en stipjes op de kaart (telefoon en nieuw scherm). Squaremap schrijft tegels tijdens het renderen in delen weg; het programma stuurt nu alleen complete tegels door en probeert het anders opnieuw.
 2.72 - Voortgangsbalk bij stoppen van de server (net als bij opstarten, geschat op je eerdere stoptijden). De console toont niet meer je eigen start- en stopregels (lange startcommando, '> stop', 'Server gestopt'); crashes en geforceerd stoppen blijven wel zichtbaar.
 2.71 - Kaart: bij een gekozen gebied staat nu een Annuleren-knop naast Genereren (die verving Wissen).
@@ -10643,11 +10644,11 @@ class App(tk.Tk):
         lm = LIST_RE.search(msg)
         if lm:
             self._on_list(lm)
-            suppress = now < self._sup["list"]
+            suppress = self._pend_take("list") or now < self._sup["list"]
         tm = TPS_RE.search(msg)
         if tm:
             self._on_tps(tm)
-            suppress = suppress or now < self._sup["tps"]
+            suppress = suppress or self._pend_take("tps") or now < self._sup["tps"]
         if now < self._sup["any"] and "nknown" in msg and "ommand" in msg:
             suppress = True
         if self.tab_map.gen["state"] in ("running", "paused") and self.tab_map.on_chunky(msg):
@@ -10753,10 +10754,24 @@ class App(tk.Tk):
         self.spark_tps.add(tps)
         self._health_tps_check(tps)
 
+    def _pend_take(self, kind):
+        """True als dit antwoord op een eigen 'list'/'tps' van het programma lijkt (en telt het dan af)."""
+        pend = self.__dict__.setdefault("_pend", {"list": [], "tps": []})
+        now = time.time()
+        pend[kind] = [t for t in pend[kind] if t > now]
+        if pend[kind] and now >= getattr(self, "_user_until", 0):
+            pend[kind].pop(0)
+            return True
+        return False
+
     def _auto_poll(self):
         self._last_poll = time.time()
         until = self._last_poll + 4
         self._sup = {"list": until, "tps": until, "any": until}
+        # Tijdens een kaartrender of lag komt het antwoord soms veel later dan 4 s. Daarom onthouden we ook hoeveel antwoorden we nog verwachten.
+        pend = self.__dict__.setdefault("_pend", {"list": [], "tps": []})
+        for k in ("list", "tps"):
+            pend[k] = [t for t in pend[k] if t > self._last_poll][-20:] + [self._last_poll + 120]
         self.srv_send("list", echo=False)
         self.srv_send("tps", echo=False)
 

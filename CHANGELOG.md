@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.74
+- Fix: na het gebruik van squaremap verschenen de **spelerslijst** (*There are 0 of a max…*) en **TPS-regels** in de console. Door de render komen de antwoorden te laat binnen om nog als eigen controle herkend te worden. Het programma onthoudt nu hoeveel antwoorden het nog verwacht en verbergt die ook als ze later komen.
+
 ## 2.73
 - Fix: **rare strepen en stipjes op de kaart** (telefoon en nieuw scherm). Squaremap schrijft tegels tijdens het renderen in delen weg en je kreeg dan een half plaatje te zien. Het programma stuurt nu alleen complete tegels door en probeert het anders opnieuw.
 
