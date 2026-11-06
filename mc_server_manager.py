@@ -54,7 +54,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.86"
+APP_VERSION = "2.87"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
@@ -283,6 +283,7 @@ def app_dir():
 
 
 CONFIG_PATH = os.path.join(app_dir(), "mc_server_manager_config.json")
+REMOTE_SESS_PATH = os.path.join(app_dir(), "mc_server_manager_sessies.json")   # ingelogde browsers (telefoon/laptop)
 OLD_CONFIG_PATH = os.path.join(app_dir(), "mc_updater_config.json")  # oude naam: instellingen blijven behouden
 
 
@@ -5585,6 +5586,20 @@ def open_app_window(url):
     return False
 
 
+DESK_LOGIN_PAGE = r"""<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MC Server Manager</title><link rel="icon" href="/icon.png"><style>
+:root{color-scheme:dark}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0e1115;color:#e7eaee;font:14px/1.4 Inter,"Segoe UI",system-ui,sans-serif}
+form{background:#161a20;border:1px solid #232a33;border-radius:12px;padding:28px;width:300px;display:flex;flex-direction:column;gap:12px}
+h1{font-size:17px;margin:0 0 4px}input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #33404d}
+input{background:#0f1318;color:#e7eaee}button{background:#3ddc97;color:#0e1115;border:0;font-weight:600;cursor:pointer}#e{color:#ff8a93;min-height:1em}
+</style></head><body><form id="f"><h1>MC Server Manager</h1><input id="pw" type="password" placeholder="Wachtwoord" autofocus autocomplete="current-password">
+<button>Inloggen</button><div id="e"></div></form><script>
+document.getElementById('f').onsubmit=async ev=>{ev.preventDefault();const e=document.getElementById('e');e.textContent='';
+try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify({password:document.getElementById('pw').value})});
+const j=await r.json();if(j.ok)location.reload();else e.textContent=j.error||'Inloggen mislukt'}catch(x){e.textContent='Geen verbinding met het programma'}};
+</script></body></html>"""
+
+
 # <<DESK_PAGE
 DESK_PAGE = r"""<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MC Server Manager</title><link rel="icon" href="/icon.png"><style>
@@ -5703,7 +5718,7 @@ function ask(msg,yes='Ja',no='Annuleren'){return new Promise(r=>{$('dmsg').textC
 function choose(msg,opts){return new Promise(r=>{$('dmsg').textContent=msg;$('dbtn').innerHTML='';$('dbtn').style.flexWrap='wrap';
  for(const [t,v,c,dis] of opts){const b=document.createElement('button');b.textContent=t;b.className=c||'';if(dis)b.disabled=true;b.onclick=()=>{$('dlg').style.display='none';r(v)};$('dbtn').appendChild(b)}$('dlg').style.display='flex'})}
 async function api(p,b){let r;try{r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json','X-MC':'1'},body:JSON.stringify(b)}:{headers:{'X-MC':'1'}})}catch(e){toast('Geen verbinding met het programma');throw e}
- if(r.status==401){$('off').style.display='flex';$('off').firstChild.textContent='Open dit scherm via de knop "Nieuwe interface" in het programma.';throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
+ if(r.status==401){if(!/^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname)){location.reload();throw 0}$('off').style.display='flex';$('off').firstChild.textContent='Open dit scherm via de knop "Nieuwe interface" in het programma.';throw 0}let j={};try{j=await r.json()}catch(e){}if(!r.ok&&j.error){toast(j.error);throw j.error}return j}
 const go=async(p,b,msg)=>{try{const j=await api(p,b);if(msg||j.msg)toast(msg||j.msg);return j}catch(e){return null}};
 const ico={ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
  con:'<path d="M4 17l6-6-6-6M12 19h8"/>',pl:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 5.2a3.5 3.5 0 010 6.6M18 14.800c2 .6 3.200 2.500 3.500 5.200"/>',
@@ -7328,9 +7343,38 @@ class RemoteServer:
         return 200, {"ok": True}
 
     # ================= HTTP =================
+    def _sess_key(self):
+        return hashlib.sha256(("mcm-sess" + str(self.app.cfg.get("remote_pass", ""))).encode()).hexdigest()
+
+    def _load_sessions(self):
+        """Ingelogde browsers blijven ingelogd na een herstart van het programma (zolang het wachtwoord niet verandert)."""
+        try:
+            with open(REMOTE_SESS_PATH, encoding="utf-8") as f:
+                d = json.load(f)
+            if d.get("k") == self._sess_key():
+                now = time.time()
+                self.sessions.update({t: float(e) for t, e in d.get("s", {}).items() if float(e) > now})
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
+    def _save_sessions(self):
+        if self.desk_only:
+            return
+        now = time.time()
+        keep = {t: e for t, e in self.sessions.items() if e > now and not t.startswith("d.")}
+        try:
+            with open(REMOTE_SESS_PATH, "w", encoding="utf-8") as f:
+                json.dump({"k": self._sess_key(), "s": keep}, f)
+            if os.name != "nt":
+                os.chmod(REMOTE_SESS_PATH, 0o600)
+        except OSError:
+            pass
+
     def start(self, port, host="0.0.0.0", desk_only=False):
         self.stop()
         self.desk_only = desk_only
+        if not desk_only:
+            self._load_sessions()
         outer = self
         self._install_shim()
         routes = {
@@ -7426,6 +7470,8 @@ class RemoteServer:
                                               extra=[("Set-Cookie", f"mcsess={st}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
                         if self._authed():
                             return self._send(200, DESK_PAGE.replace("@@APPV@@", APP_VERSION), "text/html")
+                        if not outer.desk_only:
+                            return self._send(200, DESK_LOGIN_PAGE, "text/html")
                         return self._send(401, "Open dit scherm via de knop 'Nieuwe interface' in het programma.", "text/plain")
                     if path == "/":
                         return self._send(200, REMOTE_PAGE.replace("@@APPV@@", APP_VERSION), "text/html")
@@ -7468,6 +7514,7 @@ class RemoteServer:
                     tok = secrets.token_urlsafe(32)
                     outer.sessions[tok] = now + 30 * 86400
                     outer.fails.pop(ip, None)
+                    outer._save_sessions()
                     return self._send(200, {"ok": True}, extra=[("Set-Cookie", f"mcsess={tok}; Max-Age={30 * 86400}; Path=/; HttpOnly; SameSite=Strict")])
                 f.append(now)
                 outer.fails[ip] = f

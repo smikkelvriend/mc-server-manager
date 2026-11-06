@@ -2,6 +2,10 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.87
+- **Nieuwe interface op een ander apparaat** (bijvoorbeeld je laptop, als het programma op een andere computer of server draait): `http://<adres>:<poort>/desk` toont nu een inlogscherm met het wachtwoord van de telefoon-app, in plaats van de melding *Open dit scherm via de knop 'Nieuwe interface'*. Verloopt de sessie terwijl het scherm open staat, dan kom je vanzelf weer op het inlogscherm.
+- **Ingelogd blijven na een herstart.** Telefoon en browser bleven niet ingelogd als het programma herstartte (bijvoorbeeld na een update). Ingelogde sessies worden nu bewaard in `mc_server_manager_sessies.json` naast het programma en blijven 30 dagen geldig. Verander je het wachtwoord, dan moet iedereen opnieuw inloggen.
+
 ## 2.86
 - **Geheugen toont nu het echte verbruik.** Het programma liet zien hoeveel geheugen het Java-proces van het systeem heeft gekregen. Met `-Xms` gelijk aan `-Xmx` (en zeker met `-XX:+AlwaysPreTouch`) is dat meteen het maximum, ook als de server bijna niets gebruikt. Nu vraagt het programma elke 5 seconden aan Java hoeveel van het geheugen echt in gebruik is (`jcmd … GC.heap_info`), net als spark. Dat geldt voor de grafiek, de waarde bij *Geheugen* en de waarschuwing *Geheugen bijna op*. Hiervoor is `jcmd` nodig, dat bij een JDK hoort (niet bij een kale JRE); zonder jcmd toont het programma het procesgeheugen zoals eerst.
 
