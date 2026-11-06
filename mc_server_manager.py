@@ -54,7 +54,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.85"
+APP_VERSION = "2.86"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
@@ -9906,6 +9906,7 @@ class App(tk.Tk):
         self._restart_pending = False
         self._after_exit = None
         self._pcache = {}
+        self._heap_off, self._heap_fail = False, 0
         self._last_poll = time.time()
         self.players.clear()
         self.max_players = None
@@ -11146,6 +11147,7 @@ class App(tk.Tk):
             return None, None
         cpu = ram = 0.0
         live = {}
+        self._java_pid = None
         for p in procs:
             cached = self._pcache.get(p.pid)
             pr = cached or p
@@ -11155,10 +11157,61 @@ class App(tk.Tk):
                 if cached:
                     cpu += c
                 ram += pr.memory_info().rss
+                if self._java_pid is None and "java" in pr.name().lower():
+                    self._java_pid = pr.pid
             except psutil.Error:
                 pass
         self._pcache = live
         return cpu / (psutil.cpu_count() or 1), ram / 1048576
+
+    def _jcmd(self):
+        """Pad naar jcmd (zit bij een JDK, niet bij een kale JRE). Eerst naast de ingestelde java, anders in PATH."""
+        if not hasattr(self, "_jcmd_path"):
+            name = "jcmd.exe" if os.name == "nt" else "jcmd"
+            found = None
+            java = shutil.which((self.cfg.get("java_path") or "java").strip() or "java")
+            if java:
+                cand = os.path.join(os.path.dirname(os.path.realpath(java)), name)
+                found = cand if os.path.isfile(cand) else None
+            self._jcmd_path = found or shutil.which("jcmd")
+        return self._jcmd_path
+
+    def _heap_mb(self):
+        """Echt gebruikt Java-geheugen (heap) via jcmd, in MB. None als dat niet lukt; dan tonen we het procesgeheugen.
+        Het procesgeheugen is bij -Xms gelijk aan -Xmx (of meer bij AlwaysPreTouch) en zegt dan niets over het verbruik."""
+        pid = getattr(self, "_java_pid", None)
+        jc = self._jcmd() if pid else None
+        if not jc or getattr(self, "_heap_off", False):
+            return None
+        now = time.time()
+        last = getattr(self, "_heap", None)          # (pid, tijd, mb)
+        if now - getattr(self, "_heap_asked", 0) >= 5 and not getattr(self, "_heap_busy", False):
+            self._heap_asked, self._heap_busy = now, True
+
+            def work():
+                try:
+                    r = subprocess.run([jc, str(pid), "GC.heap_info"], capture_output=True, text=True, timeout=8,
+                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    for ln in r.stdout.splitlines():
+                        if "heap" in ln.lower():
+                            m = re.search(r"used\s+(\d+)\s*([KMG])", ln)
+                            if m:
+                                mb = int(m.group(1)) / {"K": 1024, "M": 1, "G": 1 / 1024}[m.group(2)]
+                                self._heap = (pid, time.time(), mb)
+                                self._heap_fail = 0
+                                break
+                    else:
+                        self._heap_fail = getattr(self, "_heap_fail", 0) + 1
+                except (OSError, subprocess.SubprocessError):
+                    self._heap_fail = getattr(self, "_heap_fail", 0) + 1
+                finally:
+                    if getattr(self, "_heap_fail", 0) >= 10 and not getattr(self, "_heap", None):
+                        self._heap_off = True   # werkt hier niet (bijv. ander gebruikersaccount): niet blijven proberen
+                    self._heap_busy = False
+            threading.Thread(target=work, daemon=True).start()
+        if last and last[0] == pid and now - last[1] < 30:
+            return last[2]
+        return None
 
     def _stats_update(self):
         if not self.srv_running():
@@ -11170,6 +11223,9 @@ class App(tk.Tk):
         self.sv["pid"].set(str(self.srv_proc.pid))
         if psutil:
             cpu, ram = self._proc_stats()
+            heap = self._heap_mb() if ram is not None else None
+            if heap is not None:
+                ram = heap
             self.sv["cpu"].set("-" if cpu is None else f"{cpu:.0f}%")
             if ram is None:
                 self.sv["ram"].set("-")

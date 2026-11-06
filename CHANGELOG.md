@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.86
+- **Geheugen toont nu het echte verbruik.** Het programma liet zien hoeveel geheugen het Java-proces van het systeem heeft gekregen. Met `-Xms` gelijk aan `-Xmx` (en zeker met `-XX:+AlwaysPreTouch`) is dat meteen het maximum, ook als de server bijna niets gebruikt. Nu vraagt het programma elke 5 seconden aan Java hoeveel van het geheugen echt in gebruik is (`jcmd … GC.heap_info`), net als spark. Dat geldt voor de grafiek, de waarde bij *Geheugen* en de waarschuwing *Geheugen bijna op*. Hiervoor is `jcmd` nodig, dat bij een JDK hoort (niet bij een kale JRE); zonder jcmd toont het programma het procesgeheugen zoals eerst.
+
 ## 2.85
 - **Fix: automatisch updaten bleef hangen op 45%.** Als het scherm even niet meldde dat het open stond (bijvoorbeeld een tabblad op de achtergrond), kwam er toch een ja/nee-vraag in het verborgen oude venster, waar niemand op kon antwoorden. Het programma stelt die vraag nu nooit meer als dat venster verborgen is; het installeert en herstart gewoon (zodra er niemand meer online is).
 
