@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.88
+- **Nieuwe interface op je telefoon.** Op een smal scherm (`http://<adres>:<poort>/desk` op je telefoon) zat het menu altijd links en werd alles samengeperst. Nu zit het menu achter een knop (☰) linksboven en schuift het open over het scherm; kies je een onderdeel, dan gaat het vanzelf weer dicht. Starten/Herstarten/Stoppen staan onder de titel, alle kaarten staan onder elkaar op volle breedte, en de console, kaart en tabellen passen op het scherm. Invoervelden zoomen niet meer in op iPhone. Op een computer verandert er niets.
+
 ## 2.87
 - **Nieuwe interface op een ander apparaat** (bijvoorbeeld je laptop, als het programma op een andere computer of server draait): `http://<adres>:<poort>/desk` toont nu een inlogscherm met het wachtwoord van de telefoon-app, in plaats van de melding *Open dit scherm via de knop 'Nieuwe interface'*. Verloopt de sessie terwijl het scherm open staat, dan kom je vanzelf weer op het inlogscherm.
 - **Ingelogd blijven na een herstart.** Telefoon en browser bleven niet ingelogd als het programma herstartte (bijvoorbeeld na een update). Ingelogde sessies worden nu bewaard in `mc_server_manager_sessies.json` naast het programma en blijven 30 dagen geldig. Verander je het wachtwoord, dan moet iedereen opnieuw inloggen.

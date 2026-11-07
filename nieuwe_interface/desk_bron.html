@@ -1,4 +1,4 @@
-<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>MC Server Manager</title><link rel="icon" href="/icon.png"><style>
 :root{color-scheme:dark;--bg:#0e1115;--side:#12161b;--card:#161a20;--in:#0f1318;--b:#232a33;--b2:#33404d;--t:#e7eaee;--m:#8e98a6;--m2:#aab3bf;--g:#3ddc97;--g2:#5be8a6;--bl:#6ea8fe;--a:#3b82f6;--y:#f5a524;--r:#ff8a93;--rb:#2a1519;--rbd:#5b2a30}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
@@ -86,6 +86,33 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 .con.log2 .log{height:46vh;flex:none}
 ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2a323c;border-radius:8px}::-webkit-scrollbar-track{background:transparent}
 @media(max-width:1100px){.tiles{grid-template-columns:repeat(2,1fr)}.mid,.low,.two{grid-template-columns:1fr;height:auto}aside{width:200px}}
+.mnu,#scrim{display:none}
+@media(max-width:760px){
+body{display:block;overflow:hidden}
+aside{position:fixed;left:0;top:0;bottom:0;width:min(280px,84vw);z-index:35;transform:translateX(-105%);transition:transform .22s ease;box-shadow:0 0 40px #000c;padding-top:max(20px,env(safe-area-inset-top))}
+body.menu aside{transform:none}
+#scrim{position:fixed;inset:0;background:#0009;z-index:34}body.menu #scrim{display:block}
+main{height:100%;padding:12px 14px calc(16px + env(safe-area-inset-bottom));gap:14px}main.fit{overflow:auto}
+header{flex-wrap:wrap;gap:10px}
+.mnu{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border-radius:10px;flex:none}.mnu svg{width:22px;height:22px}
+h1{font-size:20px}header .sp{flex:0 0 100%;height:0}
+header button:not(.mnu){flex:1 1 30%;padding:10px 8px}
+#view{gap:14px!important}
+.tiles{grid-template-columns:1fr 1fr;gap:10px}.tile .v{font-size:22px}
+.mid,.low,.two{display:flex;flex-direction:column;align-items:stretch;height:auto;flex:none}
+.mid .card{min-height:0}.mid canvas.big{flex:none;height:170px}
+.low .con{height:62vh;flex:none}.low .card{flex:none}
+.card{padding:14px}.card>h3{flex-wrap:wrap;row-gap:4px}
+.lab{flex-wrap:wrap}.lab input:not([type=checkbox]),.lab select{width:100%}
+.row>button,.row>select{max-width:100%}
+table{display:block;overflow-x:auto;white-space:nowrap}
+#mapbox{height:calc(100dvh - 230px);min-height:300px}
+.con.log2 .log{height:58vh}
+#toast{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:none}
+#dlg .card{max-height:85vh;overflow:auto}
+input,select,textarea{font-size:16px}
+.con form input{font-size:16px}
+}
 </style></head><body>
 <aside>
  <div class="logo"><i><svg class="i" viewBox="0 0 24 24" style="stroke-width:2.4"><path d="M4 7l8-4 8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg></i>MC Server Manager</div>
@@ -97,13 +124,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
  <button class="ghost sm" onclick="quitApp()">Afsluiten</button>
 </aside>
 <main>
- <header><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
+ <header><button class="mnu ghost" onclick="menu()" aria-label="Menu"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><h1 id="ttl">Overzicht</h1><span class="pill" id="pill"><i></i><span id="pillTx">…</span></span><div class="sp"></div>
   <button class="go" id="bStart" onclick="act('start')">Starten</button><button id="bRestart" onclick="act('restart')">Herstarten</button><button class="bad" id="bStop" onclick="act('stop')">Stoppen</button></header>
  <div id="busy" class="hide"><i style="width:0"></i></div>
  <div id="boot" class="ubox ins hide" style="margin:0"><div class="uh"><span class="spin"></span><span id="bootTx">Server opstarten…</span><span class="upct" id="bootPct"></span></div><div class="ubar"><i id="bootBar" style="width:0"></i></div></div>
  <div id="view" style="display:flex;flex-direction:column;gap:18px;flex:1;min-height:0"></div>
 </main>
-<div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
+<div id="scrim" onclick="menu(false)"></div><div id="toast"></div><div id="dlg"><div class="card"><div id="dmsg"></div><div class="row" style="margin-top:14px" id="dbtn"></div></div></div>
 <div id="off">Verbinding met het programma is weg.<br><span class="mut" style="font-size:13px">Is MC Server Manager nog open? Dit scherm verbindt vanzelf opnieuw.</span></div>
 <script>
 const PV='@@APPV@@';const $=i=>document.getElementById(i);let S={},since=0,nsince=0,asince=0,busy=0,tab=(()=>{try{return localStorage.getItem('dtab')||'ov'}catch(e){return'ov'}})(),LOG=[],cur={},LOG2=[],fails=0;
@@ -125,7 +152,8 @@ const ico={ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="
  set:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.900 4.900l2.100 2.100M17 17l2.100 2.100M4.900 19.100L7 17M17 7l2.100-2.100"/>'};
 const TABS=[['ov','Overzicht'],['con','Console'],['pl','Spelers'],['plug','Plugins'],['upd','Updates'],['map','Kaart'],['bk','Backups'],['set','Instellingen']];
 function build(){$('nav').innerHTML=TABS.map(t=>`<a data-t="${t[0]}" onclick="setTab('${t[0]}')"><svg class="i" viewBox="0 0 24 24">${ico[t[0]==='plug'?'plug':t[0]]}</svg><span class="nm">${t[1]}</span><span class="bd hide" id="bd-${t[0]}"></span></a>`).join('');setTab(TABS.some(t=>t[0]==tab)?tab:'ov')}
-function setTab(t){if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('dtab',t)}catch(e){}
+function menu(on){document.body.classList.toggle('menu',on)}
+function setTab(t){menu(false);if(cur.stop)cur.stop();cur={};tab=t;try{localStorage.setItem('dtab',t)}catch(e){}
  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.t==t));document.querySelector('main').classList.toggle('fit',t=='ov');$('ttl').textContent=TABS.find(x=>x[0]==t)[1];$('view').innerHTML='';(V[t]||V.ov)();if(S.stats)draw()}
 const V={};
 /* ---------- helpers ---------- */
