@@ -2,6 +2,9 @@
 
 De nieuwste versie staat bovenaan. De oude bestanden staan in [`oude_versies/`](oude_versies/).
 
+## 2.89
+- **Fix: Paper-build "onbekend" bij Minecraft 26.x.** Paper gebruikt sinds 26.1 een nieuw versieschema (`26.3.build.12-stable`) dat het programma niet herkende, waardoor bovenaan altijd *build onbekend* stond. Het nieuwe schema wordt nu herkend (de oude schema's blijven werken). Staat de build niet in `version_history.json`, dan zoekt het programma hem ook op in `logs/latest.log` (*This server is running Paper version …*).
+
 ## 2.88
 - **Nieuwe interface op je telefoon.** Op een smal scherm (`http://<adres>:<poort>/desk` op je telefoon) zat het menu altijd links en werd alles samengeperst. Nu zit het menu achter een knop (☰) linksboven en schuift het open over het scherm; kies je een onderdeel, dan gaat het vanzelf weer dicht. Starten/Herstarten/Stoppen staan onder de titel, alle kaarten staan onder elkaar op volle breedte, en de console, kaart en tabellen passen op het scherm. Invoervelden zoomen niet meer in op iPhone. Op een computer verandert er niets.
 

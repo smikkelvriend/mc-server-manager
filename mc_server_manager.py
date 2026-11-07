@@ -54,7 +54,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 APP_NAME = "MC Server Manager"
-APP_VERSION = "2.88"
+APP_VERSION = "2.89"
 # Zet op True als deze versie zonder herstart kan worden toegepast (alleen als er geen vensterindeling of
 # opstartcode verandert). Het programma controleert dat daarnaast zelf nog met een code-vergelijking.
 HOT_SAFE = False
@@ -578,6 +578,16 @@ def vtuple(v):
     return tuple(int(x) for x in v.split("."))
 
 
+def _paper_build_from(text):
+    """Haalt het Paper-buildnummer uit een versietekst. Ondersteunt alle schema's:
+    nieuw (26.x):  26.3.build.12-stable (MC: 26.3)
+    1.20.5-1.21.x: 1.21.4-15-main@abc1234 (2025-...) (MC: 1.21.4)
+    ouder:         git-Paper-196 (MC: 1.20.4)"""
+    b = (re.search(r"\.build\.(\d+)", text) or re.search(r"git-Paper-(\d+)", text)
+         or re.match(r"\s*[0-9][0-9.]*-(\d+)-", text))
+    return int(b.group(1)) if b else None
+
+
 def detect_server_info(folder, jar):
     """Probeert de Minecraft-versie en Paper-build van de server te vinden."""
     mc = build = None
@@ -587,11 +597,23 @@ def detect_server_info(folder, jar):
         m = re.search(r"MC:\s*([0-9][0-9A-Za-z.\-]*)", cur)
         if m:
             mc = m.group(1)
-        b = re.search(r"git-Paper-(\d+)", cur) or re.match(r"\s*[0-9][0-9.]*-(\d+)-", cur)
-        if b:
-            build = int(b.group(1))
+        build = _paper_build_from(cur)
     except Exception:
         pass
+    if build is None or not mc:
+        # Paper schrijft bij het opstarten "This server is running Paper version ..." in de log
+        try:
+            with open(os.path.join(folder, "logs", "latest.log"), encoding="utf-8", errors="replace") as f:
+                txt = f.read(300000)
+            m = re.search(r"running Paper version (.+)", txt)
+            if m:
+                if build is None:
+                    build = _paper_build_from(m.group(1))
+                if not mc:
+                    v = re.search(r"MC:\s*([0-9][0-9A-Za-z.\-]*)", m.group(1))
+                    mc = v.group(1) if v else None
+        except Exception:
+            pass
     if not mc:
         try:
             with zipfile.ZipFile(os.path.join(folder, jar)) as z:
